@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
-const apiVersion = "v1.44"
+const (
+	apiVersion         = "v1.44"
+	maxPullRecordBytes = 64 * 1024
+)
 
 type apiClient interface {
 	Ping(context.Context) error
@@ -198,26 +202,29 @@ func (c *restClient) PullImage(ctx context.Context, image string) error {
 		var message struct {
 			Message string `json:"message"`
 		}
-		_ = json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&message)
+		_ = json.NewDecoder(io.LimitReader(response.Body, maxPullRecordBytes)).Decode(&message)
 		return providers.WithResponse(
 			apiError{StatusCode: response.StatusCode, Message: message.Message},
 			providers.HTTPResponse{StatusCode: response.StatusCode, Header: response.Header},
 		)
 	}
-	decoder := json.NewDecoder(response.Body)
-	for {
+	records := bufio.NewScanner(response.Body)
+	records.Buffer(nil, maxPullRecordBytes)
+	for records.Scan() {
 		var progress struct {
 			Error string `json:"error"`
 		}
-		if err := decoder.Decode(&progress); errors.Is(err, io.EOF) {
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("read docker pull progress: %w", err)
+		if err := json.Unmarshal(records.Bytes(), &progress); err != nil {
+			return fmt.Errorf("decode docker pull progress: %w", err)
 		}
 		if progress.Error != "" {
 			return errors.New(progress.Error)
 		}
 	}
+	if err := records.Err(); err != nil {
+		return fmt.Errorf("read docker pull progress: %w", err)
+	}
+	return nil
 }
 
 func (c *restClient) do(

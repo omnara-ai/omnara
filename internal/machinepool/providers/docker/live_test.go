@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"maps"
 	"net"
+	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,22 +19,22 @@ import (
 )
 
 func TestDockerProviderLiveSmoke(t *testing.T) {
-	hostPort, isTCP := strings.CutPrefix(strings.TrimSpace(os.Getenv("DOCKER_HOST")), "tcp://")
-	if !isTCP || os.Getenv("DOCKER_TLS_VERIFY") == "" {
-		t.Skip("a TLS Docker host in DOCKER_HOST with DOCKER_TLS_VERIFY is required")
+	apiBaseURL := strings.TrimSpace(os.Getenv("OMNARA_DOCKER_TEST_HOST"))
+	credential := strings.TrimSpace(os.Getenv("OMNARA_DOCKER_TEST_CREDENTIAL"))
+	if apiBaseURL == "" || credential == "" {
+		t.Skip("OMNARA_DOCKER_TEST_HOST and OMNARA_DOCKER_TEST_CREDENTIAL are required")
 	}
 	image := strings.TrimSpace(os.Getenv("OMNARA_DOCKER_TEST_IMAGE"))
 	if image == "" {
 		image = testImage
 	}
-	machineProvider, err := newProvider(
-		json.RawMessage(`{"api_base_url":"https://`+hostPort+`"}`),
-		providers.RuntimeConfig{
-			OmnaraAPIURL:      "https://api.omnara.test/v1",
-			ProviderAuthToken: liveCredential(t),
-			EndpointAllowlist: liveAllowlist(t, hostPort),
-		},
-	)
+	config, err := json.Marshal(providerConfig{APIBaseURL: apiBaseURL})
+	require.NoError(t, err)
+	machineProvider, err := newProvider(config, providers.RuntimeConfig{
+		OmnaraAPIURL:      "https://api.omnara.test/v1",
+		ProviderAuthToken: credential,
+		EndpointAllowlist: liveAllowlist(t, apiBaseURL),
+	})
 	require.NoError(t, err)
 	machineProvider.api = liveTestAPI{apiClient: machineProvider.api}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
@@ -107,27 +107,15 @@ func TestDockerProviderLiveSmoke(t *testing.T) {
 	require.NoError(t, machineProvider.DeleteMachine(ctx, installationID, machineID, provisioning, created))
 }
 
-func liveCredential(t *testing.T) string {
+func liveAllowlist(t *testing.T, apiBaseURL string) *ssrf.Allowlist {
 	t.Helper()
-	certPath := os.Getenv("DOCKER_CERT_PATH")
-	if certPath == "" {
-		home, err := os.UserHomeDir()
-		require.NoError(t, err)
-		certPath = filepath.Join(home, ".docker")
-	}
-	read := func(name string) string {
-		raw, err := os.ReadFile(filepath.Join(certPath, name))
-		require.NoError(t, err)
-		return string(raw)
-	}
-	return credentialJSON(t, read("ca.pem"), read("cert.pem"), read("key.pem"))
-}
-
-func liveAllowlist(t *testing.T, hostPort string) *ssrf.Allowlist {
-	t.Helper()
-	host, port, err := net.SplitHostPort(hostPort)
+	parsed, err := url.Parse(apiBaseURL)
 	require.NoError(t, err)
-	addresses, err := net.DefaultResolver.LookupHost(t.Context(), host)
+	port := parsed.Port()
+	if port == "" {
+		port = "443"
+	}
+	addresses, err := net.DefaultResolver.LookupHost(t.Context(), parsed.Hostname())
 	require.NoError(t, err)
 	entries := make([]string, 0, len(addresses))
 	for _, address := range addresses {

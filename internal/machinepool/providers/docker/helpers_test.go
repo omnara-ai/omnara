@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,6 +27,8 @@ type fakeAPI struct {
 	containerCreates []containerCreateRequest
 	starts           []string
 	pulls            []string
+	listCalls        int
+	listedNames      []string
 }
 
 func newFakeAPI() *fakeAPI {
@@ -117,9 +120,12 @@ func (f *fakeAPI) RemoveContainer(_ context.Context, name string) error {
 }
 
 func (f *fakeAPI) ListContainers(_ context.Context, filters map[string][]string) ([]containerSummary, error) {
+	f.listCalls++
 	var listed []containerSummary
 	for name, current := range f.containers {
-		matches := true
+		matches := len(filters["name"]) == 0 || slices.ContainsFunc(filters["name"], func(want string) bool {
+			return strings.Contains("/"+name, want)
+		})
 		for _, label := range filters["label"] {
 			key, value, _ := strings.Cut(label, "=")
 			if current.Config.Labels[key] != value {
@@ -127,6 +133,7 @@ func (f *fakeAPI) ListContainers(_ context.Context, filters map[string][]string)
 			}
 		}
 		if matches {
+			f.listedNames = append(f.listedNames, name)
 			listed = append(listed, containerSummary{
 				Names:  []string{"/" + name},
 				Labels: current.Config.Labels,

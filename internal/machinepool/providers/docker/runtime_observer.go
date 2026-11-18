@@ -3,11 +3,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
+
+const runtimeListNameBatch = 100
 
 var _ providers.RuntimeStateObserver = (*provider)(nil)
 
@@ -18,27 +21,31 @@ func (p *provider) ObserveRuntimeStates(
 	observations := make([]providers.RuntimeObservation, len(targets))
 	resourceCounts := make(map[string]int, len(targets))
 	machineCounts := make(map[uuid.UUID]int, len(targets))
-	installationOwners := make(map[string]struct{}, 1)
+	namesByOwner := make(map[string][]string, 1)
 	for index, target := range targets {
 		observations[index] = target.UnknownObservation()
 		resourceCounts[target.ProviderResourceID]++
 		machineCounts[target.MachineID]++
-		if _, labels, err := machineIdentity(target.InstallationID, target.MachineID); err == nil {
-			installationOwners[labels[installationLabel]] = struct{}{}
+		if name, labels, err := machineIdentity(target.InstallationID, target.MachineID); err == nil {
+			owner := labels[installationLabel]
+			namesByOwner[owner] = append(namesByOwner[owner], name)
 		}
 	}
 	listed := make(map[string][]containerSummary)
-	for owner := range installationOwners {
-		containers, err := p.api.ListContainers(ctx, map[string][]string{
-			"label": {installationLabel + "=" + owner},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list docker containers for runtime observation: %w", err)
-		}
-		for _, current := range containers {
-			for _, name := range current.Names {
-				name = strings.TrimPrefix(name, "/")
-				listed[name] = append(listed[name], current)
+	for owner, names := range namesByOwner {
+		for batch := range slices.Chunk(names, runtimeListNameBatch) {
+			containers, err := p.api.ListContainers(ctx, map[string][]string{
+				"label": {installationLabel + "=" + owner},
+				"name":  batch,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list docker containers for runtime observation: %w", err)
+			}
+			for _, current := range containers {
+				for _, name := range current.Names {
+					name = strings.TrimPrefix(name, "/")
+					listed[name] = append(listed[name], current)
+				}
 			}
 		}
 	}

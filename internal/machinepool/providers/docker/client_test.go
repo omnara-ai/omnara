@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -124,6 +125,15 @@ func TestDockerPullReportsErrorsInsideTheProgressStream(t *testing.T) {
 	defer server.Close()
 	client := &restClient{baseURL: server.URL + "/" + apiVersion, httpClient: server.Client()}
 	require.ErrorContains(t, client.PullImage(context.Background(), testImage), "unexpected EOF")
+}
+
+func TestDockerPullRejectsOversizedProgressRecords(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"` + strings.Repeat("a", maxPullRecordBytes) + `"}` + "\r\n"))
+	}))
+	defer server.Close()
+	client := &restClient{baseURL: server.URL + "/" + apiVersion, httpClient: server.Client()}
+	require.ErrorIs(t, client.PullImage(context.Background(), testImage), bufio.ErrTooLong)
 }
 
 func TestDockerPullDefaultsUntaggedImagesToLatest(t *testing.T) {

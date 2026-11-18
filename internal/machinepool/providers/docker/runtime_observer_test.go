@@ -51,3 +51,30 @@ func TestDockerRuntimeObservationMapsContainerStates(t *testing.T) {
 		require.Equal(t, want[index], exact.State, "exact target %d", index)
 	}
 }
+
+func TestDockerRuntimeObservationListsOnlyRequestedMachinesInBatches(t *testing.T) {
+	api := newFakeAPI()
+	installationID := uuid.New()
+	running := func(machineID uuid.UUID) string {
+		name, labels, err := machineIdentity(installationID, machineID)
+		require.NoError(t, err)
+		api.containers[name] = container{State: containerState{Status: "running"}, Config: containerConfig{Labels: labels}}
+		return name
+	}
+	var targets []providers.RuntimeTarget
+	for range runtimeListNameBatch + 1 {
+		machineID := uuid.New()
+		targets = append(targets, providers.RuntimeTarget{
+			InstallationID: installationID, MachineID: machineID, ProviderResourceID: running(machineID),
+		})
+	}
+	unrequested := running(uuid.New())
+
+	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
+	require.NoError(t, err)
+	for _, observation := range observations {
+		require.Equal(t, providers.RuntimeStateRunning, observation.State)
+	}
+	require.Equal(t, 2, api.listCalls)
+	require.NotContains(t, api.listedNames, unrequested)
+}
