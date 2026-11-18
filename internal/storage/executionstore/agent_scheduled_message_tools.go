@@ -265,8 +265,15 @@ func (t *toolCallTransaction) cancelOwnScheduledMessage(ctx context.Context, inp
 	return nil
 }
 
-// MaxAgentSchedulesListed bounds how many of an agent's cron schedules the scheduling tools list.
-const MaxAgentSchedulesListed = 100
+const (
+	// MaxAgentSchedules bounds how many cron schedules may target an agent
+	// before the agent can no longer create another for itself.
+	MaxAgentSchedules = 32
+	// MaxAgentSchedulesListed bounds how many of an agent's cron schedules the
+	// scheduling tools list. It exceeds MaxAgentSchedules because schedules
+	// created through the API are not capped.
+	MaxAgentSchedulesListed = 100
+)
 
 // AgentSchedule is a cron trigger that delivers a recurring message to an agent.
 type AgentSchedule struct {

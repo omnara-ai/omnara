@@ -76,7 +76,7 @@ For a steering message, set `cancel_open_interactions: true` when the correction
 
 ## Schedule a message
 
-Set `scheduled_for` to a future time to hold a message until then. The input is stored with `state: scheduled` and returned with its `scheduled_for` time. Once that time passes, Omnara moves it to the back of its `delivery_mode` backlog, where it becomes `received` and is delivered like any other message. Release runs on a short interval, so delivery follows within about a minute of the scheduled time.
+Set `scheduled_for` to a future time, at most 24 hours away, to hold a message until then. The input is stored with `state: scheduled` and returned with its `scheduled_for` time. Once that time passes, Omnara moves it to the back of its `delivery_mode` backlog, where it becomes `received` and is delivered like any other message. Release runs on a short interval, so delivery follows within about a minute of the scheduled time.
 
 <SendingInputScheduled />
 

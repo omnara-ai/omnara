@@ -74,13 +74,19 @@ ORDER BY
   input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- The cursor lets one pass walk past inputs whose release failed, so they
+-- cannot hold back later due inputs.
 -- name: ListDueScheduledAgentInputs :many
-SELECT input.id, input.project_id, input.agent_id
+SELECT input.id, input.project_id, input.agent_id, input.scheduled_for
 FROM agent_inputs input
 JOIN agents agent ON agent.id = input.agent_id
 WHERE input.state = 'scheduled'
   AND input.scheduled_for <= statement_timestamp()
   AND agent.state <> 'archived'
+  AND (
+    sqlc.narg(after_id)::uuid IS NULL
+    OR (input.scheduled_for, input.id) > (sqlc.narg(after_scheduled_for)::timestamptz, sqlc.narg(after_id)::uuid)
+  )
 ORDER BY input.scheduled_for ASC, input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 

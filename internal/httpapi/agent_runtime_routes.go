@@ -342,6 +342,9 @@ func (s strictOpenAPIServer) CreateAgentInput(
 	return s.createAgentInput(ctx, request, scope.project, scope.agent)
 }
 
+// maxScheduledInputDelay bounds how far ahead an API caller may schedule an input.
+const maxScheduledInputDelay = 24 * time.Hour
+
 func (s strictOpenAPIServer) createAgentInput(
 	ctx context.Context,
 	request openapi.CreateAgentInputRequestObject,
@@ -383,8 +386,15 @@ func (s strictOpenAPIServer) createAgentInput(
 				"cancel_open_interactions is not allowed for scheduled inputs",
 			)
 		}
-		if !scheduledFor.After(time.Now()) {
+		now := time.Now()
+		if !scheduledFor.After(now) {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "scheduled_for must be in the future")
+		}
+		if scheduledFor.After(now.Add(maxScheduledInputDelay)) {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"scheduled_for must be at most 24 hours in the future",
+			)
 		}
 	}
 	contentBlocks, err := rawJSONFromContentBlocks(request.Body.ContentBlocks)

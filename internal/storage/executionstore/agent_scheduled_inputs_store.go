@@ -11,42 +11,51 @@ import (
 )
 
 type ReleaseDueScheduledAgentInputsResult struct {
-	// Due is the number of due scheduled inputs found, which equals the limit when more may remain.
+	// Due is the number of due scheduled inputs found.
 	Due      int
 	Released int
 }
 
-// ReleaseDueScheduledAgentInputs moves scheduled content inputs whose time has
-// come into their agents' backlogs. Each release commits on its own, so one
-// failing agent does not hold back the rest; failures are joined into the error
-// and retried on the next call.
+// ReleaseDueScheduledAgentInputs moves every scheduled content input whose
+// time has come into its agent's backlog, reading them in pages of pageSize.
+// Each release commits on its own and the pass keeps going after a failure, so
+// one failing agent does not hold back the rest; failures are joined into the
+// error and retried on the next call.
 func (s *Store) ReleaseDueScheduledAgentInputs(
 	ctx context.Context,
-	limit int,
+	pageSize int,
 ) (ReleaseDueScheduledAgentInputsResult, error) {
-	if limit <= 0 {
-		return ReleaseDueScheduledAgentInputsResult{}, errors.New("limit must be positive")
+	if pageSize <= 0 {
+		return ReleaseDueScheduledAgentInputsResult{}, errors.New("page size must be positive")
 	}
-	due, err := s.q.ListDueScheduledAgentInputs(ctx, dbsqlc.ListDueScheduledAgentInputsParams{RowLimit: int64(limit)})
-	if err != nil {
-		return ReleaseDueScheduledAgentInputsResult{}, fmt.Errorf("list due scheduled agent inputs: %w", err)
-	}
-	result := ReleaseDueScheduledAgentInputsResult{Due: len(due)}
+	var result ReleaseDueScheduledAgentInputsResult
 	var failures []error
-	for _, input := range due {
-		released, err := s.releaseScheduledAgentInput(ctx, input.ProjectID, input.AgentID, input.ID)
+	params := dbsqlc.ListDueScheduledAgentInputsParams{RowLimit: int64(pageSize)}
+	for {
+		due, err := s.q.ListDueScheduledAgentInputs(ctx, params)
 		if err != nil {
-			if ctx.Err() != nil {
-				return result, errors.Join(append(failures, ctx.Err())...)
+			return result, errors.Join(append(failures, fmt.Errorf("list due scheduled agent inputs: %w", err))...)
+		}
+		result.Due += len(due)
+		for _, input := range due {
+			released, err := s.releaseScheduledAgentInput(ctx, input.ProjectID, input.AgentID, input.ID)
+			if err != nil {
+				if ctx.Err() != nil {
+					return result, errors.Join(append(failures, ctx.Err())...)
+				}
+				failures = append(failures, fmt.Errorf("release scheduled agent input %s: %w", input.ID, err))
+				continue
 			}
-			failures = append(failures, fmt.Errorf("release scheduled agent input %s: %w", input.ID, err))
-			continue
+			if released {
+				result.Released++
+			}
 		}
-		if released {
-			result.Released++
+		if len(due) < pageSize {
+			return result, errors.Join(failures...)
 		}
+		last := due[len(due)-1]
+		params.AfterScheduledFor, params.AfterID = last.ScheduledFor, &last.ID
 	}
-	return result, errors.Join(failures...)
 }
 
 func (s *Store) releaseScheduledAgentInput(ctx context.Context, projectID, agentID, inputID uuid.UUID) (bool, error) {

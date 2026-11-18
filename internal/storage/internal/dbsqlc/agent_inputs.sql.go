@@ -53,28 +53,37 @@ func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeu
 }
 
 const listDueScheduledAgentInputs = `-- name: ListDueScheduledAgentInputs :many
-SELECT input.id, input.project_id, input.agent_id
+SELECT input.id, input.project_id, input.agent_id, input.scheduled_for
 FROM agent_inputs input
 JOIN agents agent ON agent.id = input.agent_id
 WHERE input.state = 'scheduled'
   AND input.scheduled_for <= statement_timestamp()
   AND agent.state <> 'archived'
+  AND (
+    $1::uuid IS NULL
+    OR (input.scheduled_for, input.id) > ($2::timestamptz, $1::uuid)
+  )
 ORDER BY input.scheduled_for ASC, input.id ASC
-LIMIT $1::bigint
+LIMIT $3::bigint
 `
 
 type ListDueScheduledAgentInputsParams struct {
-	RowLimit int64
+	AfterID           *uuid.UUID
+	AfterScheduledFor *time.Time
+	RowLimit          int64
 }
 
 type ListDueScheduledAgentInputsRow struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	AgentID      uuid.UUID
+	ScheduledFor *time.Time
 }
 
+// The cursor lets one pass walk past inputs whose release failed, so they
+// cannot hold back later due inputs.
 func (q *Queries) ListDueScheduledAgentInputs(ctx context.Context, arg ListDueScheduledAgentInputsParams) ([]ListDueScheduledAgentInputsRow, error) {
-	rows, err := q.db.Query(ctx, listDueScheduledAgentInputs, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listDueScheduledAgentInputs, arg.AfterID, arg.AfterScheduledFor, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +91,12 @@ func (q *Queries) ListDueScheduledAgentInputs(ctx context.Context, arg ListDueSc
 	items := []ListDueScheduledAgentInputsRow{}
 	for rows.Next() {
 		var i ListDueScheduledAgentInputsRow
-		if err := rows.Scan(&i.ID, &i.ProjectID, &i.AgentID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.ScheduledFor,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

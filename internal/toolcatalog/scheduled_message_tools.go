@@ -18,7 +18,8 @@ const (
 		"messages you, including ones you did not create."
 	createScheduledMessageToolDescription = "Schedule a message to yourself, to remind yourself to check on " +
 		"something or continue work. Provide exactly one of `timestamp` or `delay_seconds` for a one-time " +
-		"message, or `cron` for a recurring schedule that keeps messaging you until it is deleted. When a " +
+		"message, or `cron` for a recurring schedule that keeps messaging you until it is deleted; you can " +
+		"have at most 32 recurring schedules. When a " +
 		"message is due it is added to your queue and starts a new turn once you are free; delivery can lag by " +
 		"about a minute. The delivered message is prefixed with a note about the schedule, so write `message` " +
 		"as complete instructions to your future self. One-time scheduled messages count toward your " +

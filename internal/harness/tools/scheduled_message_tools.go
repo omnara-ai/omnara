@@ -387,6 +387,8 @@ func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		MessageTemplate: scheduleMessageTemplate(input),
 		Enabled:         true,
 		IdempotencyKey:  "tool_call:" + call.ToolCallID.String(),
+
+		MaxTriggersForTargetAgent: executionstore.MaxAgentSchedules,
 	})
 	if err != nil {
 		return failScheduledMessageAsync("create_scheduled_message_failed", err)

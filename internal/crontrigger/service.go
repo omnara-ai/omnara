@@ -127,16 +127,15 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 	return stats, nil
 }
 
-// ReleaseDueScheduledInputs moves scheduled agent inputs whose time has come
-// into their agents' backlogs. It reports how many were released and whether
-// the batch was full, meaning more may be due.
-func (s *Service) ReleaseDueScheduledInputs(ctx context.Context) (released int, batchFull bool, err error) {
+// ReleaseDueScheduledInputs moves every scheduled agent input whose time has
+// come into its agent's backlog and reports how many were released.
+func (s *Service) ReleaseDueScheduledInputs(ctx context.Context) (int, error) {
 	result, err := s.execution.ReleaseDueScheduledAgentInputs(ctx, FireBatchSize)
 	if err != nil {
 		// Inputs that failed stay scheduled and are retried on the next tick.
-		return result.Released, false, fmt.Errorf("release due scheduled agent inputs: %w", err)
+		return result.Released, fmt.Errorf("release due scheduled agent inputs: %w", err)
 	}
-	return result.Released, result.Due == FireBatchSize, nil
+	return result.Released, nil
 }
 
 func (s *Service) fireTrigger(ctx context.Context, trigger executionstore.ClaimedCronTrigger) error {

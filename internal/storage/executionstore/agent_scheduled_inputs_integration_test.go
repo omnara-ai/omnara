@@ -154,6 +154,29 @@ func TestScheduledAgentInputIsHeldUntilReleased(t *testing.T) {
 	}
 }
 
+func TestReleaseDueScheduledAgentInputsWalksEveryPage(t *testing.T) {
+	t.Parallel()
+	f := newScheduledInputFixture(t, "scheduled-pages@example.com")
+	var ids []uuid.UUID
+	for index, label := range []string{"first", "second", "third"} {
+		due := time.Now().Add(-time.Duration(3-index) * time.Minute)
+		ids = append(ids, f.mustCreate(label, executionstore.DeliveryModeQueued, &due).ID)
+	}
+
+	result, err := f.store.Execution().ReleaseDueScheduledAgentInputs(f.t.Context(), 2)
+	if err != nil {
+		t.Fatalf("release due inputs: %v", err)
+	}
+	if result.Due != 3 || result.Released != 3 {
+		t.Fatalf("release result = %+v, want three due and released", result)
+	}
+	for _, id := range ids {
+		if got := f.state(id); got != "received" {
+			t.Fatalf("input %s state = %q, want received", id, got)
+		}
+	}
+}
+
 func TestScheduledAgentInputsListAfterWaitingInputsByDueTime(t *testing.T) {
 	t.Parallel()
 	f := newScheduledInputFixture(t, "scheduled-list@example.com")

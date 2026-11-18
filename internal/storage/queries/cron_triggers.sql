@@ -302,3 +302,10 @@ WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)::uuid
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
+
+-- name: CountCronTriggersForAgent :one
+SELECT count(*)::bigint
+FROM cron_triggers
+WHERE project_id = sqlc.arg(project_id)
+  AND agent_id = sqlc.arg(agent_id)::uuid
+  AND deleted_at IS NULL;

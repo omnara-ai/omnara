@@ -250,3 +250,23 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	missing := dispatchAsync(calls[3])
 	require.Equal(t, "delete_scheduled_message_failed", missing["error_code"])
 }
+
+func TestAgentScheduleLimitRejectsOnlyNewSchedules(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixture(t, ctx, "scheduled-message-cron-limit")
+	create := func(name string) error {
+		_, err := fixture.Store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
+			ProjectID: toolsTestProjectID, Name: name,
+			Target:         executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetAgent, ID: fixture.Agent.ID},
+			CronExpression: "0 12 * * *", Timezone: "UTC", MessageTemplate: "Midday check.", Enabled: true,
+			IdempotencyKey: name, MaxTriggersForTargetAgent: 1,
+		})
+		return err
+	}
+
+	require.NoError(t, create("first"))
+	require.NoError(t, create("first"), "an idempotent replay must not count against the limit")
+	err := create("second")
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.ErrorContains(t, err, "already has 1 recurring schedules")
+}

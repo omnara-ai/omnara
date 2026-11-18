@@ -97,6 +97,26 @@ func (q *Queries) CountActiveCronTriggersForProject(ctx context.Context, arg Cou
 	return active_count, err
 }
 
+const countCronTriggersForAgent = `-- name: CountCronTriggersForAgent :one
+SELECT count(*)::bigint
+FROM cron_triggers
+WHERE project_id = $1
+  AND agent_id = $2::uuid
+  AND deleted_at IS NULL
+`
+
+type CountCronTriggersForAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) CountCronTriggersForAgent(ctx context.Context, arg CountCronTriggersForAgentParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCronTriggersForAgent, arg.ProjectID, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const cronTriggerClaimIsLive = `-- name: CronTriggerClaimIsLive :one
 SELECT EXISTS (
     SELECT 1 FROM cron_triggers

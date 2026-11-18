@@ -65,7 +65,7 @@ These tools let an agent schedule messages to itself, for example to check on a 
 
 A one-time message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it appears in the waiting list and counts toward the agent's pending-message limit. The agent can only list and delete one-time messages it scheduled itself, not ones scheduled through the API.
 
-A recurring message is a cron schedule that targets the agent, the same kind you create in the dashboard or API. The agent can list and delete every schedule that targets it, including ones it did not create. Its messages are attributed to the schedule.
+A recurring message is a cron schedule that targets the agent, the same kind you create in the dashboard or API. The agent can list and delete every schedule that targets it, including ones it did not create. Its messages are attributed to the schedule. An agent cannot create a recurring schedule once 32 schedules target it.
 
 ### `get_current_time`
 

@@ -2972,7 +2972,7 @@ export type CreateAgentInputRequest = {
      */
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
-     * Future time at which the message joins the agent's backlog. Until then the input has state scheduled, counts toward the agent's pending-message limit, and can be canceled. Delivery follows within about a minute of this time, using delivery_mode. Must be in the future.
+     * Future time at which the message joins the agent's backlog. Until then the input has state scheduled, counts toward the agent's pending-message limit, and can be canceled. Delivery follows within about a minute of this time, using delivery_mode. Must be in the future and at most 24 hours away.
      */
     scheduled_for?: Timestamp;
     /**

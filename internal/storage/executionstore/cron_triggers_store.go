@@ -55,6 +55,9 @@ type CreateCronTriggerInput struct {
 	MessageTemplate string
 	Enabled         bool
 	IdempotencyKey  string
+	// MaxTriggersForTargetAgent, when positive, rejects a new trigger that would
+	// leave the target agent with more triggers than this.
+	MaxTriggersForTargetAgent int
 }
 
 type UpdateCronTriggerInput struct {
@@ -232,6 +235,21 @@ func (s *Store) CreateCronTrigger(
 			"active cron triggers",
 			limits.MaxActiveCronTriggersPerProject,
 		)
+	}
+	if input.Target.Kind == CronTriggerTargetAgent && input.MaxTriggersForTargetAgent > 0 {
+		// The target agent is locked, so concurrent creates cannot both pass.
+		agentTriggerCount, err := qtx.CountCronTriggersForAgent(ctx, dbsqlc.CountCronTriggersForAgentParams{
+			ProjectID: input.ProjectID, AgentID: input.Target.ID,
+		})
+		if err != nil {
+			return CronTriggerRecord{}, fmt.Errorf("count agent cron triggers: %w", err)
+		}
+		if agentTriggerCount > int64(input.MaxTriggersForTargetAgent) {
+			return CronTriggerRecord{}, storeerr.InvalidRequest(fmt.Errorf(
+				"this agent already has %d recurring schedules, the most allowed; delete one before creating another",
+				input.MaxTriggersForTargetAgent,
+			))
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("commit create cron trigger: %w", err)
