@@ -35,18 +35,18 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
   const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
   const savedProfile = useRef<SavedProfile | null>(null)
 
+  function clearErrors() {
+    setLaunchError(undefined)
+    setIssues([])
+    setStatus(idle)
+  }
+
   async function submit(
     name: string,
     yaml: string,
     action: SubmitAction,
     sourceFormat: ConfigSourceFormat,
   ) {
-    setLaunchError(undefined)
-    setIssues([])
-    setStatus(idle)
-  }
-
-  async function submit(name: string, yaml: string, action: SubmitAction) {
     clearErrors()
     setStatus(submitting)
     setPendingAction(action)

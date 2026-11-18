@@ -50,7 +50,6 @@ export function AgentProfileConfigEditor({
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (editor.saveBlocked) return
     setError(noConfigError)
     if (!editor.saveCheck.check()) return
     try {

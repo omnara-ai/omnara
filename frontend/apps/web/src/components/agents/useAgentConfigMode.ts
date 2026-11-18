@@ -6,6 +6,7 @@ import {
   initialAgentConfigModeState,
   yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
+import { configProblems } from '@/components/agents/agentConfigProblems'
 import {
   type BasicConfigSession,
   createBasicConfigSession,
@@ -55,10 +56,12 @@ export function useAgentConfigMode({
       message:
         'Some Builder edits cannot be applied yet. Fix or discard those edits before switching to the source editor.',
     })
-  const saveBlocked =
-    editorYaml.trim() === '' ||
-    form.unappliedChanges ||
-    ((showBuilder || (builderAvailable && !yamlDiverged(mode))) && form.blocked)
+  const problems = configProblems(
+    editorYaml,
+    form.unappliedChanges || showBuilder || (builderAvailable && !yamlDiverged(mode))
+      ? form.problems
+      : [],
+  )
 
   function switchMode(nextMode: AgentConfigMode) {
     if (form.unappliedChanges) return
@@ -88,6 +91,6 @@ export function useAgentConfigMode({
     builderYaml,
     yaml: editorYaml,
     compatibility,
-    saveBlocked,
+    problems,
   }
 }

@@ -7,28 +7,18 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpServerNamesUnique,
-  mcpServerValid,
 } from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
+import { basicConfigProblems } from '@/components/agents/agentConfigProblems'
 import type { BasicConfigSession } from '@/components/agents/agentConfigSession'
-import {
-  type BasicSubagent,
-  maxDepthValid,
-  subagentsValid,
-} from '@/components/agents/agentConfigSubagents'
+import { type BasicSubagent, maxDepthValid } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
-import {
-  type SecretRow,
-  type TextRow,
-} from '@/components/key-value/keyValueRows'
+import { type SecretRow, type TextRow } from '@/components/key-value/keyValueRows'
 import {
   emptyProviderOptions,
   type ProviderOptionsDraft,
 } from '@/components/machines/machineOverrides'
-import { memoryGbDraftValid } from '@/lib/machine-memory'
-import { resourceNameValid } from '@/lib/resource-name'
 
 export { createBasicConfigSession } from '@/components/agents/agentConfigSession'
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
@@ -147,12 +137,14 @@ export function useAgentBuilderForm(
     [session, initialDraft],
   )
   const validationIssues = evaluated.issues
-  const blocked =
-    validationIssues.length > 0 ||
-    unavailableSkillIds.length > 0 ||
-    unavailableSourceIds.length > 0 ||
-    modelUnavailable ||
-    !basicConfigValid(draft)
+  const problems = [
+    ...basicConfigProblems(draft, {
+      modelUnavailable,
+      unavailableSourceIds,
+      unavailableSkillIds,
+    }),
+    ...validationIssues.map((issue) => issue.message),
+  ]
 
   const patch = (fields: Partial<BasicConfig>) => {
     setDraft((prev) => ({ ...prev, ...fields }))
@@ -185,7 +177,7 @@ export function useAgentBuilderForm(
         advancedEntries,
       }),
     yaml: evaluated.yaml,
-    blocked,
+    problems,
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
@@ -264,47 +256,6 @@ export function useAgentBuilderForm(
     reportUnavailableSourceIds: setUnavailableSourceIds,
     reportUnavailableSkillIds: setUnavailableSkillIds,
   }
-}
-
-export function basicConfigValid(draft: BasicConfig) {
-  const preservedSubagents = (draft.advancedEntries ?? []).some(
-    (entry) => entry.path[0] === 'subagents',
-  )
-  return (
-    ((draft.advancedEntries ?? []).some(
-      (entry) => entry.path.length === 1 && entry.path[0] === 'instruction',
-    ) ||
-      draft.instruction.trim() !== '') &&
-    ((draft.advancedEntries ?? []).some(
-      (entry) => entry.path.length === 1 && entry.path[0] === 'model',
-    ) ||
-      (resourceNameValid(draft.providerConfig) && resourceNameValid(draft.modelName))) &&
-    draft.machineSources.every(machineSourceValid) &&
-    mcpServerNamesUnique(draft.mcpServers) &&
-    draft.mcpServers.every(mcpServerValid) &&
-    optionalPositiveInt32Valid(draft.maxSubagents) &&
-    subagentsValid(draft.subagents, preservedSubagents ? '' : draft.maxSubagents, draft.maxDepth)
-  )
-}
-
-const nonNegativeIntegerPattern = /^(0|[1-9][0-9]*)$/
-
-function machineCountValid(value: string) {
-  return value === '' || nonNegativeIntegerPattern.test(value)
-}
-
-function machineSourceValid(source: BasicMachineSource) {
-  return (
-    resourceNameValid(source.name) &&
-    textRowsValid(source.envRows) &&
-    secretRowsValid(source.secretEnvRows) &&
-    (source.kind === 'machine' ||
-      (machineCountValid(source.initialNumMachines) &&
-        machineCountValid(source.maxMachines) &&
-        optionalIdleDeletionMinutesValid(source.deleteAfterIdleMinutes) &&
-        optionalPositiveInt32Valid(source.machineCpu) &&
-        memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
-  )
 }
 
 function draftFingerprint(draft: BasicConfig) {

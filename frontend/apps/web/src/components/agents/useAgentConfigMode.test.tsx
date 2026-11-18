@@ -94,20 +94,20 @@ it.each(['instruction', 'model'])(
   'retains the %s save gate when switching to source without edits',
   async (invalid) => {
     await withMode(source, (current) => {
-      expect(current().saveBlocked).toBe(false)
+      expect(current().problems.length > 0).toBe(false)
       act(() => {
         const { form } = current()
         if (invalid === 'instruction') form.setInstruction('')
         if (invalid === 'model') form.reportModelUnavailable(true)
       })
-      expect(current().saveBlocked).toBe(true)
+      expect(current().problems.length > 0).toBe(true)
       act(() => {
         current().switchMode('yaml')
       })
       expect(current().mode.mode).toBe('yaml')
-      expect(current().saveBlocked).toBe(true)
+      expect(current().problems.length > 0).toBe(true)
       editSource(current, source + '# corrected source\n')
-      expect(current().saveBlocked).toBe(false)
+      expect(current().problems.length > 0).toBe(false)
     })
   },
 )
@@ -123,7 +123,7 @@ it('blocks saving or switching to source while an MCP name collision is unapplie
         )
       })
       expect(current().form.unappliedChanges).toBe(true)
-      expect(current().saveBlocked).toBe(true)
+      expect(current().problems.length > 0).toBe(true)
       act(() => {
         current().switchMode('yaml')
       })
@@ -134,7 +134,7 @@ it('blocks saving or switching to source while an MCP name collision is unapplie
           current().form.mcpServers.map((server) => ({ ...server, name: 'managed' })),
         )
       })
-      expect(current().saveBlocked).toBe(false)
+      expect(current().problems.length > 0).toBe(false)
       act(() => {
         current().switchMode('yaml')
       })
@@ -148,7 +148,7 @@ it.each(['version: future-version\n', 'tools: {\n"web_search": {}\n}\n'])(
   async (extra) => {
     await withMode(source, (current) => {
       editSource(current, source + extra)
-      expect(current().saveBlocked).toBe(false)
+      expect(current().problems.length > 0).toBe(false)
       expect(current().compatibility.length).toBeGreaterThan(0)
     })
   },
@@ -173,7 +173,7 @@ it.each([
       })
       expect(editor().mode).toMatchObject({ mode, confirmDiscard })
       expect(editor().yaml).toBe(yaml)
-      expect(editor().saveBlocked).toBe(mode === 'builder')
+      expect(editor().problems.length > 0).toBe(mode === 'builder')
       expect(
         editor()
           .compatibility.map((issue) => `${configPath(issue.path)}: ${issue.message}`)

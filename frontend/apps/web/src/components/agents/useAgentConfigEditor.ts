@@ -39,7 +39,10 @@ export function useAgentConfigEditor({
   )
   const builderSession = canManage && session.initialDraft != null ? session : null
   const restoredSource = restored?.draft.savedSource ?? restored?.draft.originalSource
-  const restoreConflict = restoredSource !== undefined && restoredSource !== source
+  const restoreProblem =
+    restoredSource !== undefined && restoredSource !== source
+      ? 'The configuration changed during OAuth authorization. This restored draft cannot be saved. Review your pending changes, reload the latest configuration, and reapply only your intended edits.'
+      : null
   const form = useAgentBuilderForm(
     session,
     {
@@ -59,6 +62,8 @@ export function useAgentConfigEditor({
   const { mode, yaml } = controller
   const dirty = yaml !== source || form.dirty
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
+  const problems = [...controller.problems, ...(restoreProblem ? [restoreProblem] : [])]
+  const saveCheck = useSubmitCheck(problems, !dirty)
 
   useEffect(() => {
     onModeChange(mode.mode)
@@ -71,16 +76,15 @@ export function useAgentConfigEditor({
   return {
     source,
     ...controller,
-    saveBlocked: controller.saveBlocked || restoreConflict,
-    compatibility: restoreConflict
+    problems,
+    compatibility: restoreProblem
       ? [
           ...controller.compatibility,
           {
             path: [],
             kind: 'fatal' as const,
             error: true,
-            message:
-              'The configuration changed during OAuth authorization. This restored draft cannot be saved. Review your pending changes, reload the latest configuration, and reapply only your intended edits.',
+            message: restoreProblem,
           },
         ]
       : controller.compatibility,
@@ -89,5 +93,6 @@ export function useAgentConfigEditor({
     form,
     dirty,
     suppressUnsavedChangesWarning,
+    saveCheck,
   }
 }

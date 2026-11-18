@@ -190,7 +190,6 @@ for (const format of ['YAML', 'JSON']) {
     await expect(page.getByRole('button', { name: 'Edit lookup_item' })).toBeVisible()
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
     await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
     await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))

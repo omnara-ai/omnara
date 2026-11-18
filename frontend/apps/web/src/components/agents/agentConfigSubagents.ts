@@ -118,6 +118,7 @@ export function subagentsProblems(
   subagents: BasicSubagent[],
   maxSubagents: string,
   maxDepth: string,
+  preservedSubagents = false,
 ): string[] {
   const problems: string[] = []
   const keys = subagents.map((subagent) => subagent.key)
@@ -134,7 +135,7 @@ export function subagentsProblems(
   })
   if (!optionalPositiveInt32Valid(maxSubagents)) {
     problems.push('Max active subagents must be a whole number of 1 or more.')
-  } else if (maxSubagents !== '' && subagents.length === 0) {
+  } else if (maxSubagents !== '' && subagents.length === 0 && !preservedSubagents) {
     problems.push('Max active subagents needs at least one subagent.')
   }
   if (!maxDepthValid(maxDepth)) {

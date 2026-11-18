@@ -561,7 +561,10 @@ it.each(['yaml', 'json'])(
     expect(editor().form.validationIssues).toMatchObject([
       { path: ['machine_sources', '0', 'initial_num_machines'], message: 'Enter a valid number.' },
     ])
-    expect(editor().saveBlocked).toBe(true)
+    act(() => {
+      expect(editor().saveCheck.check()).toBe(false)
+    })
+    expect(editor().saveCheck.problems).toContain('Enter a valid number.')
     expect(parse(editor().yaml)).toHaveProperty('instruction', 'Pending instruction.')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'search_records'], parse(definition))
     act(() => {
@@ -569,8 +572,7 @@ it.each(['yaml', 'json'])(
         editor().form.machineSources.map((row) => ({ ...row, initialNumMachines: '1' })),
       )
     })
-    expect(editor().saveBlocked).toBe(false)
-    expect(parse(editor().yaml)).toHaveProperty('instruction', 'Pending instruction.')
+    expect(editor().problems).toEqual([])
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'search_records'], parse(definition))
     expect(editor().yaml).toContain('9007199254740993')
   },
@@ -597,7 +599,7 @@ it.each(['yaml', 'json'])(
       expect(permission?.disabled).toBe(false)
       act(() => permission?.click())
       expect(document.querySelector('[role="dialog"]')).toBeNull()
-      expect(editor().saveBlocked).toBe(false)
+      expect(editor().problems.length > 0).toBe(false)
       expect(parse(editor().yaml)).toHaveProperty(
         ['tools', 'search_records', 'permission', 'mode'],
         mode,
@@ -610,7 +612,7 @@ it.each(['yaml', 'json'])(
     }
     clickLabel('Remove search_records')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(editor().saveBlocked).toBe(false)
+    expect(editor().problems.length > 0).toBe(false)
     expect(editor().form.reservedToolNames).not.toContain('search_records')
     delete expectedTools.search_records
     expect(parse(editor().yaml)).toEqual(expected)
@@ -637,7 +639,7 @@ it('keeps valid anchors editable in source and explains why Builder is unavailab
   const source = includedSource + 'tools: {web_search: &shared {}, web_fetch: *shared}\n'
   const editor = await renderAdvancedEditor(source)
   expect(editor().mode.mode).toBe('yaml')
-  expect(editor().saveBlocked).toBe(false)
+  expect(editor().problems.length > 0).toBe(false)
   const anchor = editor().compatibility.find((issue) => issue.path.join('.') === 'tools.web_search')
   expect(anchor?.message).toContain('YAML anchors')
   act(() => {
@@ -681,7 +683,9 @@ it.each([false, true])(
     )
     const source = customFixture + (conflict ? 'extension: newer-value\n' : '')
     const editor = await renderAdvancedEditor(source)
-    expect(editor().saveBlocked).toBe(conflict)
+    act(() => {
+      expect(editor().saveCheck.check()).toBe(!conflict)
+    })
     expect(
       editor().compatibility.some((issue) =>
         issue.message.includes('changed during OAuth authorization'),
@@ -697,7 +701,7 @@ it.each([false, true])(
       mcp: { docs: { auth: { secret_id: 'example-secret' } } },
     })
     const discarded = await renderAdvancedEditor(source)
-    expect(discarded()).toMatchObject({ yaml: source, dirty: false, saveBlocked: false })
+    expect(discarded()).toMatchObject({ yaml: source, dirty: false, problems: [] })
   },
 )
 

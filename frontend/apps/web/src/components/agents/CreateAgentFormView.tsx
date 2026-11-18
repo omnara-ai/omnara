@@ -57,7 +57,7 @@ export function CreateAgentFormView({
     applyTemplate,
     suppressUnsavedChangesWarning,
     compatibility,
-    saveBlocked,
+    problems,
     showBuilder,
     yaml,
     sourceFormat,
@@ -66,13 +66,18 @@ export function CreateAgentFormView({
     projectId,
   })
 
+  const isSubmitting = status.phase === 'submitting'
+  const nameError = resourceNameError(name)
+  const submitCheck = useSubmitCheck([...(nameError === undefined ? [] : [nameError]), ...problems])
+
   if (project == null) return null
 
-  const isSubmitting = status.phase === 'submitting'
-  const canSubmit = !isSubmitting && resourceNameValid(name) && !saveBlocked
-
   async function submit(action: SubmitAction) {
-    if (!canSubmit) return
+    if (isSubmitting) return
+    if (!submitCheck.check()) {
+      clearErrors()
+      return
+    }
     await submitAgent(name, yaml, action, sourceFormat)
   }
 
