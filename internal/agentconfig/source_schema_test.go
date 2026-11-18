@@ -261,7 +261,7 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		"AgentConfigDefinitionSubagentModel":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
 		"AgentConfigDefinitionSubagentInstruction": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
 		"AgentConfigDefinitionMemoryStore":         reflect.TypeOf(MemoryStoreSource{}),
-		"AgentConfigDefinitionDeferredTools":       reflect.TypeOf(DeferredToolsSource{}),
+		"AgentConfigDefinitionCodeMode":            reflect.TypeOf(CodeModeSource{}),
 	}
 	openDefs := map[string]bool{
 		"AgentConfigDefinitionToolInputSchema":     true,

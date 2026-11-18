@@ -1,6 +1,6 @@
 import { useToolCatalog } from '@omnara/react'
 
-import { AgentConfigDeferredToolsField } from '@/components/agents/AgentConfigDeferredToolsField'
+import { AgentConfigCodeModeField } from '@/components/agents/AgentConfigCodeModeField'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -137,10 +137,7 @@ export function AgentConfigBasicForm({
                 value={form.gitCredentials}
                 onChange={form.setGitCredentials}
               />
-              <AgentConfigDeferredToolsField
-                value={form.deferredTools}
-                onChange={form.setDeferredTools}
-              />
+              <AgentConfigCodeModeField value={form.codeMode} onChange={form.setCodeMode} />
             </CollapsibleContent>
           </Collapsible>
         </div>

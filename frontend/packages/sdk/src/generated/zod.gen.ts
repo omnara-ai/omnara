@@ -3,19 +3,19 @@
 import * as z from 'zod';
 
 /**
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.
+ */
+export const zAgentConfigDefinitionCodeMode = z.object({
+    enabled: z.boolean()
+});
+
+/**
  * Integration whose git credentials the agent's machines use.
  */
 export const zAgentConfigDefinitionGitCredentials = z.object({
     integration: z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/),
     repository_ids: z.array(z.int().gte(1)).min(1).max(500).optional(),
     read_only: z.boolean().optional()
-});
-
-/**
- * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead, and those tools are not sent to the model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this setting.
- */
-export const zAgentConfigDefinitionDeferredTools = z.object({
-    mode: z.enum(['tool_add', 'code_mode'])
 });
 
 /**
@@ -190,13 +190,13 @@ export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinition
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export const zAgentConfigDefinition = z.object({
+    code_mode: zAgentConfigDefinitionCodeMode.optional(),
     git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
     instruction: z.string().min(1).regex(/\S/),
     interaction_handlers: zAgentConfigDefinitionInteractionHandlers.optional(),
     machine_sources: zAgentConfigDefinitionMachineSources.optional(),
     max_depth: z.int().gte(1).lte(8).optional(),
     max_subagents: z.int().gte(1).lte(2147483647).optional(),
-    deferred_tools: zAgentConfigDefinitionDeferredTools.optional(),
     mcp: zAgentConfigDefinitionMcpServers.optional(),
     memory_stores: zAgentConfigDefinitionMemoryStores.optional(),
     model: zAgentConfigDefinitionModel,
@@ -1283,10 +1283,10 @@ export const zCompiledMachineSource = z.object({
 });
 
 /**
- * Present when commands started by run_command call the agent's deferred tools.
+ * Present when commands started by run_command can call the agent's tools.
  */
-export const zCompiledDeferredTools = z.object({
-    mode: z.enum(['code_mode'])
+export const zCompiledCodeMode = z.object({
+    enabled: z.boolean()
 });
 
 export const zCompiledMcpAuthBearer = z.object({
@@ -3491,7 +3491,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
     git_credentials: zCompiledGitCredentials.optional(),
-    deferred_tools: zCompiledDeferredTools.optional(),
+    code_mode: zCompiledCodeMode.optional(),
     skills: z.array(zCompiledSkill).optional(),
     memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),

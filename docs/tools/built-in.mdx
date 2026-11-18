@@ -115,7 +115,7 @@ If Omnara cannot choose a machine, the tool returns an error to the agent so it 
 
 ### Calling tools from commands
 
-When the agent's config sets [`deferred_tools.mode: code_mode`](/agents/configuration#code-mode), commands started with `run_command` can call the agent's deferred tools with `omnarad call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
+When the agent's config turns on [code mode](/agents/configuration#code-mode), commands started with `run_command` can call the agent's tools with `omnarad call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
 
 ```bash
 omnarad call storage_list '{"pattern":"/memory/notes/**/*.md"}' | jq -r '.entries[]?.path'
@@ -150,7 +150,7 @@ Each tool has an `input_schema` and an `output_schema` for the JSON the call pri
 
 Each call from a command is a real tool call. [`GET /tool-calls`](/api-reference/endpoints/agents/list-tool-calls) lists it with `caller: "program"` and a `parent_tool_call_id` naming the `run_command` call; pass `parent_tool_call_id` to list only one command's calls. The agent's chat shows them under their `run_command` call. Each call follows the tool's [permission mode](/tools/permissions). For an `always_ask` tool, a normal permission interaction opens and the command waits, printing `omnarad: waiting for approval of <tool> in Omnara...` to stderr, until someone resolves it. Raise `--timeout` for calls that may wait on a person.
 
-Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools such as `int__engineering__read`, except tools listed in the config's `exclude`. Other tools can't be called from commands, including command and process tools, `ask_question`, subagent and machine tools, `skill`, custom tools, and tools that write or upload.
+Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools such as `int__engineering__read`, whether or not they are deferred. Other tools can't be called from commands, including command and process tools, `ask_question`, subagent and machine tools, `skill`, custom tools, and tools that write or upload.
 
 ## Processes
 

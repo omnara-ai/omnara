@@ -21,6 +21,7 @@ const (
 	programToolProcessIDEnv = "OMNARA_PROCESS_ID"
 	programToolEndpointEnv  = "OMNARA_TOOL_ENDPOINT"
 	programToolBinEnv       = "OMNARA_BIN"
+	programToolBinDirName   = "tool-bin"
 
 	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
@@ -40,24 +41,59 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
 		assignment.ProgrammaticToolCalls = false
 		return
 	}
+	if helper.BinDir, err = c.programToolBinDir(helper.Executable); err != nil {
+		// Commands can still run "$OMNARA_BIN"; only the bare `omnarad` name is unavailable.
+		c.log.Warn("program tool call bin directory unavailable", "error", err)
+	}
 	assignment.ProgramToolHelper = helper
+}
+
+// programToolBinDir returns a private directory that contains only a link to the daemon executable.
+// Putting the daemon's own directory on PATH would also expose whatever else is installed beside it.
+func (c *Client) programToolBinDir(executable string) (string, error) {
+	machine, err := c.machineStore()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(machine.RunDir(), programToolBinDirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // commands run as other users must traverse it
+		return "", err
+	}
+	link := filepath.Join(dir, "omnarad"+filepath.Ext(executable))
+	if target, err := os.Readlink(link); err == nil && target == executable {
+		return dir, nil
+	}
+	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.Symlink(executable, link); err != nil {
+		// Windows needs a privilege for symlinks; a hard link works on the same volume.
+		if linkErr := os.Link(executable, link); linkErr != nil {
+			return "", errors.Join(err, linkErr)
+		}
+	}
+	return dir, nil
 }
 
 func programToolCallEnvironment(env []string, processID string, helper *processServiceHelper) []string {
 	result := make([]string, 0, len(env)+4)
-	bin := filepath.Dir(helper.Executable)
+	bin, hasPath := helper.BinDir, false
 	for _, entry := range env {
 		name, value, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(name) {
 		case programToolProcessIDEnv, programToolEndpointEnv, programToolBinEnv:
 		case "PATH":
-			if value != bin && !strings.HasPrefix(value, bin+string(os.PathListSeparator)) {
+			hasPath = true
+			if bin != "" && value != bin && !strings.HasPrefix(value, bin+string(os.PathListSeparator)) {
 				value = bin + string(os.PathListSeparator) + value
 			}
 			result = append(result, name+"="+value)
 		default:
 			result = append(result, entry)
 		}
+	}
+	if bin != "" && !hasPath {
+		result = append(result, "PATH="+bin)
 	}
 	return append(result,
 		programToolProcessIDEnv+"="+processID,
@@ -228,7 +264,9 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	for {
 		select {
 		case <-r.Context().Done():
-			h.abandon(r.Context(), offer)
+			if !offer.KeepOnDisconnect {
+				h.abandon(r.Context(), offer)
+			}
 			return
 		case <-call.changed:
 		}
@@ -240,7 +278,7 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		if err == nil {
 			err = flusher.Flush()
 		}
-		if err != nil && !over {
+		if err != nil && !over && !offer.KeepOnDisconnect {
 			h.abandon(r.Context(), offer)
 		}
 		if err != nil || over {

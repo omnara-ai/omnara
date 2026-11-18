@@ -302,6 +302,33 @@ func TestProgramToolCallCLIUsesANewKeyPerInvocation(t *testing.T) {
 	require.NotEqual(t, requests[0].Body.Key, requests[1].Body.Key)
 }
 
+func TestProgramToolCallCLISendsTheIdempotencyKey(t *testing.T) {
+	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded"}`))
+	runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list", IdempotencyKey: "nightly/2026-11-17:list"}, "")
+	runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list"}, "")
+	requests := daemon.recorded()
+	require.Len(t, requests, 2)
+	require.Equal(t, "nightly/2026-11-17:list", requests[0].Body.Key)
+	require.True(t, requests[0].Body.KeepOnDisconnect, "a call the command named stays open for a rerun")
+	require.False(t, requests[1].Body.KeepOnDisconnect, "a generated key cannot be offered again")
+
+	for _, key := range []string{"has space", "tab\there", strings.Repeat("k", 129)} {
+		code, _, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list", IdempotencyKey: key}, "")
+		require.Equal(t, ProgramToolCallExitUnavailable, code)
+		require.Contains(t, stderr, "--idempotency-key must be")
+	}
+	require.Len(t, daemon.recorded(), 2, "an invalid key is rejected before the daemon is called")
+}
+
+func TestProgramToolCallCLITimeoutWithAKeyCanBeRerun(t *testing.T) {
+	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"tool_call_id":"tc_slow","state":"awaiting_approval"}`))
+	code, _, stderr := runToolCallCLI(t, ProgramToolCallOptions{
+		Tool: "storage_list", IdempotencyKey: "job-1", Timeout: 1500 * time.Millisecond,
+	}, "")
+	require.Equal(t, ProgramToolCallExitTransport, code)
+	require.Contains(t, stderr, "run it again with the same --idempotency-key")
+}
+
 func TestProgramToolCallCLITimesOut(t *testing.T) {
 	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"tool_call_id":"tc_slow","state":"awaiting_approval"}`))
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{

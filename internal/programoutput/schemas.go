@@ -10,9 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
-	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -105,68 +103,19 @@ type GitHubPendingReview struct {
 	Review *github.Review `json:"review"`
 }
 
+// Each tool's output schema is built once and attached to its catalog definition.
 var (
-	builtInSchemas = map[string]func() (json.RawMessage, error){
-		toolcatalog.ToolNameStorageRead: func() (json.RawMessage, error) {
-			return json.RawMessage(storageReadSchema), nil
-		},
-		toolcatalog.ToolNameStorageList:   reflectOutputSchema[listing.FilePage],
-		toolcatalog.ToolNameStorageSearch: reflectOutputSchema[StorageSearch],
-		toolcatalog.ToolNameWebSearch:     reflectOutputSchema[WebSearch],
-		toolcatalog.ToolNameWebFetch:      reflectOutputSchema[WebFetch],
-	}
-	integrationReadSchemas = map[integrationdefinition.Kind]func() (json.RawMessage, error){
-		integrationdefinition.SlackThread:   reflectOutputSchema[slack.MessagePage],
-		integrationdefinition.GitHubPR:      githubReadOutputSchema,
-		integrationdefinition.DiscordThread: reflectOutputSchema[discord.MessagePage],
-	}
+	StorageReadSchema = sync.OnceValues(func() (json.RawMessage, error) {
+		return json.RawMessage(storageReadSchema), nil
+	})
+	StorageListSchema   = sync.OnceValues(reflectOutputSchema[listing.FilePage])
+	StorageSearchSchema = sync.OnceValues(reflectOutputSchema[StorageSearch])
+	WebSearchSchema     = sync.OnceValues(reflectOutputSchema[WebSearch])
+	WebFetchSchema      = sync.OnceValues(reflectOutputSchema[WebFetch])
+	SlackReadSchema     = sync.OnceValues(reflectOutputSchema[slack.MessagePage])
+	GitHubReadSchema    = sync.OnceValues(githubReadOutputSchema)
+	DiscordReadSchema   = sync.OnceValues(reflectOutputSchema[discord.MessagePage])
 )
-
-type schemaSet struct {
-	builtIns     map[string]json.RawMessage
-	integrations map[integrationdefinition.Kind]json.RawMessage
-}
-
-var schemas = sync.OnceValues(buildSchemas)
-
-func HasBuiltIn(name string) bool {
-	_, ok := builtInSchemas[name]
-	return ok
-}
-
-func HasIntegrationRead(kind integrationdefinition.Kind) bool {
-	_, ok := integrationReadSchemas[kind]
-	return ok
-}
-
-func BuiltIn(name string) (json.RawMessage, error) {
-	set, err := schemas()
-	return set.builtIns[name], err
-}
-
-func IntegrationRead(kind integrationdefinition.Kind) (json.RawMessage, error) {
-	set, err := schemas()
-	return set.integrations[kind], err
-}
-
-func buildSchemas() (schemaSet, error) {
-	set := schemaSet{
-		builtIns:     make(map[string]json.RawMessage, len(builtInSchemas)),
-		integrations: make(map[integrationdefinition.Kind]json.RawMessage, len(integrationReadSchemas)),
-	}
-	var err error
-	for name, schema := range builtInSchemas {
-		if set.builtIns[name], err = schema(); err != nil {
-			return schemaSet{}, fmt.Errorf("%s output schema: %w", name, err)
-		}
-	}
-	for kind, schema := range integrationReadSchemas {
-		if set.integrations[kind], err = schema(); err != nil {
-			return schemaSet{}, fmt.Errorf("%s read output schema: %w", kind, err)
-		}
-	}
-	return set, nil
-}
 
 func githubReadOutputSchema() (json.RawMessage, error) {
 	sections := []struct {

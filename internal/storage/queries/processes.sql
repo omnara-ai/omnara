@@ -310,7 +310,7 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
        ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id,
        coalesce(process.execution_spec->>'kind' = 'shell' AND (
-         SELECT definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
+         SELECT definition.compiled_definition->'code_mode'->>'enabled' = 'true'
          FROM tool_calls tool_call
          JOIN model_outputs output ON output.agent_id = tool_call.agent_id
            AND output.id = tool_call.model_output_id
@@ -488,8 +488,8 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND original_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
-  AND current_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode';
+  AND original_definition.compiled_definition->'code_mode'->>'enabled' = 'true'
+  AND current_definition.compiled_definition->'code_mode'->>'enabled' = 'true';
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec

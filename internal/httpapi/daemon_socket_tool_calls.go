@@ -41,6 +41,16 @@ func WithProgramToolExecutor(executor ProgramToolExecutor) Option {
 	}
 }
 
+// WithProgramToolCapacity bounds how many tool calls from commands this server runs at once, across
+// every machine connection. Calls over the bound wait their turn.
+func WithProgramToolCapacity(capacity int) Option {
+	return func(s *Server) {
+		if capacity > 0 {
+			s.programToolRuns.slots = make(chan struct{}, capacity)
+		}
+	}
+}
+
 type toolCallRejectedError struct {
 	status  daemonprotocol.AckStatus
 	code    string
@@ -54,6 +64,11 @@ func rejectToolCall(code, format string, args ...any) error {
 		message: fmt.Sprintf(format, args...)}
 }
 
+type servedToolCall struct {
+	canceled chan struct{}
+	done     chan struct{}
+}
+
 func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotocol.Message) error {
 	if msg.ToolCallOffer == nil {
 		return errors.New("tool_call_offer payload is required")
@@ -63,12 +78,15 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 		return errors.New("tool_call_offer process_id and key are required")
 	}
 	id := offer.ProcessID + "\x00" + offer.Key
-	canceled := make(chan struct{})
+	call := &servedToolCall{canceled: make(chan struct{}), done: make(chan struct{})}
 	s.workMu.Lock()
 	_, serving := s.toolCalls[id]
 	full := len(s.toolCalls) >= daemonToolCallLimit
+	// The same key offered again after a cancel: let that cancel finish first, so this offer sees
+	// what it left.
+	canceling := s.toolCallsCanceling[id]
 	if !serving && !full {
-		s.toolCalls[id] = canceled
+		s.toolCalls[id] = call
 		s.toolCallsDone.Add(1)
 	}
 	s.workMu.Unlock()
@@ -83,10 +101,23 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			defer s.toolCallsDone.Done()
 			defer func() {
 				s.workMu.Lock()
-				delete(s.toolCalls, id)
+				if s.toolCalls[id] == call {
+					delete(s.toolCalls, id)
+				}
+				if s.toolCallsCanceling[id] == call {
+					delete(s.toolCallsCanceling, id)
+				}
 				s.workMu.Unlock()
+				close(call.done)
 			}()
-			s.serveToolCall(ctx, offer, canceled)
+			if canceling != nil {
+				select {
+				case <-canceling.done:
+				case <-ctx.Done():
+					return
+				}
+			}
+			s.serveToolCall(ctx, offer, call.canceled)
 		}()
 	}
 	return nil
@@ -98,9 +129,10 @@ func (s *daemonSocket) handleToolCallCancel(msg daemonprotocol.Message) error {
 	}
 	id := msg.ToolCallCancel.ProcessID + "\x00" + msg.ToolCallCancel.Key
 	s.workMu.Lock()
-	if canceled := s.toolCalls[id]; canceled != nil {
-		close(canceled)
-		s.toolCalls[id] = nil
+	if call, serving := s.toolCalls[id]; serving {
+		close(call.canceled)
+		delete(s.toolCalls, id)
+		s.toolCallsCanceling[id] = call
 	}
 	s.workMu.Unlock()
 	return nil
@@ -258,11 +290,12 @@ func (s *Server) offerProgramToolCall(
 	if err != nil {
 		return ref, nil, storeerr.ErrNotFound
 	}
-	key, err := uuid.Parse(offer.Key)
+	key := offer.Key
 	var input map[string]json.RawMessage
 	switch {
-	case err != nil || key == uuid.Nil:
-		return ref, nil, invalid("key is required")
+	case !daemonprotocol.ValidProgramToolCallKey(key):
+		return ref, nil, invalid("key must be 1 to %d printable characters with no spaces",
+			daemonprotocol.ProgramToolCallMaxKeyBytes)
 	case strings.TrimSpace(offer.Name) == "":
 		return ref, nil, invalid("name is required")
 	case len(offer.Input) > daemonprotocol.ProgramToolCallMaxInputBytes:
@@ -285,7 +318,7 @@ func (s *Server) offerProgramToolCall(
 		if err != nil {
 			return ref, nil, err
 		}
-		if !contract.CodeMode() {
+		if !contract.CodeModeEnabled() {
 			return ref, nil, uncallable
 		}
 		search, err := tools.ProgramToolSearch(modelcontext.ProgramCallableTools(specs), offer.Input)
@@ -302,6 +335,22 @@ func (s *Server) offerProgramToolCall(
 				{Type: daemonprotocol.ProgramToolCallContentStructuredData, Value: value}},
 		}, nil
 	}
+	// A key that already names a finished or running call returns that call before any check for
+	// starting a new one: it keeps its result even if the tool can no longer be called. A call that
+	// has not started yet still has to pass those checks.
+	create := executionstore.CreateProgramToolCallInput{
+		ProjectID: program.ProjectID, AgentID: program.AgentID, ProcessID: program.ProcessID,
+		Key: key, Name: offer.Name, Input: offer.Input,
+	}
+	existing, resumed, err := s.store.Execution().ResumeProgramToolCall(ctx, create)
+	if err != nil {
+		return ref, nil, err
+	}
+	if resumed && (existing.State == executionstore.ToolCallStateCompleted ||
+		existing.State == executionstore.ToolCallStateWaiting) {
+		return executionstore.ProgramToolCallRef{ProjectID: program.ProjectID, AgentID: program.AgentID,
+			ProcessID: existing.ProcessID, ToolCallID: existing.ID}, nil, nil
+	}
 	spec, _, found, err := tools.AgentConfigToolSpec(
 		ctx, s.store, program.ProjectID, program.AgentID, program.AgentConfigID, offer.Name)
 	if err != nil {
@@ -314,15 +363,13 @@ func (s *Server) offerProgramToolCall(
 	if !modelcontext.ProgramCallable(spec) {
 		return ref, nil, uncallable
 	}
-	record, err := s.store.Execution().CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
-		ProjectID: program.ProjectID, AgentID: program.AgentID, ProcessID: program.ProcessID,
-		Key: key, Name: offer.Name, Type: spec.Type, Input: offer.Input,
-	})
+	create.Type = spec.Type
+	record, err := s.store.Execution().CreateProgramToolCall(ctx, create)
 	if err != nil {
 		return ref, nil, err
 	}
 	return executionstore.ProgramToolCallRef{ProjectID: program.ProjectID, AgentID: program.AgentID,
-		ProcessID: program.ProcessID, ToolCallID: record.ID}, nil, nil
+		ProcessID: record.ProcessID, ToolCallID: record.ID}, nil, nil
 }
 
 func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-chan struct{} {
@@ -342,6 +389,10 @@ func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-cha
 		}()
 		ctx, cancel := context.WithCancel(s.daemonHub.ctx)
 		defer cancel()
+		if !s.programToolRuns.acquire(ctx) {
+			return
+		}
+		defer s.programToolRuns.release()
 		ref.ClaimID = uuid.New()
 		claim, found, err := s.store.Execution().ClaimProgramToolCall(ctx, ref, programToolCallLease)
 		if err != nil || !found {
@@ -396,6 +447,26 @@ type programToolRuns struct {
 	mu      sync.Mutex
 	closing bool
 	running sync.WaitGroup
+	// slots is nil when the server runs calls without a shared bound.
+	slots chan struct{}
+}
+
+func (r *programToolRuns) acquire(ctx context.Context) bool {
+	if r.slots == nil {
+		return true
+	}
+	select {
+	case r.slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (r *programToolRuns) release() {
+	if r.slots != nil {
+		<-r.slots
+	}
 }
 
 func (r *programToolRuns) start() bool {
@@ -481,7 +552,8 @@ func programToolCallRejection(s *Server, err error) toolCallRejectedError {
 			"no running process can call tools here; the process may have ended, or programmatic tool "+
 				"calls may be disabled for its agent")
 	case errors.Is(err, storeerr.ErrIdempotencyConflict):
-		return permanent(daemonprotocol.ErrorCodeIdempotencyConflict, "key was already used for a different tool call")
+		return permanent(daemonprotocol.ErrorCodeIdempotencyConflict,
+			"idempotency key was already used for a different tool or input")
 	case errors.Is(err, storeerr.ErrInvalidRequest):
 		return permanent(daemonprotocol.ErrorCodeValidationFailed, "tool call request is invalid")
 	case errors.Is(err, storeerr.ErrProgramToolCallLimitReached):

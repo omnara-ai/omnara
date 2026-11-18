@@ -28,11 +28,15 @@ import (
 
 func requireProgramOutputSchema(t *testing.T, spec modelcontext.ToolSpec) json.RawMessage {
 	t.Helper()
-	schema, err := modelcontext.ProgramOutputSchema(spec)
-	require.NoError(t, err)
-	require.NotEmpty(t, schema, spec.Name)
-	require.NoError(t, jsonschema.ValidateSchema(schema), spec.Name)
-	return schema
+	require.True(t, spec.CodeMode, spec.Name)
+	require.NotEmpty(t, spec.OutputSchema, spec.Name)
+	require.NoError(t, jsonschema.ValidateSchema(spec.OutputSchema), spec.Name)
+	return spec.OutputSchema
+}
+
+func catalogEntrySpec(entry toolcatalog.Entry) modelcontext.ToolSpec {
+	return modelcontext.ToolSpec{Name: entry.Name, Type: toolcatalog.ToolTypeBuiltIn,
+		OutputSchema: entry.OutputSchema, CodeMode: entry.CodeMode}
 }
 
 func requireMatchesOutputSchema(t *testing.T, schema json.RawMessage, value any) {
@@ -57,21 +61,33 @@ func firstStructuredValue(t *testing.T, parts json.RawMessage) json.RawMessage {
 	return nil
 }
 
-func builtInSpec(name string) modelcontext.ToolSpec {
-	return modelcontext.ToolSpec{Name: name, Type: toolcatalog.ToolTypeBuiltIn}
+func builtInSpec(t *testing.T, name string) modelcontext.ToolSpec {
+	t.Helper()
+	catalog, err := toolcatalog.Default()
+	require.NoError(t, err)
+	entry, ok := catalog.Lookup(name)
+	require.True(t, ok, name)
+	return catalogEntrySpec(entry)
 }
 
-func integrationReadSpec(kind integrationdefinition.Kind) modelcontext.ToolSpec {
-	return modelcontext.ToolSpec{
-		Name: toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationRead),
-		Type: toolcatalog.ToolTypeBuiltIn, IntegrationKind: kind,
-	}
+func integrationSpec(t *testing.T, kind integrationdefinition.Kind, operation string) modelcontext.ToolSpec {
+	t.Helper()
+	definition, ok := toolcatalog.LookupIntegrationTool(kind, operation)
+	require.True(t, ok, operation)
+	entry, err := definition.Prepare(toolcatalog.IntegrationToolName("chat", operation))
+	require.NoError(t, err)
+	return catalogEntrySpec(entry)
+}
+
+func integrationReadSpec(t *testing.T, kind integrationdefinition.Kind) modelcontext.ToolSpec {
+	t.Helper()
+	return integrationSpec(t, kind, toolcatalog.IntegrationOperationRead)
 }
 
 func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 	for _, name := range []string{toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageList,
 		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch} {
-		requireProgramOutputSchema(t, builtInSpec(name))
+		requireProgramOutputSchema(t, builtInSpec(t, name))
 	}
 	reads := 0
 	for _, definition := range integrationdefinition.All() {
@@ -79,28 +95,38 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 			func(tool toolcatalog.IntegrationToolDefinition) bool {
 				return tool.Operation == toolcatalog.IntegrationOperationRead
 			}) {
-			requireProgramOutputSchema(t, integrationReadSpec(definition.IntegrationKind))
+			requireProgramOutputSchema(t, integrationReadSpec(t, definition.IntegrationKind))
 			reads++
 		}
 	}
 	require.Equal(t, 3, reads)
 
-	post := integrationReadSpec(integrationdefinition.SlackThread)
-	post.Name = toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage)
-	for _, spec := range []modelcontext.ToolSpec{post, builtInSpec(toolcatalog.ToolNameStorageWrite)} {
-		schema, err := modelcontext.ProgramOutputSchema(spec)
-		require.NoError(t, err)
-		require.Nil(t, schema, spec.Name)
+	for _, spec := range []modelcontext.ToolSpec{
+		integrationSpec(t, integrationdefinition.SlackThread, toolcatalog.IntegrationOperationPostMessage),
+		builtInSpec(t, toolcatalog.ToolNameStorageWrite),
+	} {
+		require.False(t, spec.CodeMode, spec.Name)
 	}
-	mcp := modelcontext.ToolSpec{Name: "mcp__docs__greet", Type: toolcatalog.ToolTypeMCP,
-		OutputSchema: json.RawMessage(`{"type":"object"}`)}
-	schema, err := modelcontext.ProgramOutputSchema(mcp)
+}
+
+// Only tools whose definition says so can be called from commands.
+func TestCodeModeToolsAreListedExplicitly(t *testing.T) {
+	catalog, err := toolcatalog.Default()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"type":"object"}`, string(schema))
-	mcp.OutputSchema = nil
-	schema = requireProgramOutputSchema(t, mcp)
-	require.Contains(t, string(schema), "declares no output schema",
-		"tool_search describes what commands get from a server that declares no schema")
+	var builtIns []string
+	for _, entry := range catalog.Entries() {
+		if entry.CodeMode {
+			builtIns = append(builtIns, entry.Name)
+		}
+	}
+	require.ElementsMatch(t, []string{toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageList,
+		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch}, builtIns)
+	for _, definition := range integrationdefinition.All() {
+		for _, tool := range toolcatalog.IntegrationTools(definition.IntegrationKind) {
+			require.Equal(t, tool.Operation == toolcatalog.IntegrationOperationRead, tool.CodeMode,
+				"%s %s", definition.IntegrationKind, tool.Operation)
+		}
+	}
 }
 
 func populated(v reflect.Value) {
@@ -149,13 +175,13 @@ func TestProgramOutputSchemasAcceptReflectedResults(t *testing.T) {
 		spec   modelcontext.ToolSpec
 		values []any
 	}{
-		{builtInSpec(toolcatalog.ToolNameStorageList), []any{listing.FilePage{}}},
-		{builtInSpec(toolcatalog.ToolNameStorageSearch), []any{searchResult{}}},
-		{builtInSpec(toolcatalog.ToolNameWebSearch), []any{programoutput.WebSearch{}}},
-		{builtInSpec(toolcatalog.ToolNameWebFetch), []any{programoutput.WebFetch{}}},
-		{integrationReadSpec(integrationdefinition.SlackThread), []any{slack.MessagePage{}}},
-		{integrationReadSpec(integrationdefinition.DiscordThread), []any{discord.MessagePage{}}},
-		{integrationReadSpec(integrationdefinition.GitHubPR), []any{
+		{builtInSpec(t, toolcatalog.ToolNameStorageList), []any{listing.FilePage{}}},
+		{builtInSpec(t, toolcatalog.ToolNameStorageSearch), []any{searchResult{}}},
+		{builtInSpec(t, toolcatalog.ToolNameWebSearch), []any{programoutput.WebSearch{}}},
+		{builtInSpec(t, toolcatalog.ToolNameWebFetch), []any{programoutput.WebFetch{}}},
+		{integrationReadSpec(t, integrationdefinition.SlackThread), []any{slack.MessagePage{}}},
+		{integrationReadSpec(t, integrationdefinition.DiscordThread), []any{discord.MessagePage{}}},
+		{integrationReadSpec(t, integrationdefinition.GitHubPR), []any{
 			github.PullRequest{}, github.DiscussionCommentsPage{}, github.ReviewCommentsPage{},
 			github.ReviewsPage{}, github.Review{}, programoutput.GitHubPendingReview{}, github.ReviewThreadsPage{},
 			github.FilesPage{}, github.Diff{},
@@ -173,7 +199,7 @@ func TestProgramOutputSchemasAcceptReflectedResults(t *testing.T) {
 }
 
 func TestStorageReadResultsMatchOutputSchema(t *testing.T) {
-	schema := requireProgramOutputSchema(t, builtInSpec(toolcatalog.ToolNameStorageRead))
+	schema := requireProgramOutputSchema(t, builtInSpec(t, toolcatalog.ToolNameStorageRead))
 	read := func(content, input string) map[string]any {
 		t.Helper()
 		request, err := resolveStorageReadRequest(json.RawMessage(input))
@@ -215,7 +241,7 @@ func TestWebToolsReturnStructuredResultsToProgramCalls(t *testing.T) {
 		require.Len(t, decodeParts(t, parts), 1, "commands get the structured result only")
 		return firstStructuredValue(t, parts)
 	}
-	searchSchema := requireProgramOutputSchema(t, builtInSpec(toolcatalog.ToolNameWebSearch))
+	searchSchema := requireProgramOutputSchema(t, builtInSpec(t, toolcatalog.ToolNameWebSearch))
 	found := search(webaccess.SearchResponse{Provider: "exa", Results: []webaccess.SearchResult{
 		{URL: "https://go.dev/blog/a", Title: "Post A", Snippet: "alpha", Published: "2026-01-02"},
 		{URL: "https://go.dev/blog/b", Title: "Post B"},
@@ -244,7 +270,7 @@ func TestWebToolsReturnStructuredResultsToProgramCalls(t *testing.T) {
 	parts := asyncCompletionContent(t, fetched)
 	require.Len(t, decodeParts(t, parts), 1, "commands get the structured result only")
 	page := firstStructuredValue(t, parts)
-	requireMatchesOutputSchema(t, requireProgramOutputSchema(t, builtInSpec(toolcatalog.ToolNameWebFetch)), page)
+	requireMatchesOutputSchema(t, requireProgramOutputSchema(t, builtInSpec(t, toolcatalog.ToolNameWebFetch)), page)
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(page, &decoded))
 	require.Equal(t, "plain body content", decoded["content"])

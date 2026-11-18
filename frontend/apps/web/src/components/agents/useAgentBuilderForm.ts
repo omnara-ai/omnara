@@ -88,7 +88,7 @@ export interface BasicConfig {
   tools: BasicTool[]
   interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentials: AgentConfigDefinition['git_credentials']
-  deferredTools: AgentConfigDefinition['deferred_tools']
+  codeMode: AgentConfigDefinition['code_mode']
   mcpServers: BasicMcpServer[]
   skillIds: string[]
   memoryStores: BasicMemoryStore[]
@@ -125,7 +125,7 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   interactionHandlers: {},
   gitCredentials: undefined,
-  deferredTools: undefined,
+  codeMode: undefined,
   mcpServers: [],
   skillIds: [],
   memoryStores: [],
@@ -197,7 +197,7 @@ export function useAgentBuilderForm(
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
     gitCredentials: draft.gitCredentials,
-    deferredTools: draft.deferredTools,
+    codeMode: draft.codeMode,
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
@@ -223,8 +223,8 @@ export function useAgentBuilderForm(
     setGitCredentials: (gitCredentials: BasicConfig['gitCredentials']) => {
       patch({ gitCredentials })
     },
-    setDeferredTools: (deferredTools: BasicConfig['deferredTools']) => {
-      patch({ deferredTools })
+    setCodeMode: (codeMode: BasicConfig['codeMode']) => {
+      patch({ codeMode })
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
@@ -363,9 +363,9 @@ function applyToDocument(
     if (config.gitCredentials == null) del(['git_credentials'])
     else set(['git_credentials'], config.gitCredentials)
   }
-  if (!deepEqual(config.deferredTools, baseline?.deferredTools)) {
-    if (config.deferredTools == null) del(['deferred_tools'])
-    else set(['deferred_tools'], config.deferredTools)
+  if (!deepEqual(config.codeMode, baseline?.codeMode)) {
+    if (config.codeMode == null) del(['code_mode'])
+    else set(['code_mode'], config.codeMode)
   }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)

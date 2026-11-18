@@ -37,14 +37,18 @@ type daemonSocket struct {
 	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
-	toolCalls         map[string]chan struct{}
-	toolCallsDone     sync.WaitGroup
-	leaseRenewAfter   time.Time
-	observedPlatform  string
-	drainAfterRenewal bool
-	done              chan struct{}
-	closeOnce         sync.Once
-	closeCode         websocket.StatusCode
+	// toolCalls holds the calls being served. A canceled call moves to toolCallsCanceling until
+	// its serving loop ends, so it frees its slot at once and an offer that reuses its key waits
+	// for the cancel to finish instead of being dropped.
+	toolCalls          map[string]*servedToolCall
+	toolCallsCanceling map[string]*servedToolCall
+	toolCallsDone      sync.WaitGroup
+	leaseRenewAfter    time.Time
+	observedPlatform   string
+	drainAfterRenewal  bool
+	done               chan struct{}
+	closeOnce          sync.Once
+	closeCode          websocket.StatusCode
 }
 
 type daemonSocketOutbound struct {
@@ -71,19 +75,20 @@ func newDaemonSocket(
 	drainAfterRenewal bool,
 ) *daemonSocket {
 	return &daemonSocket{
-		server:            server,
-		wire:              wire,
-		connectionID:      connectionID,
-		orgID:             orgID,
-		machineID:         machineID,
-		runtimeID:         runtimeID,
-		tokenID:           tokenID,
-		send:              make(chan daemonSocketOutbound, daemonSocketQueueSize),
-		done:              make(chan struct{}),
-		acceptedProcesses: map[uuid.UUID]struct{}{},
-		acceptedActions:   map[uuid.UUID]struct{}{},
-		toolCalls:         map[string]chan struct{}{},
-		drainAfterRenewal: drainAfterRenewal,
+		server:             server,
+		wire:               wire,
+		connectionID:       connectionID,
+		orgID:              orgID,
+		machineID:          machineID,
+		runtimeID:          runtimeID,
+		tokenID:            tokenID,
+		send:               make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		done:               make(chan struct{}),
+		acceptedProcesses:  map[uuid.UUID]struct{}{},
+		acceptedActions:    map[uuid.UUID]struct{}{},
+		toolCalls:          map[string]*servedToolCall{},
+		toolCallsCanceling: map[string]*servedToolCall{},
+		drainAfterRenewal:  drainAfterRenewal,
 	}
 }
 

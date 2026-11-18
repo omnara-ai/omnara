@@ -98,8 +98,9 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 	if maxResults <= 0 {
 		maxResults = toolcatalog.ToolSearchDefaultResults
 	}
+	maxResults = min(maxResults, toolcatalog.ToolSearchMaxResults)
 	deferred := DeferredToolSpecs(specs)
-	pattern, matches, err := searchTools(deferred, pattern, min(maxResults, toolcatalog.ToolSearchMaxResults))
+	pattern, matches, err := searchTools(deferred, pattern, 0)
 	if err != nil {
 		return ToolSearchResult{}, err
 	}
@@ -109,15 +110,20 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 		TotalDeferredTools: len(deferred),
 		Tools:              []ToolSearchDefinition{},
 	}
+	// The limit applies to each kind on its own, so tools commands call cannot crowd out the ones
+	// the model can only reach by having them added.
 	for _, spec := range matches {
 		definition := toolSearchDefinition(spec)
-		if spec.CodeMode {
-			definition.OutputSchema = spec.OutputSchema
-			result.CodeModeTools = append(result.CodeModeTools, definition)
-			continue
+		switch {
+		case CommandOnly(spec):
+			if len(result.CodeModeTools) < maxResults {
+				definition.OutputSchema = spec.OutputSchema
+				result.CodeModeTools = append(result.CodeModeTools, definition)
+			}
+		case len(result.Tools) < maxResults:
+			result.ToolNames = append(result.ToolNames, spec.Name)
+			result.Tools = append(result.Tools, definition)
 		}
-		result.ToolNames = append(result.ToolNames, spec.Name)
-		result.Tools = append(result.Tools, definition)
 	}
 	return result, nil
 }

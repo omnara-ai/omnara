@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,13 +35,17 @@ type daemonProgramToolCallFixture struct {
 	config  uuid.UUID
 }
 
-func programToolAgentYAML(mode string, deferred ...string) string {
-	tool := func(name, permission string) string {
-		line := "  " + name + ":\n"
-		if permission != "" {
-			line += "    permission: {mode: " + permission + "}\n"
+// programToolAgentYAML configures the named tools. storage_read is deferred and asks for approval;
+// the others stay loaded, which does not stop commands from calling them.
+func programToolAgentYAML(codeMode bool, enabled ...string) string {
+	var tools strings.Builder
+	for _, name := range enabled {
+		tools.WriteString("  " + name + ":\n")
+		if name == toolcatalog.ToolNameStorageRead {
+			tools.WriteString("    permission: {mode: always_ask}\n    deferred: true\n")
+		} else {
+			tools.WriteString("    deferred: false\n")
 		}
-		return line + "    deferred: " + strconv.FormatBool(slices.Contains(deferred, name)) + "\n"
 	}
 	return `instruction: Program tool test agent.
 model:
@@ -53,8 +57,8 @@ machine_sources:
 tools:
   run_command:
     permission: {mode: always_allow}
-` + tool("storage_list", "") + tool("storage_read", "always_ask") + tool("web_search", "") + `deferred_tools:
-  mode: ` + mode + `
+` + tools.String() + `code_mode:
+  enabled: ` + strconv.FormatBool(codeMode) + `
 `
 }
 
@@ -70,7 +74,7 @@ func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "program-tools")
 	base := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(), "program-tools", "run_command")
-	sourceYAML := programToolAgentYAML("code_mode", "storage_list", "storage_read")
+	sourceYAML := programToolAgentYAML(true, "storage_list", "storage_read")
 	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, project.OrgUUID, project.ProjectUUID,
 		project.AdminUserUUID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
@@ -189,7 +193,7 @@ func (f *daemonProgramToolCallFixture) offer(t *testing.T, key, name, input stri
 func (f *daemonProgramToolCallFixture) rejected(t *testing.T, key, name, input, code string) {
 	t.Helper()
 	report := f.offer(t, key, name, input)
-	require.Equal(t, daemonprotocol.AckStatusPermanentReject, report.AckStatus, report.Error)
+	require.Equal(t, daemonprotocol.AckStatusPermanentReject, report.AckStatus, "%+v", report)
 	require.Equal(t, code, report.ErrorCode, report.Error)
 	require.Empty(t, report.State)
 }
@@ -230,10 +234,10 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Error(t, f.socket().handleToolCallOffer(ctx, daemonprotocol.Message{
 		ToolCallOffer: &daemonprotocol.ToolCallOffer{ProcessID: f.process.ProcessID}}), "an offer needs a key")
 
-	notUUID := programToolOffer(f.process.ProcessID, "", toolcatalog.ToolNameStorageList, `{}`)
-	notUUID.Key = "not-a-uuid"
+	badKey := programToolOffer(f.process.ProcessID, "", toolcatalog.ToolNameStorageList, `{}`)
+	badKey.Key = "has a space"
 	malformed := f.socket()
-	malformed.serveToolCall(ctx, notUUID, nil)
+	malformed.serveToolCall(ctx, badKey, nil)
 	require.Equal(t, invalid, nextToolCallReport(t, malformed).ErrorCode)
 	f.rejected(t, "k", toolcatalog.ToolNameStorageList, `[1]`, invalid)
 	f.rejected(t, "k", "no_such_tool", `{}`, unavailable)
@@ -348,6 +352,28 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Empty(t, interactions["data"], "the canceled call's approval prompt is closed")
 	require.NoError(t, abandoned.handleToolCallCancel(cancel), "a cancel for a finished call is ignored")
 
+	retried := f.socket()
+	again := programToolOffer(f.process.ProcessID, "again", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	againCancel := daemonprotocol.Message{ToolCallCancel: &daemonprotocol.ToolCallCancel{
+		ProcessID: again.ProcessID, Key: again.Key}}
+	require.NoError(t, retried.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &again}))
+	first := nextToolCallReport(t, retried)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.State)
+	require.NoError(t, retried.handleToolCallCancel(againCancel))
+	retried.workMu.Lock()
+	require.Empty(t, retried.toolCalls, "a canceled call frees its slot at once")
+	retried.workMu.Unlock()
+	require.NoError(t, retried.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &again}),
+		"the same key offered right after a cancel is served, not dropped")
+	second := nextToolCallReport(t, retried)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, second.State)
+	require.NotEqual(t, first.ToolCallID, second.ToolCallID, "the canceled call is not reused")
+	require.NoError(t, retried.handleToolCallCancel(againCancel))
+	retried.toolCallsDone.Wait()
+	require.Empty(t, retried.toolCalls)
+	require.Empty(t, retried.toolCallsCanceling)
+
 	busy := f.socket()
 	for range cap(busy.send) {
 		busy.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}
@@ -370,7 +396,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	orphan := func(key string, lease time.Duration) executionstore.ProgramToolCallRef {
 		call, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
 			ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
-			Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)), Name: toolcatalog.ToolNameStorageList,
+			Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)).String(), Name: toolcatalog.ToolNameStorageList,
 			Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{"pattern":"/artifacts"}`)})
 		require.NoError(t, err)
 		ref := executionstore.ProgramToolCallRef{ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID,
@@ -394,18 +420,18 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 
 	stale, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
 		ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
-		Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte("stale")), Name: toolcatalog.ToolNameStorageList,
+		Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte("stale")).String(), Name: toolcatalog.ToolNameStorageList,
 		Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{"pattern":"/artifacts"}`)})
 	require.NoError(t, err)
-	f.changeConfig(t, programToolAgentYAML("code_mode", "storage_read"))
+	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
 	f.rejected(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
 	f.rejected(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	f.changeConfig(t, programToolAgentYAML("code_mode", "storage_list", "storage_read"))
+	f.changeConfig(t, programToolAgentYAML(true, "storage_list", "storage_read"))
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, resumed.Outcome)
-	f.changeConfig(t, programToolAgentYAML("tool_add", "storage_list", "storage_read"))
-	f.rejected(t, "search-tool-add", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
+	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
+	f.rejected(t, "search-code-mode-off", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
 
 	f.server.programToolExecutor = nil
 	f.rejected(t, "no-executor", toolcatalog.ToolNameStorageList, `{}`, unavailable)

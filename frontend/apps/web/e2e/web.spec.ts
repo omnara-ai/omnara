@@ -503,23 +503,23 @@ test('edits a profile with the Builder', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
-test('turns on code mode for deferred tools with the Builder', async ({ page }) => {
+test('turns on code mode with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
   await createProfile(page, uniqueName('Builder Code Mode Agent'), 'Call tools from commands.')
 
   await page.getByRole('button', { name: 'Advanced' }).click()
-  await page.getByLabel('Code mode for deferred tools').check()
+  await page.getByLabel('Code mode', { exact: true }).check()
   const save = page.getByRole('button', { name: 'Save revision' })
   await save.click()
   await expect(save).toBeDisabled()
 
   await page.getByRole('button', { name: 'YAML' }).click()
   const editor = page.locator('.monaco-editor')
-  await expect(editor).toContainText('deferred_tools:')
-  await expect(editor).toContainText('mode: code_mode')
+  await expect(editor).toContainText('code_mode:')
+  await expect(editor).toContainText('enabled: true')
   await page.getByRole('button', { name: 'Builder' }).click()
   await page.getByRole('button', { name: 'Advanced' }).click()
-  await expect(page.getByLabel('Code mode for deferred tools')).toBeChecked()
+  await expect(page.getByLabel('Code mode', { exact: true })).toBeChecked()
 
   expect(failures).toEqual([])
 })

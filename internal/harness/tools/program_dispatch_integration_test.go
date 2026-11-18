@@ -35,11 +35,12 @@ func newProgramToolFixture(t *testing.T, ctx context.Context, label string, with
 	t.Helper()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{
 		withMCP: withMCP, mcpDeferred: true, withMemory: true, withMachine: true,
-		extraTools: "  storage_list: {deferred: true}\n" +
+		// storage_list stays loaded: deferring a tool does not decide whether commands can call it.
+		extraTools: "  storage_list: {}\n" +
 			"  storage_read:\n    deferred: true\n    permission: {mode: always_ask}\n" +
 			"  storage_search:\n    deferred: true\n    permission: {mode: always_deny}\n" +
-			"  storage_write: {deferred: true}\n  web_search: {}\n",
-		extraYAML: "deferred_tools:\n  mode: code_mode\n",
+			"  storage_write: {deferred: true}\n",
+		extraYAML: "code_mode:\n  enabled: true\n",
 	})
 	execution := fixture.Store.Execution()
 	if withMCP {
@@ -142,7 +143,8 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 		names = append(names, spec.Name)
 	}
 	require.ElementsMatch(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
-		toolcatalog.ToolNameStorageSearch}, names, "tools that are not deferred or not allowlisted must not be callable")
+		toolcatalog.ToolNameStorageSearch}, names,
+		"commands call the code-mode tools, deferred or not, and no others")
 	search, err := ProgramToolSearch(specs, json.RawMessage(`{"pattern":".*"}`))
 	require.NoError(t, err)
 	require.Equal(t, 3, search.Total)
@@ -316,7 +318,8 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 	var outcome string
 	require.NoError(t, fixture.Pool.QueryRow(ctx,
 		`SELECT outcome FROM tool_call_results WHERE tool_call_id = $1`, blocked.ID).Scan(&outcome))
-	require.Equal(t, string(executionstore.ToolResultOutcomeCanceled), outcome)
+	require.Equal(t, string(executionstore.ToolResultOutcomeFailed), outcome,
+		"an external call that had started is not reported as canceled: it may have taken effect")
 }
 
 func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
@@ -365,7 +368,7 @@ func TestToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 		withMemory: true, withMachine: true,
 		extraTools: "  storage_list: {deferred: true}\n  storage_read: {deferred: true}\n" +
 			"  storage_search: {deferred: true}\n  storage_write: {deferred: true}\n",
-		extraYAML: "deferred_tools:\n  mode: code_mode\n",
+		extraYAML: "code_mode:\n  enabled: true\n",
 	})
 	specs, _, err := AgentConfigToolSpecs(
 		ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
@@ -419,4 +422,4 @@ func TestToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 		toolcatalog.ToolNameStorageSearch}, names)
 }
 
-func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }
+func programKey(label string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)).String() }

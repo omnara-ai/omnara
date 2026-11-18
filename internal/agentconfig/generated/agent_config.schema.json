@@ -1,19 +1,16 @@
 {
   "$defs": {
-    "AgentConfigDefinitionDeferredTools": {
+    "AgentConfigDefinitionCodeMode": {
       "additionalProperties": false,
-      "description": "How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call \u003ctool\u003e '\u003cjson input\u003e'` and `tool_search` returns their input and output schemas instead, and those tools are not sent to the model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this setting.",
+      "description": "Code mode lets commands started by run_command call the agent's tools with `omnarad call \u003ctool\u003e '\u003cjson input\u003e'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.",
       "properties": {
-        "mode": {
-          "enum": [
-            "tool_add",
-            "code_mode"
-          ],
-          "type": "string"
+        "enabled": {
+          "description": "Whether commands the agent runs can call its tools with `omnarad call`.",
+          "type": "boolean"
         }
       },
       "required": [
-        "mode"
+        "enabled"
       ],
       "type": "object"
     },
@@ -787,8 +784,9 @@
   "additionalProperties": false,
   "description": "An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.",
   "properties": {
-    "deferred_tools": {
-      "$ref": "#/$defs/AgentConfigDefinitionDeferredTools"
+    "code_mode": {
+      "$ref": "#/$defs/AgentConfigDefinitionCodeMode",
+      "description": "Lets commands the agent runs call its tools with `omnarad call`. Off by default."
     },
     "git_credentials": {
       "$ref": "#/$defs/AgentConfigDefinitionGitCredentials",

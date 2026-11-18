@@ -1,11 +1,11 @@
 /** @vitest-environment happy-dom */
 
-import type { AgentConfigDefinitionDeferredTools } from '@omnara/sdk'
+import type { AgentConfigDefinitionCodeMode } from '@omnara/sdk'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
-import { AgentConfigDeferredToolsField } from '@/components/agents/AgentConfigDeferredToolsField'
+import { AgentConfigCodeModeField } from '@/components/agents/AgentConfigCodeModeField'
 import { enableReactActEnvironment } from '@/test/react-act'
 
 let container: HTMLDivElement
@@ -24,10 +24,10 @@ afterEach(() => {
   container.remove()
 })
 
-function toggle(value: AgentConfigDefinitionDeferredTools | undefined) {
+function toggle(value: AgentConfigDefinitionCodeMode | undefined) {
   const onChange = vi.fn()
   act(() => {
-    root.render(<AgentConfigDeferredToolsField value={value} onChange={onChange} />)
+    root.render(<AgentConfigCodeModeField value={value} onChange={onChange} />)
   })
   const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')
   act(() => {
@@ -37,10 +37,10 @@ function toggle(value: AgentConfigDefinitionDeferredTools | undefined) {
 }
 
 it('sets code mode when turned on', () => {
-  expect(toggle(undefined)).toHaveBeenCalledWith({ mode: 'code_mode' })
-  expect(toggle({ mode: 'tool_add' })).toHaveBeenCalledWith({ mode: 'code_mode' })
+  expect(toggle(undefined)).toHaveBeenCalledWith({ enabled: true })
+  expect(toggle({ enabled: false })).toHaveBeenCalledWith({ enabled: true })
 })
 
 it('removes the section when turned off', () => {
-  expect(toggle({ mode: 'code_mode' })).toHaveBeenCalledWith(undefined)
+  expect(toggle({ enabled: true })).toHaveBeenCalledWith(undefined)
 })

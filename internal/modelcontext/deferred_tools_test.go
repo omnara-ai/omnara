@@ -182,17 +182,36 @@ func TestSearchDeferredToolsSeparatesCodeModeTools(t *testing.T) {
 	}
 }
 
-func TestModelToolSpecsLeaveOutCodeModeTools(t *testing.T) {
+func TestSearchDeferredToolsLimitsEachKindSeparately(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_a", Deferred: true, CodeMode: true},
+		{Name: "orders_b", Deferred: true, CodeMode: true},
+		{Name: "orders_c", Deferred: true, CodeMode: true},
+		{Name: "orders_y", Deferred: true},
+		{Name: "orders_z", Deferred: true},
+	}
+	search, err := SearchDeferredTools(specs, "orders", 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"orders_y"}, search.ToolNames,
+		"tools commands call must not use up the limit for tools the model has to load")
+	require.Len(t, search.Tools, 1)
+	require.Len(t, search.CodeModeTools, 1)
+	require.Equal(t, "orders_a", search.CodeModeTools[0].Name)
+}
+
+func TestModelToolSpecsLeaveOutCommandOnlyTools(t *testing.T) {
 	specs := []ToolSpec{
 		{Name: "orders_list", Deferred: true, CodeMode: true},
 		{Name: "orders_write", Deferred: true},
 		{Name: "orders_loaded"},
+		{Name: "orders_read", CodeMode: true},
 	}
 	sent := ModelToolSpecs(specs)
-	if len(sent) != 2 || sent[0].Name != "orders_write" || sent[1].Name != "orders_loaded" {
-		t.Fatalf("model tool specs = %+v, want orders_write and orders_loaded", sent)
+	names := make([]string, 0, len(sent))
+	for _, spec := range sent {
+		names = append(names, spec.Name)
 	}
-	if len(specs) != 3 {
-		t.Fatalf("specs were modified: %+v", specs)
-	}
+	require.Equal(t, []string{"orders_write", "orders_loaded", "orders_read"}, names,
+		"a loaded tool commands can call is still a model tool")
+	require.Len(t, specs, 4, "specs were modified")
 }

@@ -24,7 +24,11 @@ const (
 	ProgramToolExecute
 )
 
-const MaxOpenProgramTools = 128
+const (
+	MaxOpenProgramTools = 128
+	// MaxProgramToolKeyBytes bounds the idempotency key a command supplies for a call.
+	MaxProgramToolKeyBytes = 128
+)
 
 type ProgramTool struct {
 	ID        uuid.UUID
@@ -44,10 +48,11 @@ type ProgramToolRef struct {
 
 type CreateProgramToolInput struct {
 	ProcessID uuid.UUID
-	Key       uuid.UUID
-	Name      string
-	Type      string
-	Input     json.RawMessage
+	// Key identifies the call across the agent's commands. Reusing it returns the earlier call.
+	Key   string
+	Name  string
+	Type  string
+	Input json.RawMessage
 }
 
 func programToolRecord(row executiondb.ReadProgramToolRow) ProgramTool {
@@ -87,7 +92,7 @@ func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executi
 
 func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (executiondb.ReadProgramToolRow, error) {
 	row, err := executiondb.New().ReadProgramTool(ctx, h.unit.DB(),
-		executiondb.ReadProgramToolParams{AgentID: h.route.AgentID, ID: &id})
+		executiondb.ReadProgramToolParams{AgentID: h.route.AgentID, ID: id})
 	if err == nil && processID != uuid.Nil && row.ProcessID != processID {
 		err = pgx.ErrNoRows
 	}
@@ -123,37 +128,99 @@ func (h *Handle) programToolNotification(
 		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
 }
 
+func validProgramToolKey(key string) bool {
+	return key != "" && len(key) <= MaxProgramToolKeyBytes && dbsafe.Text(key) == nil
+}
+
+// resumeProgramTool finds the call a key already names. It reports false when the key is new, or when
+// its last call was canceled before it could take effect, so the caller may start another attempt.
+// toolType is checked only when the caller has resolved it.
+func (h *Handle) resumeProgramTool(
+	ctx context.Context, processID uuid.UUID, key, name, toolType string, callInput json.RawMessage,
+) (ProgramTool, bool, error) {
+	q := executiondb.New()
+	found, err := q.ReadProgramToolByKey(ctx, h.unit.DB(),
+		executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: key})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProgramTool{}, false, nil
+	}
+	if err != nil {
+		return ProgramTool{}, false, err
+	}
+	row := executiondb.ReadProgramToolRow(found)
+	if row.Name != name || (toolType != "" && row.Type != toolType) || !equalJSON(row.Input, callInput) {
+		return ProgramTool{}, false, storeerr.ErrIdempotencyConflict
+	}
+	if row.State != "completed" && row.ProcessID != processID {
+		// Another command made this call. If that command is gone, settle its call now rather than
+		// attaching to one the reaper is about to end.
+		reaped, err := h.reapProgramTool(ctx, row)
+		if err != nil {
+			return ProgramTool{}, false, err
+		}
+		if reaped {
+			if row, err = h.programTool(ctx, row.ID, uuid.Nil); err != nil {
+				return ProgramTool{}, false, err
+			}
+		}
+	}
+	if row.State == "completed" && storeutil.ValueOrZero(row.Outcome) == "canceled" {
+		return ProgramTool{}, false, nil
+	}
+	return programToolRecord(row), true, nil
+}
+
+func programToolInput(input CreateProgramToolInput) (json.RawMessage, error) {
+	if !validProgramToolKey(input.Key) || input.Name == "" || dbsafe.Text(input.Name) != nil {
+		return nil, storeerr.ErrInvalidRequest
+	}
+	callInput, err := objectJSON(input.Input)
+	if err != nil || dbsafe.JSONStrings(callInput) != nil {
+		return nil, storeerr.ErrInvalidRequest
+	}
+	return callInput, nil
+}
+
+// ResumeProgramTool returns the call input.Key already names, if it should be reused. It checks only
+// that the calling process may make calls, so a finished call is returned even when a new one could
+// no longer be started.
+func (h *Handle) ResumeProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, bool, error) {
+	type resumed struct {
+		tool  ProgramTool
+		found bool
+	}
+	result, err := programCommand(h, func() (resumed, error) {
+		callInput, err := programToolInput(input)
+		if err != nil {
+			return resumed{}, err
+		}
+		if _, err := h.fenceProgram(ctx, input.ProcessID); err != nil {
+			return resumed{}, err
+		}
+		tool, found, err := h.resumeProgramTool(ctx, input.ProcessID, input.Key, input.Name, "", callInput)
+		return resumed{tool: tool, found: found}, err
+	})
+	return result.tool, result.found, err
+}
+
 func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, error) {
 	return programCommand(h, func() (ProgramTool, error) {
-		if input.Key == uuid.Nil || input.Name == "" || (input.Type != "built_in" && input.Type != "mcp") {
+		if input.Type != "built_in" && input.Type != "mcp" {
 			return ProgramTool{}, storeerr.ErrInvalidRequest
 		}
-		key := input.Key.String()
-		if err := dbsafe.Text(input.Name); err != nil {
-			return ProgramTool{}, storeerr.ErrInvalidRequest
-		}
-		callInput, err := objectJSON(input.Input)
-		if err != nil || dbsafe.JSONStrings(callInput) != nil {
-			return ProgramTool{}, storeerr.ErrInvalidRequest
+		callInput, err := programToolInput(input)
+		if err != nil {
+			return ProgramTool{}, err
 		}
 		process, err := h.fenceProgram(ctx, input.ProcessID)
 		if err != nil {
 			return ProgramTool{}, err
 		}
 		q := executiondb.New()
-		existing := func() (ProgramTool, error) {
-			row, err := q.ReadProgramTool(ctx, h.unit.DB(), executiondb.ReadProgramToolParams{
-				AgentID: h.route.AgentID, ParentID: &process.ToolCallID, Key: &key})
-			if err != nil {
-				return ProgramTool{}, err
-			}
-			if row.Name != input.Name || row.Type != input.Type || !equalJSON(row.Input, callInput) {
-				return ProgramTool{}, storeerr.ErrIdempotencyConflict
-			}
-			return programToolRecord(row), nil
+		existing := func() (ProgramTool, bool, error) {
+			return h.resumeProgramTool(ctx, input.ProcessID, input.Key, input.Name, input.Type, callInput)
 		}
-		record, err := existing()
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if record, found, err := existing(); err != nil || found {
 			return record, err
 		}
 		open, err := q.CountOpenProgramTools(ctx, h.unit.DB(), executiondb.CountOpenProgramToolsParams{
@@ -169,9 +236,13 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 			return ProgramTool{}, err
 		}
 		if _, err = q.InsertProgramTool(ctx, h.unit.DB(), executiondb.InsertProgramToolParams{
-			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: key,
+			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: input.Key,
 			Name: input.Name, Type: input.Type, Input: callInput}); errors.Is(err, pgx.ErrNoRows) {
-			return existing()
+			record, found, err := existing()
+			if err == nil && !found {
+				err = storeerr.ErrStateTransitionConflict
+			}
+			return record, err
 		} else if err != nil {
 			return ProgramTool{}, err
 		}
@@ -430,32 +501,50 @@ func (h *Handle) completeProgramTool(
 	return record, nil
 }
 
+// programToolStopped is the result of a call that is ended without finishing. A call that never
+// started, or a built-in read that is safe to repeat, is canceled, so its key can run it again. An
+// external call that had started is failed as outcome_unknown, because it may have taken effect, and
+// its key keeps returning that result.
+func programToolStopped(row executiondb.ReadProgramToolRow, code, message string) (string, json.RawMessage, error) {
+	outcome := "canceled"
+	if row.State == "waiting" && row.Type != "built_in" {
+		outcome, code = "failed", "outcome_unknown"
+		message += " The call had started, so it may or may not have taken effect."
+	}
+	body, err := json.Marshal(map[string]string{"error_code": code, "message": message})
+	return outcome, body, err
+}
+
+func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgramToolRow) (bool, error) {
+	process, err := executiondb.New().LockProgramProcess(ctx, h.unit.DB(),
+		executiondb.LockProgramProcessParams{AgentID: h.route.AgentID, ID: row.ProcessID})
+	if err != nil {
+		return false, err
+	}
+	code, message := "process_ended", "The command that made this call is no longer running."
+	switch {
+	case h.identity.State != "active":
+		code, message = "agent_inactive", "The agent is no longer active."
+	case process.Live && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
+		code, message = "server_lost", "The server running this call stopped before it completed."
+	case process.Live:
+		return false, nil
+	}
+	outcome, body, err := programToolStopped(row, code, message)
+	if err != nil {
+		return false, err
+	}
+	_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
+	return err == nil, err
+}
+
 func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.programTool(ctx, id, uuid.Nil)
 		if err != nil || row.State == "completed" {
 			return false, err
 		}
-		process, err := executiondb.New().LockProgramProcess(ctx, h.unit.DB(),
-			executiondb.LockProgramProcessParams{AgentID: h.route.AgentID, ID: row.ProcessID})
-		if err != nil {
-			return false, err
-		}
-		outcome, code, message := "canceled", "process_ended", "The command that made this call is no longer running."
-		switch {
-		case h.identity.State != "active":
-			code, message = "agent_inactive", "The agent is no longer active."
-		case process.Live && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
-			outcome, code, message = "failed", "server_lost", "The server running this call stopped before it completed."
-		case process.Live:
-			return false, nil
-		}
-		body, err := json.Marshal(map[string]string{"error_code": code, "message": message})
-		if err != nil {
-			return false, err
-		}
-		_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
-		return err == nil, err
+		return h.reapProgramTool(ctx, row)
 	})
 }
 
@@ -471,12 +560,11 @@ func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (boo
 		case row.ProgramClaimID != nil && !row.ClaimExpired:
 			return false, nil
 		}
-		body, err := json.Marshal(map[string]string{
-			"error_code": "caller_gone", "message": "The command stopped waiting for this call."})
+		outcome, body, err := programToolStopped(row, "caller_gone", "The command stopped waiting for this call.")
 		if err != nil {
 			return false, err
 		}
-		_, err = h.completeProgramTool(ctx, row, "canceled", []Content{{Kind: "structured_data", Data: body}}, nil)
+		_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
 		return err == nil, err
 	})
 }

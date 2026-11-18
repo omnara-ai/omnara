@@ -31,7 +31,7 @@ func capabilityGuidance(specs []ToolSpec, contract agentconfig.RuntimeContract) 
 					"tokens in URLs. When the work needs code from a GitHub repository you can access, clone it onto "+
 					"an attached machine unless it's already checked out there.")
 		}
-		if contract.CodeMode() {
+		if contract.CodeModeEnabled() {
 			guidance = append(guidance, programmaticToolCallsSystemGuidance(specs))
 		}
 	}
