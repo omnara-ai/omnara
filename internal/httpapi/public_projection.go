@@ -256,6 +256,7 @@ func publicAgentInputResponseFromRecordWithContent(
 		DeliveryMode: openapi.AgentInputDeliveryMode(record.DeliveryMode),
 		InputKind:    inputKind,
 		QueuedAt:     record.QueuedAt,
+		ScheduledFor: record.ScheduledFor,
 	}
 	if record.ActorID != uuid.Nil {
 		actorID, err := publicID(publicid.KindActor, record.ActorID)

@@ -1711,7 +1711,8 @@ export const zAgentInput = z.object({
     actor_id: zActorId.optional(),
     input_idempotency_key: z.string().optional(),
     content_blocks: z.array(zAgentInputContentBlock).optional(),
-    queued_at: zTimestamp
+    queued_at: zTimestamp,
+    scheduled_for: zTimestamp.optional()
 });
 
 /**
@@ -2213,6 +2214,7 @@ export const zAgentLaunchInitialInput = z.object({
 export const zCreateAgentInputRequest = z.object({
     content_blocks: z.array(zCreateAgentInputContentBlock),
     delivery_mode: zCreateAgentInputDeliveryMode.optional(),
+    scheduled_for: zTimestamp.optional(),
     cancel_open_interactions: z.boolean().optional(),
     actor: zExternalActorParams.optional()
 });

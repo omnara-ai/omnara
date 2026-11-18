@@ -10,13 +10,15 @@ FROM agent_inputs WHERE agent_id=sqlc.arg(agent_id) AND
 
 -- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
- integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
-SELECT sqlc.arg(id),a.project_id,a.id,'received',CASE WHEN sqlc.arg(kind)::text='content' THEN coalesce((
+ integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for)
+SELECT sqlc.arg(id),a.project_id,a.id,
+ CASE WHEN sqlc.narg(scheduled_for)::timestamptz IS NULL THEN 'received' ELSE 'scheduled' END,CASE WHEN sqlc.arg(kind)::text='content' THEN coalesce((
  SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
  AND i.input_kind='content' AND i.delivery_mode=sqlc.arg(mode)
  ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
  sqlc.narg(actor_id),sqlc.arg(kind),sqlc.arg(mode),sqlc.narg(target_id),sqlc.narg(config_id),
- sqlc.narg(scope),sqlc.narg(key),statement_timestamp(),sqlc.arg(metadata)::jsonb
+ sqlc.narg(scope),sqlc.narg(key),statement_timestamp(),sqlc.arg(metadata)::jsonb,
+ sqlc.narg(scheduled_for)::timestamptz
 FROM agents a WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id) AND a.state='active'
 RETURNING id,queued_at;
 
@@ -98,8 +100,26 @@ FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(pro
  AND c.project_id=a.project_id AND c.id=sqlc.arg(config_id);
 
 -- name: CountPendingExecutionContent :one
-SELECT count(*) FROM (
-    SELECT 1 FROM agent_inputs
-    WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
-    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT sqlc.arg(capacity)::bigint
-) pending;
+-- Scheduled content holds backlog capacity so a release can never overflow it.
+SELECT ((SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs r
+    WHERE r.agent_id=sqlc.arg(agent_id) AND r.state='received' AND r.input_kind='content'
+    ORDER BY r.delivery_mode,r.input_rank,r.queued_at,r.id LIMIT sqlc.arg(capacity)::bigint
+) received) + (SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs s
+    WHERE s.agent_id=sqlc.arg(agent_id) AND s.state='scheduled'
+    ORDER BY s.scheduled_for,s.id LIMIT sqlc.arg(capacity)::bigint
+) scheduled))::bigint AS pending;
+
+-- name: ReleaseScheduledExecutionInput :one
+UPDATE agent_inputs i SET state='received',input_rank=coalesce((
+ SELECT last.input_rank+1024 FROM agent_inputs last WHERE last.agent_id=i.agent_id AND last.state='received'
+ AND last.input_kind='content' AND last.delivery_mode=i.delivery_mode
+ ORDER BY last.input_rank DESC,last.queued_at DESC,last.id DESC LIMIT 1),1024)
+WHERE i.agent_id=sqlc.arg(agent_id) AND i.id=sqlc.arg(id) AND i.state='scheduled' AND i.input_kind='content'
+ AND i.scheduled_for<=statement_timestamp()
+RETURNING i.delivery_mode,statement_timestamp()::timestamptz AS released_at;
+
+-- name: CancelScheduledExecutionInput :execrows
+UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND state='scheduled' AND input_kind='content';

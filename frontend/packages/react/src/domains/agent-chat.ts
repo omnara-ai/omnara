@@ -43,6 +43,7 @@ import {
   type AgentInputBacklogControls,
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
+  isScheduledBacklogInput,
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
@@ -488,7 +489,9 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   )
   const projected = useMemo(() => projectAgentChat(data), [data])
   const inputPlacement =
-    projected.isWorking || projected.backlogInputs.length > 0 || sessionData.localInputs.length > 0
+    projected.isWorking ||
+    projected.backlogInputs.some((input) => !isScheduledBacklogInput(input)) ||
+    sessionData.localInputs.length > 0
       ? 'backlog'
       : 'conversation'
 

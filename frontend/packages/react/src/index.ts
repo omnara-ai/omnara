@@ -30,6 +30,7 @@ export {
   type AgentInputBacklogMove,
   type AgentInputBacklogPreview,
   backlogInputPreview,
+  isScheduledBacklogInput,
   reorderAgentInputBacklog,
   useAgentInputBacklog,
 } from './domains/agent-input-backlog'

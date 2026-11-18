@@ -141,6 +141,7 @@ func parseAgentInputQueuePageParams(
 			DeliveryMode: executionstore.AgentInputDeliveryMode(cursor.DeliveryMode),
 			InputRank:    cursor.InputRank,
 			QueuedAt:     cursor.QueuedAt,
+			ScheduledFor: cursor.ScheduledFor,
 			ID:           rawID,
 		}
 	}
@@ -155,14 +156,16 @@ func encodeNextAgentInputQueueCursor(hasMore bool, last executionstore.AgentInpu
 	if err != nil {
 		return nil, err
 	}
-	token, err := encodeAgentInputQueueCursor(
-		agentInputQueueCursor{
-			DeliveryMode: string(last.DeliveryMode),
-			InputRank:    last.InputRank,
-			QueuedAt:     last.QueuedAt,
-			ID:           lastPublicID,
-		},
-	)
+	cursorValue := agentInputQueueCursor{
+		DeliveryMode: string(last.DeliveryMode),
+		InputRank:    last.InputRank,
+		QueuedAt:     last.QueuedAt,
+		ID:           lastPublicID,
+	}
+	if last.State == executionstore.AgentInputStateScheduled {
+		cursorValue.ScheduledFor = last.ScheduledFor
+	}
+	token, err := encodeAgentInputQueueCursor(cursorValue)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +176,9 @@ type agentInputQueueCursor struct {
 	DeliveryMode string    `json:"delivery_mode"`
 	InputRank    int64     `json:"input_rank"`
 	QueuedAt     time.Time `json:"queued_at"`
-	ID           string    `json:"id"`
+	// ScheduledFor marks a cursor positioned on a scheduled input, which sorts after waiting inputs.
+	ScheduledFor *time.Time `json:"scheduled_for,omitempty"`
+	ID           string     `json:"id"`
 }
 
 func encodeAgentInputQueueCursor(cursor agentInputQueueCursor) (string, error) {
@@ -182,6 +187,7 @@ func encodeAgentInputQueueCursor(cursor agentInputQueueCursor) (string, error) {
 			DeliveryMode: cursor.DeliveryMode,
 			InputRank:    cursor.InputRank,
 			QueuedAt:     cursor.QueuedAt.UTC(),
+			ScheduledFor: cursor.ScheduledFor,
 			ID:           cursor.ID,
 		},
 	)

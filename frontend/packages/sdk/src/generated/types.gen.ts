@@ -2838,6 +2838,9 @@ export type CreateAgentInputDeliveryMode = 'queued' | 'steering';
 export type AgentInput = {
     id: AgentInputId;
     agent_id: AgentId;
+    /**
+     * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
+     */
     state: string;
     delivery_mode: AgentInputDeliveryMode;
     input_kind: AgentInputKind;
@@ -2851,6 +2854,10 @@ export type AgentInput = {
     input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
+    /**
+     * Time this input was scheduled to join the agent's backlog. Present only for content inputs created with scheduled_for; it stays set after the input is released.
+     */
+    scheduled_for?: Timestamp;
 };
 
 export type AgentMachineBindingState = 'attached' | 'released';
@@ -2965,7 +2972,11 @@ export type CreateAgentInputRequest = {
      */
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
-     * Only valid when delivery_mode is steering. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
+     * Future time at which the message joins the agent's backlog. Until then the input has state scheduled, counts toward the agent's pending-message limit, and can be canceled. Delivery follows within about a minute of this time, using delivery_mode. Must be in the future.
+     */
+    scheduled_for?: Timestamp;
+    /**
+     * Only valid when delivery_mode is steering and scheduled_for is omitted. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
      */
     cancel_open_interactions?: boolean;
     /**

@@ -493,8 +493,32 @@ func runCronTriggerFireLoop(
 				"failures", stats.Failures,
 			)
 		}
-		return stats.Claimed == crontrigger.FireBatchSize
+		released, moreScheduled, err := runScheduledInputReleaseTick(ctx, log, service)
+		if err != nil && ctx.Err() == nil {
+			log.Error("release due scheduled agent inputs", "released", released, "error", err)
+		} else if released > 0 {
+			log.Info("released due scheduled agent inputs", "released", released)
+		}
+		return stats.Claimed == crontrigger.FireBatchSize || moreScheduled
 	})
+}
+
+func runScheduledInputReleaseTick(
+	ctx context.Context,
+	log *slog.Logger,
+	service *crontrigger.Service,
+) (released int, batchFull bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("scheduled input release tick panicked: %v", recovered)
+			log.Error(
+				"scheduled input release tick panicked",
+				"error", recovered,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	return service.ReleaseDueScheduledInputs(ctx)
 }
 
 func runCronTriggerFireTick(

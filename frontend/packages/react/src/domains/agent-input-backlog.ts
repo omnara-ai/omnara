@@ -25,6 +25,13 @@ interface AgentInputBacklogScope {
 export type AgentInputBacklogItem =
   AgentInput | { id: string; delivery_mode: 'optimistic'; text: string; attachmentCount: number }
 
+/** A scheduled input is held until its `scheduled_for` time and is not yet waiting for the agent. */
+export function isScheduledBacklogInput(
+  input: AgentInputBacklogItem,
+): input is AgentInput & { state: 'scheduled' } {
+  return input.delivery_mode !== 'optimistic' && input.state === 'scheduled'
+}
+
 export interface AgentInputBacklogPreview {
   text: string
   attachmentCount: number
@@ -69,7 +76,9 @@ export function reorderAgentInputBacklog<Input extends AgentInputBacklogItem>(
     input == null ||
     anchor == null ||
     input.delivery_mode !== 'queued' ||
-    anchor.delivery_mode !== 'queued'
+    anchor.delivery_mode !== 'queued' ||
+    isScheduledBacklogInput(input) ||
+    isScheduledBacklogInput(anchor)
   ) {
     return inputs
   }
@@ -103,10 +112,12 @@ export function cacheAgentInputBacklog(
   const current = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
   if (current == null) return
   const inputs = current.data.filter((candidate) => candidate.id !== input.id)
-  const insertionIndex =
-    input.delivery_mode === 'steering'
-      ? inputs.findIndex((candidate) => candidate.delivery_mode !== 'steering')
-      : -1
+  // Scheduled inputs stay last; steering inputs go ahead of queued ones.
+  const insertionIndex = inputs.findIndex(
+    (candidate) =>
+      candidate.state === 'scheduled' ||
+      (input.delivery_mode === 'steering' && candidate.delivery_mode !== 'steering'),
+  )
   inputs.splice(insertionIndex < 0 ? inputs.length : insertionIndex, 0, input)
   queryClient.setQueryData<ListAgentInputsResponse>(queryKey, { ...current, data: inputs })
 }

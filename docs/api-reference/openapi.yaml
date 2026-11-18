@@ -5006,6 +5006,8 @@ paths:
       description: >-
         Sends a message to an agent and returns the stored input. Queued messages (the default) wait
         until the agent is ready for new work; steering messages reach it at its next model call.
+        Set scheduled_for to hold the message until a future time: it is stored with state scheduled,
+        listed with the waiting backlog, and joins the back of its delivery backlog once that time passes.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5930,7 +5932,10 @@ paths:
       operationId: listQueuedBacklogInputs
       tags: [Agents]
       summary: List waiting backlog inputs
-      description: Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
+      description: >-
+        Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank,
+        queued_at ascending, then id ascending. Scheduled inputs (state scheduled) follow, ordered by
+        scheduled_for ascending, then id ascending.
       parameters:
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
@@ -5991,6 +5996,7 @@ paths:
       operationId: cancelQueuedBacklogInput
       tags: [Agents]
       summary: Cancel queued backlog input
+      description: Cancels a waiting queued input, or a scheduled input that has not been released yet.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -14022,6 +14028,9 @@ components:
           $ref: '#/components/schemas/AgentID'
         state:
           type: string
+          description: >-
+            scheduled while a content input waits for its scheduled_for time, received once it is
+            waiting for the agent, resolved when the agent has processed it, or canceled.
         delivery_mode:
           $ref: '#/components/schemas/AgentInputDeliveryMode'
         input_kind:
@@ -14037,6 +14046,11 @@ components:
           items:
             $ref: '#/components/schemas/AgentInputContentBlock'
         queued_at:
+          $ref: '#/components/schemas/Timestamp'
+        scheduled_for:
+          description: >-
+            Time this input was scheduled to join the agent's backlog. Present only for content
+            inputs created with scheduled_for; it stays set after the input is released.
           $ref: '#/components/schemas/Timestamp'
     AgentMachineBindingState:
       type: string
@@ -14206,9 +14220,16 @@ components:
         delivery_mode:
           description: queued (default) waits until the agent is free; steering reaches it at its next model call.
           $ref: '#/components/schemas/CreateAgentInputDeliveryMode'
+        scheduled_for:
+          description: >-
+            Future time at which the message joins the agent's backlog. Until then the input has
+            state scheduled, counts toward the agent's pending-message limit, and can be canceled.
+            Delivery follows within about a minute of this time, using delivery_mode. Must be in
+            the future.
+          $ref: '#/components/schemas/Timestamp'
         cancel_open_interactions:
           type: boolean
-          description: Only valid when delivery_mode is steering. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
+          description: Only valid when delivery_mode is steering and scheduled_for is omitted. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
         actor:
           description: External actor to attribute this input to, upserted by (provider_tenant_id, provider_user_id) atomically with the input; a rejected request writes no actor. Only allowed for non-user principals; requests authenticated as a user must omit it and are attributed to the user's omnara actor. When a non-user request omits it, the input has no actor attribution.
           $ref: '#/components/schemas/ExternalActorParams'

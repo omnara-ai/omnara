@@ -375,6 +375,18 @@ func (s strictOpenAPIServer) createAgentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		)
 	}
+	scheduledFor := request.Body.ScheduledFor
+	if scheduledFor != nil {
+		if cancelOpenInteractions {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"cancel_open_interactions is not allowed for scheduled inputs",
+			)
+		}
+		if !scheduledFor.After(time.Now()) {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "scheduled_for must be in the future")
+		}
+	}
 	contentBlocks, err := rawJSONFromContentBlocks(request.Body.ContentBlocks)
 	if err != nil {
 		return nil, err
@@ -395,6 +407,7 @@ func (s strictOpenAPIServer) createAgentInput(
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
+			SourceScheduledFor:     scheduledFor,
 		},
 	)
 	if err != nil || !created {

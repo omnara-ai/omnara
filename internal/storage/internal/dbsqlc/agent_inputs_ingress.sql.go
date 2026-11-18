@@ -14,7 +14,7 @@ import (
 )
 
 const getAgentInput = `-- name: GetAgentInput :one
-SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, metadata
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, metadata, scheduled_for
 FROM agent_inputs
 WHERE project_id = $1
   AND agent_id = $2
@@ -48,6 +48,7 @@ type GetAgentInputRow struct {
 	AgentConfigID       *uuid.UUID
 	ResolvedAt          *time.Time
 	Metadata            json.RawMessage
+	ScheduledFor        *time.Time
 }
 
 func (q *Queries) GetAgentInput(ctx context.Context, arg GetAgentInputParams) (GetAgentInputRow, error) {
@@ -74,12 +75,13 @@ func (q *Queries) GetAgentInput(ctx context.Context, arg GetAgentInputParams) (G
 		&i.AgentConfigID,
 		&i.ResolvedAt,
 		&i.Metadata,
+		&i.ScheduledFor,
 	)
 	return i, err
 }
 
 const getAgentInputByIdempotency = `-- name: GetAgentInputByIdempotency :one
-SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, metadata
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, metadata, scheduled_for
 FROM agent_inputs
 WHERE project_id = $1
   AND agent_id = $2
@@ -115,6 +117,7 @@ type GetAgentInputByIdempotencyRow struct {
 	AgentConfigID       *uuid.UUID
 	ResolvedAt          *time.Time
 	Metadata            json.RawMessage
+	ScheduledFor        *time.Time
 }
 
 func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentInputByIdempotencyParams) (GetAgentInputByIdempotencyRow, error) {
@@ -146,6 +149,7 @@ func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentIn
 		&i.AgentConfigID,
 		&i.ResolvedAt,
 		&i.Metadata,
+		&i.ScheduledFor,
 	)
 	return i, err
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -106,6 +107,11 @@ func prepareCreateAgentContentInput(
 	if input.DeliveryMode == DeliveryModeQueued && input.CancelOpenInteractions {
 		return CreateAgentContentInputInput{}, storeerr.InvalidRequest(errors.New(
 			"cancel_open_interactions is allowed only for steering inputs",
+		))
+	}
+	if input.SourceScheduledFor != nil && input.CancelOpenInteractions {
+		return CreateAgentContentInputInput{}, storeerr.InvalidRequest(errors.New(
+			"cancel_open_interactions is not allowed for scheduled inputs",
 		))
 	}
 	if input.IdempotencyKey != "" && input.IdempotencyScope == "" {
@@ -225,6 +231,7 @@ func createAgentContentInputTx(
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
 		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
+		SourceScheduledFor: input.SourceScheduledFor,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -303,4 +310,7 @@ type CreateAgentContentInputInput struct {
 	IdempotencyScope       string                           `json:"idempotency_scope,omitempty"`
 	IdempotencyKey         string                           `json:"idempotency_key,omitempty"`
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
+	// SourceScheduledFor is the caller's requested delivery time; the input stays
+	// scheduled until the schedule loop releases it.
+	SourceScheduledFor *time.Time `json:"scheduled_for,omitempty"`
 }
