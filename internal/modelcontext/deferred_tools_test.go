@@ -131,3 +131,87 @@ func TestDeferredToolSearchDefinitionsUsesCurrentSpecs(t *testing.T) {
 	require.Equal(t, "Get the current weather for a city.", definitions[0].Description)
 	require.JSONEq(t, `{"type":"object","properties":{"city":{"type":"string"}}}`, string(definitions[0].InputSchema))
 }
+
+func TestSearchToolsReturnsOutputSchemas(t *testing.T) {
+	specs := deferredTestSpecs()
+	specs[2].OutputSchema = json.RawMessage(`{"type":"object","properties":{"celsius":{"type":"number"}}}`)
+
+	search, err := SearchTools(specs, "get_", 0)
+	require.NoError(t, err)
+	require.Equal(t, 3, search.Total)
+	schemas := map[string]string{}
+	for _, tool := range search.Tools {
+		schemas[tool.Name] = string(tool.OutputSchema)
+	}
+	require.Equal(t, map[string]string{
+		"get_stock_price": "",
+		"get_time":        "",
+		"get_weather":     `{"type":"object","properties":{"celsius":{"type":"number"}}}`,
+	}, schemas)
+	encoded, err := json.Marshal(search.Tools[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "output_schema", "tools without one omit it")
+
+	deferred, err := SearchDeferredTools(specs, "weather", 0)
+	require.NoError(t, err)
+	require.Empty(t, deferred.Tools[0].OutputSchema, "model-facing tool_search does not load output schemas")
+}
+
+func TestSearchDeferredToolsSeparatesCodeModeTools(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_list", Deferred: true, CodeMode: true, OutputSchema: json.RawMessage(`{"type":"array"}`)},
+		{Name: "orders_write", Deferred: true},
+		{Name: "orders_loaded"},
+	}
+	search, err := SearchDeferredTools(specs, "orders", 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(search.ToolNames) != 1 || search.ToolNames[0] != "orders_write" || len(search.Tools) != 1 {
+		t.Fatalf("added tools = %v, want only orders_write", search.ToolNames)
+	}
+	if len(search.CodeModeTools) != 1 || search.CodeModeTools[0].Name != "orders_list" ||
+		string(search.CodeModeTools[0].OutputSchema) != `{"type":"array"}` {
+		t.Fatalf("code mode tools = %+v, want orders_list with its output schema", search.CodeModeTools)
+	}
+	if search.TotalDeferredTools != 2 {
+		t.Fatalf("total deferred tools = %d, want 2", search.TotalDeferredTools)
+	}
+	if loaded := DeferredToolSearchDefinitions(specs, search); len(loaded) != 1 || loaded[0].Name != "orders_write" {
+		t.Fatalf("definitions to add = %+v, want only orders_write", loaded)
+	}
+}
+
+func TestSearchDeferredToolsLimitsEachKindSeparately(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_a", Deferred: true, CodeMode: true},
+		{Name: "orders_b", Deferred: true, CodeMode: true},
+		{Name: "orders_c", Deferred: true, CodeMode: true},
+		{Name: "orders_y", Deferred: true},
+		{Name: "orders_z", Deferred: true},
+	}
+	search, err := SearchDeferredTools(specs, "orders", 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"orders_y"}, search.ToolNames,
+		"tools commands call must not use up the limit for tools the model has to load")
+	require.Len(t, search.Tools, 1)
+	require.Len(t, search.CodeModeTools, 1)
+	require.Equal(t, "orders_a", search.CodeModeTools[0].Name)
+}
+
+func TestModelToolSpecsLeaveOutCommandOnlyTools(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_list", Deferred: true, CodeMode: true},
+		{Name: "orders_write", Deferred: true},
+		{Name: "orders_loaded"},
+		{Name: "orders_read", CodeMode: true},
+	}
+	sent := ModelToolSpecs(specs)
+	names := make([]string, 0, len(sent))
+	for _, spec := range sent {
+		names = append(names, spec.Name)
+	}
+	require.Equal(t, []string{"orders_write", "orders_loaded", "orders_read"}, names,
+		"a loaded tool commands can call is still a model tool")
+	require.Len(t, specs, 4, "specs were modified")
+}

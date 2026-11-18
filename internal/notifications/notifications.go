@@ -134,6 +134,7 @@ func ToolCallUpdateInput(input json.RawMessage) json.RawMessage {
 type ToolCallUpdatedCommitted struct {
 	AgentID           uuid.UUID               `json:"-"`
 	ToolCallID        uuid.UUID               `json:"tool_call_id"`
+	ParentToolCallID  uuid.UUID               `json:"parent_tool_call_id,omitzero"`
 	State             string                  `json:"state"`
 	Name              string                  `json:"name,omitempty"`
 	Input             json.RawMessage         `json:"input,omitempty"`
@@ -335,9 +336,18 @@ func (n *TxNotifications) AddToolCallUpdate(
 	state string,
 	interactionUpdate *AgentInteractionUpdate,
 ) {
+	n.AddProgramToolCallUpdate(agentID, toolCallID, uuid.Nil, state, interactionUpdate)
+}
+
+func (n *TxNotifications) AddProgramToolCallUpdate(
+	agentID, toolCallID, parentID uuid.UUID,
+	state string,
+	interactionUpdate *AgentInteractionUpdate,
+) {
 	n.addToolCallUpdate(ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
+		ParentToolCallID:  parentID,
 		State:             state,
 		InteractionUpdate: interactionUpdate,
 	})

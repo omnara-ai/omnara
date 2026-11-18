@@ -47,13 +47,15 @@ type DaemonRuntime struct {
 }
 
 type Client struct {
-	gitCredentialsUnavailable bool
-	cfg                       Config
-	instanceID                uuid.UUID
-	http                      *http.Client
-	log                       *slog.Logger
-	bootstrap                 daemonBootstrap
-	runnerLauncher            processRunnerLauncher
+	gitCredentialsUnavailable   bool
+	programToolCallsUnavailable bool
+	cfg                         Config
+	instanceID                  uuid.UUID
+	http                        *http.Client
+	programToolCalls            *programToolCallHandler
+	log                         *slog.Logger
+	bootstrap                   daemonBootstrap
+	runnerLauncher              processRunnerLauncher
 
 	stateMu sync.Mutex
 	state   *statedb.Store
@@ -123,8 +125,10 @@ type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
 	GitCredentials         bool                    `json:"git_credentials,omitempty"`
-	GitCredentialHelper    *gitCredentialHelper    `json:"git_credential_helper,omitempty"`
+	GitCredentialHelper    *processServiceHelper   `json:"git_credential_helper,omitempty"`
 	FileTransferConnection *FileTransferConnection `json:"file_transfer_connection,omitempty"`
+	ProgrammaticToolCalls  bool                    `json:"programmatic_tool_calls,omitempty"`
+	ProgramToolHelper      *processServiceHelper   `json:"program_tool_helper,omitempty"`
 	Process                Process                 `json:"process"`
 	ID                     string                  `json:"process_id"`
 	Env                    map[string]string       `json:"env,omitempty"`

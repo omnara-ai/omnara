@@ -55,6 +55,7 @@ type integrationToolFixture struct {
 	Now                time.Time
 	WithMCP            bool
 	IntegrationTools   map[string]ToolSpec
+	Machine            executableBindingFixture
 }
 
 func toolsTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
@@ -882,6 +883,7 @@ func newIntegrationToolFixtureWithMCP(
 
 type toolFixtureOptions struct {
 	withMCP                bool
+	mcpDeferred            bool
 	withSubagents          bool
 	withMemory             bool
 	memoryReadWrite        bool
@@ -893,6 +895,10 @@ type toolFixtureOptions struct {
 	withToolContext        bool
 	toolContextAddress     integrationstore.ConversationAddress
 	slackPermission        string
+	withMachine            bool
+	machineName            string
+	extraTools             string
+	extraYAML              string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -963,6 +969,11 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		install = createGitHubToolIntegration(t, ctx, store, user.ID)
 	} else {
 		install = createSlackToolIntegration(t, ctx, store, user.ID, "chat", label)
+	}
+	var machine executableBindingFixture
+	if fixtureOptions.withMachine {
+		machine = createExecutableBinding(t, ctx, store, user.ID, label, now)
+		fixtureOptions.machineName = machine.DisplayName
 	}
 	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
@@ -1067,6 +1078,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		Now:                now,
 		WithMCP:            withMCP,
 		IntegrationTools:   integrationTools,
+		Machine:            machine,
 	}
 }
 
@@ -1290,9 +1302,14 @@ tools:
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
 	}
+	sourceYAML += fixtureOptions.extraTools
 	if fixtureOptions.gitCredentials != "" {
 		sourceYAML += "git_credentials: " + fixtureOptions.gitCredentials + "\n"
 	}
+	if fixtureOptions.machineName != "" {
+		sourceYAML += "machine_sources:\n  - machine_name: " + fixtureOptions.machineName + "\n"
+	}
+	sourceYAML += fixtureOptions.extraYAML
 	if withMCP {
 		sourceYAML += `mcp:
   docs:
@@ -1301,6 +1318,9 @@ tools:
       mode: always_allow
       parameters: {}
 `
+		if fixtureOptions.mcpDeferred {
+			sourceYAML += "    deferred: true\n"
+		}
 	}
 	if fixtureOptions.withSubagents {
 		sourceYAML += `subagents:

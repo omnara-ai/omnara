@@ -40,6 +40,7 @@ type AgentConfigSource struct {
 	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                              `json:"max_depth,omitempty"`
 	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
+	CodeMode            *CodeModeSource                                   `json:"code_mode,omitempty"`
 }
 
 type MemoryStoreAccess string

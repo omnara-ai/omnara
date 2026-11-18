@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -21,31 +22,64 @@ func RuntimeContractToolSpecs(
 	contract agentconfig.RuntimeContract,
 	now time.Time,
 ) ([]ToolSpec, error) {
+	return runtimeContractToolSpecs(ctx, store, projectID, agentID, contract, now, "")
+}
+
+func RuntimeContractToolSpec(
+	ctx context.Context,
+	store Store,
+	projectID, agentID uuid.UUID,
+	contract agentconfig.RuntimeContract,
+	now time.Time,
+	name string,
+) (ToolSpec, bool, error) {
+	if name == "" {
+		return ToolSpec{}, false, nil
+	}
+	specs, err := runtimeContractToolSpecs(ctx, store, projectID, agentID, contract, now, name)
+	if err != nil {
+		return ToolSpec{}, false, err
+	}
+	spec, found := ToolSpecByName(specs, name)
+	return spec, found, nil
+}
+
+func runtimeContractToolSpecs(
+	ctx context.Context,
+	store Store,
+	projectID, agentID uuid.UUID,
+	contract agentconfig.RuntimeContract,
+	now time.Time,
+	only string,
+) ([]ToolSpec, error) {
 	out := make([]ToolSpec, 0, len(contract.Tools))
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		return nil, err
 	}
-	integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
-	if err != nil {
-		return nil, err
+	runtimeTools := append([]agentconfig.RuntimeTool(nil), contract.Tools...)
+	if _, _, integration := toolcatalog.SplitIntegrationToolName(only); only == "" || integration {
+		integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
+		if err != nil {
+			return nil, err
+		}
+		prepared, err := agentconfig.PrepareIntegrationTools(
+			agentconfig.Compiled{
+				Tools:               contract.IntegrationTools,
+				InteractionHandlers: contract.InteractionHandlers,
+			},
+			integrations,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := describeIntegrationToolConversations(
+			ctx, store, projectID, agentID, contract, integrations, prepared,
+		); err != nil {
+			return nil, err
+		}
+		runtimeTools = append(runtimeTools, prepared...)
 	}
-	prepared, err := agentconfig.PrepareIntegrationTools(
-		agentconfig.Compiled{
-			Tools:               contract.IntegrationTools,
-			InteractionHandlers: contract.InteractionHandlers,
-		},
-		integrations,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := describeIntegrationToolConversations(
-		ctx, store, projectID, agentID, contract, integrations, prepared,
-	); err != nil {
-		return nil, err
-	}
-	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared...)
 	for _, tool := range runtimeTools {
 		if tool.Name == "" {
 			return nil, fmt.Errorf(
@@ -75,21 +109,35 @@ func RuntimeContractToolSpecs(
 				return nil, err
 			}
 		}
-		spec := ToolSpec{
-			Name:        tool.Name,
-			Description: description,
-			InputSchema: inputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+		out = append(out, ToolSpec{
+			Name:         tool.Name,
+			Description:  description,
+			InputSchema:  inputSchema,
+			OutputSchema: tool.OutputSchema,
+			Deferred:     tool.Deferred,
+			Type:         tool.Type,
+			Permission:   tool.Permission,
+			CodeMode:     tool.CodeMode && contract.CodeModeEnabled(),
+		})
+	}
+	if only == "" || toolcatalog.IsMCPRuntimeToolName(only) {
+		mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract, only)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, spec)
+		out = append(out, mcpSpecs...)
 	}
-	mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract)
-	if err != nil {
-		return nil, err
+	if only == "" && contract.CodeModeEnabled() {
+		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
+			return spec.Name == toolcatalog.ToolNameRunCommand
+		}); index >= 0 {
+			description, err := programmaticToolCallsDescription(out)
+			if err != nil {
+				return nil, err
+			}
+			out[index].Description += description
+		}
 	}
-	out = append(out, mcpSpecs...)
 	seen := make(map[string]struct{}, len(out))
 	for _, spec := range out {
 		if _, duplicate := seen[spec.Name]; duplicate {
@@ -106,9 +154,10 @@ func RuntimeContractToolSpecs(
 }
 
 type mcpToolSnapshot struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema"`
 }
 
 func runtimeMCPToolSpecs(
@@ -116,6 +165,7 @@ func runtimeMCPToolSpecs(
 	store Store,
 	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
+	only string,
 ) ([]ToolSpec, error) {
 	if len(contract.MCPServers) == 0 {
 		return nil, nil
@@ -132,6 +182,9 @@ func runtimeMCPToolSpecs(
 	for _, server := range contract.MCPServers {
 		conn, found := connByServerKey[server.ServerKey]
 		if !found || conn.State != executionstore.MCPConnectionStateReady {
+			continue
+		}
+		if only != "" && !strings.HasPrefix(only, toolcatalog.MCPRuntimeToolName(server.ServerKey, "")) {
 			continue
 		}
 		var tools []mcpToolSnapshot
@@ -155,6 +208,10 @@ func runtimeMCPToolSpecs(
 			if !toolcatalog.IsMCPRuntimeToolName(name) {
 				continue
 			}
+			outputSchema := tool.OutputSchema
+			if len(outputSchema) == 0 || string(outputSchema) == "null" {
+				outputSchema = json.RawMessage(unknownMCPOutputSchema)
+			}
 			description := fmt.Sprintf("MCP tool %q from server %q.", tool.Name, server.ServerKey)
 			if tool.Description != "" {
 				description = fmt.Sprintf("%s %s", description, tool.Description)
@@ -162,12 +219,15 @@ func runtimeMCPToolSpecs(
 			out = append(
 				out,
 				ToolSpec{
-					Name:        name,
-					Description: description,
-					InputSchema: schema,
-					Deferred:    resolution.Deferred,
-					Type:        toolcatalog.ToolTypeMCP,
-					Permission:  resolution.Permission,
+					Name:         name,
+					Description:  description,
+					InputSchema:  schema,
+					OutputSchema: outputSchema,
+					Deferred:     resolution.Deferred,
+					Type:         toolcatalog.ToolTypeMCP,
+					Permission:   resolution.Permission,
+					// Every MCP tool can be called from commands.
+					CodeMode: contract.CodeModeEnabled(),
 				},
 			)
 		}

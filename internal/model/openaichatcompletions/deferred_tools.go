@@ -22,6 +22,7 @@ type toolSearchOutput struct {
 	ToolNames          []string                            `json:"tool_names"`
 	TotalDeferredTools int                                 `json:"total_deferred_tools"`
 	Tools              []modelcontext.ToolSearchDefinition `json:"tools"`
+	CodeModeTools      []modelcontext.ToolSearchDefinition `json:"code_mode_tools,omitempty"`
 }
 
 func callDeferredToolDefinition(compat compat) chatToolDefinition {
@@ -83,6 +84,7 @@ func toolSearchOutputContent(specs []modelcontext.ToolSpec, search modelcontext.
 		ToolNames:          search.ToolNames,
 		TotalDeferredTools: search.TotalDeferredTools,
 		Tools:              modelcontext.DeferredToolSearchDefinitions(specs, search),
+		CodeModeTools:      search.CodeModeTools,
 	}
 	if output.ToolNames == nil {
 		output.ToolNames = []string{}

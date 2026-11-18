@@ -27,8 +27,8 @@ func processOwner(
 	_, err := u.DB().
 		Exec(t.Context(),
 			`INSERT INTO machines(id,org_id,display_name,source_kind,provider,lifecycle_state,lifecycle_changed_at,created_at,updated_at)
- VALUES($1,$2,'test','byo','byo','active',statement_timestamp(),statement_timestamp(),statement_timestamp())`,
-			machine, f.org)
+ VALUES($1,$2,$3,'byo','byo','active',statement_timestamp(),statement_timestamp(),statement_timestamp())`,
+			machine, f.org, "test "+machine.String())
 	require.NoError(t, err)
 	_, err = u.DB().
 		Exec(t.Context(),

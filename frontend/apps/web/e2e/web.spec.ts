@@ -16,7 +16,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { selectConfiguredModel, signIn, signInThroughLoginForm } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -38,17 +38,6 @@ const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONF
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 const ungrantedModelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_UNGRANTED_MODEL')
 const createAgentPath = `/projects/${projectID}/agents/new`
-
-async function selectConfiguredModel(page: Page) {
-  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
-  await modelPicker.click()
-  await page.getByPlaceholder('Search shared models…').fill(modelName)
-  await page
-    .getByRole('option')
-    .filter({ hasText: modelName })
-    .filter({ hasText: providerConfig })
-    .click()
-}
 
 async function createProfile(page: Page, name: string, instruction: string) {
   await signIn(page, adminEmail, createAgentPath)
@@ -524,6 +513,27 @@ test('edits a profile with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
   await expect(page.locator('.monaco-editor')).toContainText(`profile: ${helperName}`)
+
+  expect(failures).toEqual([])
+})
+
+test('turns on code mode with the Builder', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await createProfile(page, uniqueName('Builder Code Mode Agent'), 'Call tools from commands.')
+
+  await page.getByRole('button', { name: 'Advanced' }).click()
+  await page.getByLabel('Code mode', { exact: true }).check()
+  const save = page.getByRole('button', { name: 'Save revision' })
+  await save.click()
+  await expect(save).toBeDisabled()
+
+  await page.getByRole('button', { name: 'YAML' }).click()
+  const editor = page.locator('.monaco-editor')
+  await expect(editor).toContainText('code_mode:')
+  await expect(editor).toContainText('enabled: true')
+  await page.getByRole('button', { name: 'Builder' }).click()
+  await page.getByRole('button', { name: 'Advanced' }).click()
+  await expect(page.getByLabel('Code mode', { exact: true })).toBeChecked()
 
   expect(failures).toEqual([])
 })

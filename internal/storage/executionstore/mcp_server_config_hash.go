@@ -7,13 +7,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
-// mcpServerConfigHash is the MCP connection identity: it hashes only the MCP
+// MCPServerConfigHash is the MCP connection identity: it hashes only the MCP
 // projection of the agent config (server key, endpoint, tool surface, and
 // permissions). It deliberately excludes the whole-config definition hash so
 // config changes that leave a server's MCP projection unchanged (model switch,
 // instruction edits) do not change connection identity or force a
 // reinitialize/generation bump.
-func mcpServerConfigHash(server agentconfig.RuntimeMCPServer) (string, error) {
+func MCPServerConfigHash(server agentconfig.RuntimeMCPServer) (string, error) {
 	tools := make(map[string]map[string]any, len(server.Tools))
 	for remoteName, tool := range server.Tools {
 		tools[remoteName] = map[string]any{

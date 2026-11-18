@@ -83,6 +83,7 @@ export function agentTemplateBasicConfig(
   return {
     interactionHandlers: {},
     gitCredentials: undefined,
+    codeMode: undefined,
     mcpServers: [],
     skillIds: [],
     memoryStores: [],

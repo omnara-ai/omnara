@@ -9,6 +9,10 @@ export type ClientOptions = {
  */
 export type AgentConfigDefinition = {
     /**
+     * Lets commands the agent runs call its tools with `omnarad call`. Off by default.
+     */
+    code_mode?: AgentConfigDefinitionCodeMode;
+    /**
      * GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents.
      */
     git_credentials?: AgentConfigDefinitionGitCredentials;
@@ -75,6 +79,16 @@ export type AgentConfigToolsDefinition = {
     subagents?: AgentConfigDefinitionSubagents;
     tools?: AgentConfigDefinitionTools;
     [key: string]: unknown;
+};
+
+/**
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.
+ */
+export type AgentConfigDefinitionCodeMode = {
+    /**
+     * Whether commands the agent runs can call its tools with `omnarad call`.
+     */
+    enabled: boolean;
 };
 
 /**
@@ -2094,6 +2108,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
+    code_mode?: CompiledCodeMode;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -2160,6 +2175,13 @@ export type CompiledGitCredentials = {
     integration_id: IntegrationId;
     repository_ids?: Array<number>;
     read_only?: boolean;
+};
+
+/**
+ * Present when commands started by run_command can call the agent's tools.
+ */
+export type CompiledCodeMode = {
+    enabled: boolean;
 };
 
 export type CompiledMcpServer = {
@@ -2994,13 +3016,18 @@ export type ToolCallState = 'awaiting_authorization' | 'awaiting_permission' | '
 export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export type ToolCall = {
     id: ToolCallId;
     agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
+    caller?: ToolCallCaller;
+    /**
+     * The run_command call whose process made this call. Present only when caller is program.
+     */
+    parent_tool_call_id?: ToolCallId;
     name: string;
     input: ToolInput;
     type: ToolCallType;
@@ -3033,6 +3060,10 @@ export type ToolCallUpdate = {
      * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
      */
     root_agent_id: AgentId;
+    /**
+     * The run_command call whose process made this call with `omnarad call`. Present on event stream frames for program calls.
+     */
+    parent_tool_call_id?: ToolCallId;
     state: ToolCallState;
     /**
      * The tool name. Present when a custom tool call becomes ready.
@@ -3047,6 +3078,11 @@ export type ToolCallUpdate = {
      */
     interaction_update?: AgentInteractionUpdate;
 };
+
+/**
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export type ToolCallCaller = 'model' | 'program';
 
 export type AgentInteractionUpdate = {
     id: AgentInteractionId;
@@ -14313,6 +14349,10 @@ export type ListToolCallsData = {
     query?: {
         state?: ToolCallState;
         type?: ToolCallType;
+        /**
+         * Return only the calls a run_command call's process made with `omnarad call`, by that run_command call's ID.
+         */
+        parent_tool_call_id?: ToolCallId;
         /**
          * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
          */

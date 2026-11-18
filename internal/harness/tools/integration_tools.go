@@ -64,7 +64,7 @@ func integrationPermissionChallenge(
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	record, err := e.recordedToolCall(ctx, turn, call)
+	record, err := turn.toolAuthority().recordedToolCall(ctx, e, turn, call)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

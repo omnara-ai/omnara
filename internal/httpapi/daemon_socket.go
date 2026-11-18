@@ -37,12 +37,18 @@ type daemonSocket struct {
 	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
-	leaseRenewAfter   time.Time
-	observedPlatform  string
-	drainAfterRenewal bool
-	done              chan struct{}
-	closeOnce         sync.Once
-	closeCode         websocket.StatusCode
+	// toolCalls holds the calls being served. A canceled call moves to toolCallsCanceling until
+	// its serving loop ends, so it frees its slot at once and an offer that reuses its key waits
+	// for the cancel to finish instead of being dropped.
+	toolCalls          map[string]*servedToolCall
+	toolCallsCanceling map[string]*servedToolCall
+	toolCallsDone      sync.WaitGroup
+	leaseRenewAfter    time.Time
+	observedPlatform   string
+	drainAfterRenewal  bool
+	done               chan struct{}
+	closeOnce          sync.Once
+	closeCode          websocket.StatusCode
 }
 
 type daemonSocketOutbound struct {
@@ -69,18 +75,20 @@ func newDaemonSocket(
 	drainAfterRenewal bool,
 ) *daemonSocket {
 	return &daemonSocket{
-		server:            server,
-		wire:              wire,
-		connectionID:      connectionID,
-		orgID:             orgID,
-		machineID:         machineID,
-		runtimeID:         runtimeID,
-		tokenID:           tokenID,
-		send:              make(chan daemonSocketOutbound, daemonSocketQueueSize),
-		done:              make(chan struct{}),
-		acceptedProcesses: map[uuid.UUID]struct{}{},
-		acceptedActions:   map[uuid.UUID]struct{}{},
-		drainAfterRenewal: drainAfterRenewal,
+		server:             server,
+		wire:               wire,
+		connectionID:       connectionID,
+		orgID:              orgID,
+		machineID:          machineID,
+		runtimeID:          runtimeID,
+		tokenID:            tokenID,
+		send:               make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		done:               make(chan struct{}),
+		acceptedProcesses:  map[uuid.UUID]struct{}{},
+		acceptedActions:    map[uuid.UUID]struct{}{},
+		toolCalls:          map[string]*servedToolCall{},
+		toolCallsCanceling: map[string]*servedToolCall{},
+		drainAfterRenewal:  drainAfterRenewal,
 	}
 }
 
@@ -217,6 +225,8 @@ func (s *daemonSocket) run(ctx context.Context) {
 	if drainDone != nil {
 		<-drainDone
 	}
+	cancel(nil)
+	s.toolCallsDone.Wait()
 }
 
 func stableJitterDuration(value string, maxDuration time.Duration) time.Duration {
@@ -311,6 +321,10 @@ func (s *daemonSocket) handleMessage(ctx context.Context, msg daemonprotocol.Mes
 		return s.handleReport(ctx, msg)
 	case daemonprotocol.MessageSkillReport:
 		return s.handleSkillReport(ctx, msg)
+	case daemonprotocol.MessageToolCallOffer:
+		return s.handleToolCallOffer(ctx, msg)
+	case daemonprotocol.MessageToolCallCancel:
+		return s.handleToolCallCancel(msg)
 	default:
 		return errUnsupportedDaemonMessage
 	}
