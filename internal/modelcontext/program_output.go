@@ -100,16 +100,6 @@ func ProgramCallableTools(specs []ToolSpec) []ToolSpec {
 	return callable
 }
 
-// CommandOnly reports whether only commands reach the tool: it is deferred, and in code mode a
-// deferred tool commands can call is never added to the model's tools.
-func CommandOnly(spec ToolSpec) bool {
-	return spec.Deferred && spec.CodeMode
-}
-
-func ModelToolSpecs(specs []ToolSpec) []ToolSpec {
-	return slices.DeleteFunc(slices.Clone(specs), CommandOnly)
-}
-
 func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
 	var types strings.Builder
 	for _, spec := range specs {

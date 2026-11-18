@@ -129,7 +129,7 @@ func mustContentParts(t *testing.T, content toolResultContent) json.RawMessage {
 	return parts
 }
 
-func TestRunToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
+func TestRunToolSearchLoadsDeferredToolsCommandsCanCall(t *testing.T) {
 	turn := toolSearchTurn()
 	spec := turn.Tools["get_weather"]
 	spec.CodeMode, spec.OutputSchema = true, json.RawMessage(`{"type":"object"}`)
@@ -146,9 +146,9 @@ func TestRunToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 		ContentParts: mustContentParts(t, completed.content),
 	})
 	require.True(t, ok)
-	require.Empty(t, search.ToolNames)
-	require.Len(t, search.CodeModeTools, 1)
-	require.Equal(t, "get_weather", search.CodeModeTools[0].Name)
+	require.Equal(t, []string{"get_weather"}, search.ToolNames,
+		"code mode does not change how the model loads a deferred tool")
+	require.NotContains(t, string(mustContentParts(t, completed.content)), "omnarad call")
 }
 
 func TestProgramToolSearchLimitsResultsByDefault(t *testing.T) {

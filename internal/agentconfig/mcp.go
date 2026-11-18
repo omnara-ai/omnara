@@ -29,6 +29,7 @@ type RuntimeMCPServer struct {
 	DefaultEnabled bool
 	Permission     toolpermission.Selection
 	Deferred       bool
+	CodeMode       *bool
 	Tools          map[string]RuntimeMCPTool
 }
 
@@ -44,11 +45,14 @@ type RuntimeMCPTool struct {
 	Enabled    *bool
 	Permission *toolpermission.Selection
 	Deferred   *bool
+	CodeMode   *bool
 }
 
 type RuntimeMCPToolResolution struct {
 	Permission toolpermission.Selection
 	Deferred   bool
+	// CodeMode is the tool's or server's code_mode setting; nil follows the agent default.
+	CodeMode *bool
 }
 
 // ResolveTool returns the effective permission for a remote tool and whether the
@@ -59,11 +63,15 @@ func (s RuntimeMCPServer) ResolveTool(remoteName string) (RuntimeMCPToolResoluti
 	var enabled *bool
 	var specificPermission *toolpermission.Selection
 	deferred := s.Deferred
+	codeMode := s.CodeMode
 	if hasSpecific {
 		enabled = specific.Enabled
 		specificPermission = specific.Permission
 		if specific.Deferred != nil {
 			deferred = *specific.Deferred
+		}
+		if specific.CodeMode != nil {
+			codeMode = specific.CodeMode
 		}
 	}
 	permission, enabledValue := resolveToolPermission(
@@ -75,7 +83,7 @@ func (s RuntimeMCPServer) ResolveTool(remoteName string) (RuntimeMCPToolResoluti
 	if !enabledValue {
 		return RuntimeMCPToolResolution{}, false
 	}
-	return RuntimeMCPToolResolution{Permission: permission, Deferred: deferred}, true
+	return RuntimeMCPToolResolution{Permission: permission, Deferred: deferred, CodeMode: codeMode}, true
 }
 
 func (s RuntimeMCPServer) DefersAnyTool() bool {
@@ -131,6 +139,7 @@ func compileMCPServers(
 			DefaultEnabled: defaultEnabled,
 			Permission:     permission,
 			Deferred:       server.Deferred,
+			CodeMode:       server.CodeMode,
 			Tools:          tools,
 		}
 	}
@@ -241,6 +250,7 @@ func compileMCPTools(
 			Enabled:    tool.Enabled,
 			Permission: permission,
 			Deferred:   tool.Deferred,
+			CodeMode:   tool.CodeMode,
 		}
 	}
 	return compiled, nil
@@ -280,6 +290,7 @@ func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServe
 			DefaultEnabled: server.DefaultEnabled,
 			Permission:     permission,
 			Deferred:       server.Deferred,
+			CodeMode:       server.CodeMode,
 			Tools:          map[string]RuntimeMCPTool{},
 		}
 		if server.Auth != nil {
@@ -318,6 +329,7 @@ func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServe
 				Enabled:    tool.Enabled,
 				Permission: permission,
 				Deferred:   tool.Deferred,
+				CodeMode:   tool.CodeMode,
 			}
 		}
 		out = append(out, runtime)

@@ -430,6 +430,21 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, resumed.Outcome)
+
+	// A tool's own code_mode setting keeps commands from calling it while code mode stays on.
+	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list", "storage_read"),
+		"  storage_list:\n", "  storage_list:\n    code_mode: false\n", 1))
+	f.rejected(t, "tool-denied", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
+	allowed := f.offer(t, "search-tool-denied", toolcatalog.ToolNameToolSearch, `{"pattern":"storage"}`)
+	listing.Tools = nil
+	require.NoError(t, json.Unmarshal(structuredResult(t, allowed.ProgramToolCallResult), &listing))
+	names = nil
+	for _, tool := range listing.Tools {
+		names = append(names, tool.Name)
+	}
+	require.Contains(t, names, toolcatalog.ToolNameStorageRead)
+	require.NotContains(t, names, toolcatalog.ToolNameStorageList)
+
 	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
 	f.rejected(t, "search-code-mode-off", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
 

@@ -105,8 +105,9 @@ const mcpAuth = z.discriminatedUnion('type', [
   }),
 ])
 
+// The form has no per-tool code_mode control, so an MCP server that sets one is preserved as written.
 const mcpToolEntry = z.strictObject({
-  ...zAgentConfigDefinitionMcpTool.shape,
+  ...zAgentConfigDefinitionMcpTool.omit({ code_mode: true }).shape,
   permission: permission.optional(),
 })
 

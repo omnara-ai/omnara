@@ -57,7 +57,8 @@ type RuntimeTool struct {
 	Description  string
 	InputSchema  json.RawMessage
 	OutputSchema json.RawMessage
-	// CodeMode is set from the tool's definition: commands can call it when the agent has code mode on.
+	// CodeMode reports whether commands can call the tool: it supports code mode and the agent's
+	// config allows it. It says nothing about whether the model can call the tool.
 	CodeMode bool
 }
 
@@ -120,7 +121,7 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledCodeMode(compiled.CodeMode); err != nil {
 		return RuntimeContract{}, err
 	}
-	tools, err := runtimeTools(compiled.Tools)
+	tools, err := runtimeTools(compiled.Tools, compiled.CodeMode)
 	if err != nil {
 		return RuntimeContract{}, err
 	}
@@ -176,7 +177,7 @@ func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
 	return machines
 }
 
-func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
+func runtimeTools(compiled map[string]ToolCompiled, codeMode *CodeModeCompiled) ([]RuntimeTool, error) {
 	if len(compiled) == 0 {
 		return nil, nil
 	}
@@ -216,25 +217,25 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 		if !builtInName {
 			return nil, fmt.Errorf("compiled tool %q is not registered", name)
 		}
-		runtime := runtimeBuiltInTool(entry, tool.Permission)
-		runtime.Deferred = tool.Deferred
-		out = append(out, runtime)
+		out = append(out, runtimeBuiltInTool(entry, tool, codeMode))
 	}
 	return out, nil
 }
 
 func runtimeBuiltInTool(
 	entry toolcatalog.Entry,
-	permission toolpermission.Selection,
+	tool ToolCompiled,
+	codeMode *CodeModeCompiled,
 ) RuntimeTool {
 	return RuntimeTool{
 		Name:         entry.Name,
 		Type:         toolcatalog.ToolTypeBuiltIn,
-		Permission:   permission,
+		Permission:   tool.Permission,
+		Deferred:     tool.Deferred,
 		Description:  entry.Description,
 		InputSchema:  entry.InputSchema,
 		OutputSchema: entry.OutputSchema,
-		CodeMode:     entry.CodeMode,
+		CodeMode:     entry.CodeMode && codeMode.allows(tool.CodeMode),
 	}
 }
 
@@ -248,6 +249,9 @@ func validateRuntimeTool(
 		return fmt.Errorf("compiled tool %q has unsupported type", name)
 	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
+		if tool.CodeMode != nil {
+			return fmt.Errorf("compiled custom tool %q cannot set code_mode", name)
+		}
 		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses a reserved integration or MCP tool namespace", name)
 		}
@@ -270,6 +274,9 @@ func validateRuntimeTool(
 	}
 	if tool.Deferred && name == toolcatalog.ToolNameToolSearch {
 		return fmt.Errorf("compiled built-in tool %q cannot be deferred", name)
+	}
+	if tool.CodeMode != nil && !entry.CodeMode {
+		return fmt.Errorf("compiled built-in tool %q cannot set code_mode", name)
 	}
 	if _, err := toolpermission.ValidateSelection(
 		tool.Permission,

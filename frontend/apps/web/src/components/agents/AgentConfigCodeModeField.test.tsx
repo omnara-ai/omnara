@@ -41,6 +41,13 @@ it('sets code mode when turned on', () => {
   expect(toggle({ enabled: false })).toHaveBeenCalledWith({ enabled: true })
 })
 
+it('keeps the default when turned on', () => {
+  expect(toggle({ enabled: false, default_allowed: false })).toHaveBeenCalledWith({
+    enabled: true,
+    default_allowed: false,
+  })
+})
+
 it('removes the section when turned off', () => {
   expect(toggle({ enabled: true })).toHaveBeenCalledWith(undefined)
 })

@@ -93,6 +93,7 @@ type AgentConfigToolSource struct {
 	Enabled     *bool                     `json:"enabled,omitempty"`
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
 	Deferred    bool                      `json:"deferred,omitempty"`
+	CodeMode    *bool                     `json:"code_mode,omitempty"`
 	Description string                    `json:"description,omitempty"`
 	InputSchema json.RawMessage           `json:"input_schema,omitempty"`
 }
@@ -103,6 +104,7 @@ type AgentConfigMCPSource struct {
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
 	Deferred       bool                                `json:"deferred,omitempty"`
+	CodeMode       *bool                               `json:"code_mode,omitempty"`
 	Tools          map[string]AgentConfigMCPToolSource `json:"tools,omitempty"`
 }
 
@@ -117,6 +119,7 @@ type AgentConfigMCPToolSource struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Permission *toolpermission.Selection `json:"permission,omitempty"`
 	Deferred   *bool                     `json:"deferred,omitempty"`
+	CodeMode   *bool                     `json:"code_mode,omitempty"`
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {

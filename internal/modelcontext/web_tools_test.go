@@ -29,7 +29,6 @@ func webToolsContract(t *testing.T) agentconfig.RuntimeContract {
 			Permission:   entry.DefaultPermission,
 			InputSchema:  entry.InputSchema,
 			OutputSchema: entry.OutputSchema,
-			CodeMode:     entry.CodeMode,
 		})
 	}
 	return agentconfig.RuntimeContract{Tools: tools}
