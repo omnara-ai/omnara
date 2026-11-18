@@ -330,7 +330,7 @@ const docker: MachinePoolProviderDefinition = {
     label: 'Docker API URL',
     placeholder: 'https://docker-host:2376',
     required: true,
-    description: "The Docker host's TLS address. Docker pools are for demos and testing only.",
+    description: "The Docker host's HTTPS address. Docker pools are for demos and testing only.",
   },
   credential: {
     label: 'Docker TLS certificates',

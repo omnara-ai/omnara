@@ -30,7 +30,7 @@ Other providers run machines on infrastructure they manage. Docker machines are 
 
 <Steps>
   <Step title="Turn on TLS">
-    You need a Linux host running Docker Engine 25 or later with cgroup v2, the default on current Linux distributions. Follow Docker's guide to [protect the Docker daemon socket with TLS](https://docs.docker.com/engine/security/protect-access/), and [make Docker listen](https://docs.docker.com/engine/daemon/remote-access/) on port 2376 with `tlsverify` turned on. Never open the port without `tlsverify`: anyone who can reach an unauthenticated Docker API controls the host.
+    You need a Linux host running Docker Engine 25 or later with cgroup v2, the default on current Linux distributions. Follow Docker's guide to [protect the Docker daemon socket with TLS](https://docs.docker.com/engine/security/protect-access/#use-tls-https-to-protect-the-docker-daemon-socket), and [make Docker listen](https://docs.docker.com/engine/daemon/remote-access/) on port 2376 with `tlsverify` turned on. Never open the port without `tlsverify`: anyone who can reach an unauthenticated Docker API controls the host.
 
     Omnara creates a Docker network for every machine, and Docker's default address pools run out at about 30 networks. Add a larger pool to `/etc/docker/daemon.json`, in a range your network doesn't use:
 
@@ -83,7 +83,7 @@ When you create a pool through the API, send these fields in the [Create a pool]
 }
 ```
 
-- `api_base_url` is the Docker host's TLS address, the one you'd use as `DOCKER_HOST=tcp://docker-host.internal:2376`, written with `https://`. The server certificate must include that host name or IP address.
+- `api_base_url` is the Docker host's HTTPS address, the one you'd use as `DOCKER_HOST=tcp://docker-host.internal:2376`, written with `https://`. The server certificate must include that host name or IP address.
 - `image` is a public registry image, or any image already on the host.
 - CPU is in vCPU. Memory is a hard limit with no swap.
 - Optional: `runtime` in `provider_config` runs machines under another Docker runtime, such as `runsc` for gVisor. `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts. `allowed_images` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

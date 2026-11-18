@@ -218,6 +218,9 @@ func (c *restClient) PullImage(ctx context.Context, image string) error {
 			return fmt.Errorf("decode docker pull progress: %w", err)
 		}
 		if progress.Error != "" {
+			if strings.Contains(progress.Error, "no matching manifest for") {
+				return fmt.Errorf("%s: %w", progress.Error, providers.ErrPermanent)
+			}
 			return errors.New(progress.Error)
 		}
 	}
@@ -278,9 +281,10 @@ func isNotFound(err error) bool {
 	return isStatus(err, http.StatusNotFound)
 }
 
-func isClientError(err error) bool {
+func isPermanentStatus(err error) bool {
 	var apiErr apiError
-	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 &&
+		apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != http.StatusTooManyRequests
 }
 
 func isConflict(err error) bool {

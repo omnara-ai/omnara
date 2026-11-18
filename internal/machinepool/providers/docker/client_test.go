@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"net/http"
@@ -114,17 +115,25 @@ func TestDockerClientPresentsCertificateOnlyToListedPrivateHosts(t *testing.T) {
 }
 
 func TestDockerPullReportsErrorsInsideTheProgressStream(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/"+apiVersion+"/images/create" || r.URL.Query().Get("fromImage") != testImage {
-			http.Error(w, "unexpected request", http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write([]byte(`{"status":"Pulling from library/buildpack-deps"}` + "\n" +
-			`{"error":"unexpected EOF","errorDetail":{"message":"unexpected EOF"}}` + "\n"))
-	}))
-	defer server.Close()
-	client := &restClient{baseURL: server.URL + "/" + apiVersion, httpClient: server.Client()}
-	require.ErrorContains(t, client.PullImage(context.Background(), testImage), "unexpected EOF")
+	for message, permanent := range map[string]bool{
+		"unexpected EOF": false,
+		"no matching manifest for linux/arm64/v8 in the manifest list entries": true,
+	} {
+		record, err := json.Marshal(map[string]string{"error": message})
+		require.NoError(t, err)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/"+apiVersion+"/images/create" || r.URL.Query().Get("fromImage") != testImage {
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"Pulling from library/buildpack-deps"}` + "\r\n" + string(record) + "\r\n"))
+		}))
+		client := &restClient{baseURL: server.URL + "/" + apiVersion, httpClient: server.Client()}
+		err = client.PullImage(context.Background(), testImage)
+		server.Close()
+		require.ErrorContains(t, err, message)
+		require.Equal(t, permanent, errors.Is(err, providers.ErrPermanent), message)
+	}
 }
 
 func TestDockerPullRejectsOversizedProgressRecords(t *testing.T) {

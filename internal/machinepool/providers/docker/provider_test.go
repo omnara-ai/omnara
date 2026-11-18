@@ -135,14 +135,22 @@ func TestDockerProvisionPullsMissingImage(t *testing.T) {
 	require.Equal(t, "running", api.containers[name].State.Status)
 }
 
-func TestDockerProvisionAsksOperatorToPullImageItCannotFetch(t *testing.T) {
-	api := newFakeAPI()
-	api.missingImage = true
-	api.pullErr = apiError{StatusCode: http.StatusNotFound, Message: "pull access denied"}
-	_, err := provision(t, api, uuid.New(), uuid.New())
-	require.ErrorIs(t, err, providers.ErrPermanent)
-	require.ErrorContains(t, err, "pull it on the Docker host first")
-	require.Empty(t, api.starts)
+func TestDockerProvisionStopsRetryingPullsDockerRejects(t *testing.T) {
+	for status, permanent := range map[int]bool{
+		http.StatusNotFound:            true,
+		http.StatusForbidden:           true,
+		http.StatusRequestTimeout:      false,
+		http.StatusTooManyRequests:     false,
+		http.StatusInternalServerError: false,
+	} {
+		api := newFakeAPI()
+		api.missingImage = true
+		api.pullErr = apiError{StatusCode: status, Message: "pull failed"}
+		_, err := provision(t, api, uuid.New(), uuid.New())
+		require.Equal(t, permanent, errors.Is(err, providers.ErrPermanent), "HTTP %d", status)
+		require.ErrorContains(t, err, "pull it on the Docker host first")
+		require.Empty(t, api.starts)
+	}
 }
 
 func TestDockerProvisionFailsFastOnSettingsDockerRejects(t *testing.T) {

@@ -96,7 +96,7 @@ func (p *provider) ProvisionMachine(
 	created, err := p.api.CreateContainer(ctx, name, request)
 	if isNotFound(err) {
 		if err := p.api.PullImage(ctx, options.Image); err != nil {
-			if isNotFound(err) {
+			if isPermanentStatus(err) {
 				err = fmt.Errorf("%w: %w", err, providers.ErrPermanent)
 			}
 			return result, fmt.Errorf(
@@ -118,7 +118,7 @@ func (p *provider) ProvisionMachine(
 		}
 	case isConflict(err):
 		return result, p.resumeExistingContainer(ctx, name, labels, limits)
-	case isClientError(err):
+	case isPermanentStatus(err):
 		return result, fmt.Errorf("%w: %w", err, providers.ErrPermanent)
 	default:
 		return result, err
