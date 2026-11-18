@@ -35,6 +35,9 @@ const (
 	storeTimeout      = 5 * time.Second
 	idleInterval      = time.Second
 	responseReadLimit = 64 * 1024
+	// maxRequestBytes bounds one encoded export request. The trace builder
+	// already bounds content, so a larger request is dropped, not sent.
+	maxRequestBytes = 32 * 1024 * 1024
 )
 
 type Store interface {
@@ -56,6 +59,12 @@ type Sender struct {
 type rejectedError struct{ error }
 
 func (e rejectedError) Unwrap() error { return e.error }
+
+// acknowledgmentError is a success response whose body could not be read as an
+// OTLP acknowledgment, so how many spans the endpoint kept is unknown.
+type acknowledgmentError struct{ error }
+
+func (e acknowledgmentError) Unwrap() error { return e.error }
 
 type recipientError struct{ error }
 
@@ -139,10 +148,11 @@ func (s *Sender) deliver(ctx context.Context, delivery executionstore.OtelExport
 func failureCause(err error) string {
 	var recipient recipientError
 	var rejected rejectedError
+	var acknowledgment acknowledgmentError
 	switch {
 	case err == nil:
 		return "none"
-	case errors.As(err, &recipient), errors.As(err, &rejected):
+	case errors.As(err, &recipient), errors.As(err, &rejected), errors.As(err, &acknowledgment):
 		return "recipient"
 	case errors.Is(err, executionstore.ErrOtelExporterMisconfigured):
 		return "configuration"
@@ -166,7 +176,11 @@ const (
 	outcomeSkipped           = "skipped"
 	outcomeDropped           = "dropped"
 	outcomePartiallyRejected = "partially_rejected"
-	outcomeRetry             = "retry_scheduled"
+	// outcomeUnacknowledged is a success status with an unreadable or
+	// oversized acknowledgment. OTLP makes it non-retryable, and it is not
+	// counted as delivered.
+	outcomeUnacknowledged = "unacknowledged"
+	outcomeRetry          = "retry_scheduled"
 )
 
 func (s *Sender) send(ctx context.Context, delivery executionstore.OtelExportDelivery) (string, error) {
@@ -191,9 +205,12 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.OtelExportDel
 	}
 	rejectedSpans, err := s.post(ctx, destination, traces)
 	var rejected rejectedError
+	var acknowledgment acknowledgmentError
 	switch {
 	case errors.As(err, &rejected):
 		return outcomeDropped, err
+	case errors.As(err, &acknowledgment):
+		return outcomeUnacknowledged, err
 	case err != nil:
 		return outcomeRetry, err
 	case rejectedSpans > 0:
@@ -213,6 +230,9 @@ func (s *Sender) post(
 		return 0, fmt.Errorf("encode otel export: %w", err)
 	}
 	logent.OtelExportPayload(ctx, traces.SpanCount(), len(body))
+	if len(body) > maxRequestBytes {
+		return 0, rejectedError{fmt.Errorf("otel export request of %d bytes exceeds %d", len(body), maxRequestBytes)}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, destination.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, errors.New("create otel export request failed")
@@ -231,12 +251,23 @@ func (s *Sender) post(
 	}
 	logent.OtelExportResponse(ctx, response.StatusCode)
 	defer func() { _ = response.Body.Close() }()
-	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, responseReadLimit))
 	switch status := response.StatusCode; {
 	case status >= http.StatusOK && status < http.StatusMultipleChoices:
-		rejectedSpans, message := oteltrace.ParsePartialSuccess(response.Header.Get("Content-Type"), responseBody)
+		responseBody, err := io.ReadAll(io.LimitReader(response.Body, responseReadLimit+1))
+		if err != nil {
+			return 0, acknowledgmentError{errors.New("read otel export response failed")}
+		}
+		if len(responseBody) > responseReadLimit {
+			return 0, acknowledgmentError{fmt.Errorf("otel export response exceeds %d bytes", responseReadLimit)}
+		}
+		rejectedSpans, err := oteltrace.ParsePartialSuccess(
+			response.Header.Get("Content-Type"), destination.Encoding, responseBody)
+		if err != nil {
+			// The decoder's error can quote the body, so it is not kept.
+			return 0, acknowledgmentError{errors.New("otel export response is not an OTLP acknowledgment")}
+		}
 		if rejectedSpans > 0 {
-			logent.OtelExportPartialSuccess(ctx, rejectedSpans, message)
+			logent.OtelExportPartialSuccess(ctx, rejectedSpans)
 		}
 		return rejectedSpans, nil
 	case retryableStatus(status):

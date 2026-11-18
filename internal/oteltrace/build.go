@@ -24,8 +24,8 @@ type Turn struct {
 	Events     []Event
 	// Links point from the turn at what another agent did to send it input.
 	Links []Link
-	// Truncated is set when the turn has more events than were loaded, so
-	// Events holds only the most recent ones.
+	// Truncated is set when the turn has more events or calls than were
+	// loaded, so the trace holds only the most recent ones.
 	Truncated bool
 }
 
@@ -45,8 +45,9 @@ type ModelCall struct {
 	StartedAt     time.Time
 	CompletedAt   time.Time
 
-	InputTokens, CacheReadTokens, CacheWriteTokens int64
-	OutputTokens, ReasoningTokens                  int64
+	InputTokens, OutputTokens int64
+	// Nil when the provider did not report the count.
+	CacheReadTokens, CacheWriteTokens, ReasoningTokens *int64
 }
 
 type ToolCall struct {
@@ -159,11 +160,13 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	rootID := spanID("turn", turn.TurnID)
 	outputs := make(map[uuid.UUID]Event)
 	results := make(map[uuid.UUID]Event)
-	providerCallIDs := make(map[string]string, len(turn.ToolCalls))
-	for _, call := range turn.ToolCalls {
-		providerCallIDs[call.ID.String()] = call.ProviderCallID
+	content := contentReader{
+		providerCallIDs: make(map[string]string, len(turn.ToolCalls)), budget: maxTraceContentBytes,
 	}
-	var opening, closing *Event
+	for _, call := range turn.ToolCalls {
+		content.providerCallIDs[call.ID.String()] = call.ProviderCallID
+	}
+	var opening, lastOutput *Event
 	// The root spans everything the trace holds, so no child falls outside it.
 	var start, end time.Time
 	extend := func(times ...time.Time) {
@@ -195,10 +198,7 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 			}
 		case events.KindModelOutput:
 			outputs[event.ModelCallID] = *event
-			// A truncated output is continued by a later model call.
-			if event.StopReason != modelenvelope.StopReasonToolUse && event.StopReason != modelenvelope.StopReasonMaxTokens {
-				closing = event
-			}
+			lastOutput = event
 		case events.KindToolResult:
 			results[event.ToolCallID] = *event
 		case events.KindContextCheckpoint:
@@ -230,17 +230,19 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	attributes.PutStr("gen_ai.agent.name", turn.AgentName)
 	attributes.PutStr("gen_ai.conversation.id", turn.AgentID)
 	turn.putCommonAttributes(attributes)
-	if turn.Truncated {
-		attributes.PutBool("omnara.trace.truncated", true)
-	}
 	rootContent := spanContent{}
 	if opening != nil {
-		rootContent.input = []message{{Role: "user", Parts: parseParts(opening.ContentBlocks, providerCallIDs)}}
+		rootContent.input = []message{{Role: "user", Parts: content.parts(opening.ContentBlocks)}}
 	}
-	if closing != nil {
-		rootContent.output = []message{{Role: "assistant", Parts: parseParts(closing.ContentBlocks, providerCallIDs)}}
-		if closing.StopReason == "error" {
-			root.Status().SetCode(ptrace.StatusCodeError)
+	// The turn's answer is its last output, unless the turn goes on from it:
+	// an output that calls tools or was cut off at the output limit is
+	// followed by another model call, as the execution commands decide.
+	if lastOutput != nil && lastOutput.StopReason != modelenvelope.StopReasonMaxTokens {
+		if parts := content.parts(lastOutput.ContentBlocks); !hasToolCall(parts) {
+			rootContent.output = []message{{Role: "assistant", Parts: parts}}
+			if lastOutput.StopReason == modelenvelope.StopReasonError {
+				root.Status().SetCode(ptrace.StatusCodeError)
+			}
 		}
 	}
 	variant.putAttributes(attributes, spanRoleAgent, turn, rootContent, "")
@@ -256,11 +258,11 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 			span.Status().SetCode(ptrace.StatusCodeError)
 			span.Status().SetMessage(call.ErrorMessage)
 		}
-		content := spanContent{}
+		spanContent := spanContent{}
 		if output, ok := outputs[call.ID]; ok {
-			content.output = []message{{Role: "assistant", Parts: parseParts(output.ContentBlocks, providerCallIDs)}}
+			spanContent.output = []message{{Role: "assistant", Parts: content.parts(output.ContentBlocks)}}
 		}
-		variant.putAttributes(attributes, spanRoleModel, turn, content, call.CostUSD)
+		variant.putAttributes(attributes, spanRoleModel, turn, spanContent, call.CostUSD)
 	}
 
 	for _, call := range turn.ToolCalls {
@@ -274,22 +276,28 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 		attributes.PutStr("gen_ai.tool.type", "function")
 		attributes.PutStr("gen_ai.tool.call.id", call.ProviderCallID)
 		turn.putCommonAttributes(attributes)
-		content := spanContent{
-			toolArguments: string(call.Input),
-			toolResult:    partsText(parseParts(result.ContentBlocks, providerCallIDs)),
+		spanContent := spanContent{
+			toolArguments: content.clip(string(call.Input)),
+			toolResult:    partsText(content.parts(result.ContentBlocks)),
 		}
-		if content.toolArguments != "" {
-			attributes.PutStr("gen_ai.tool.call.arguments", content.toolArguments)
+		if spanContent.toolArguments != "" {
+			attributes.PutStr("gen_ai.tool.call.arguments", spanContent.toolArguments)
 		}
 		if call.Outcome == "succeeded" {
-			attributes.PutStr("gen_ai.tool.call.result", content.toolResult)
+			attributes.PutStr("gen_ai.tool.call.result", spanContent.toolResult)
 		} else {
 			attributes.PutStr("error.type", call.Outcome)
 			span.Status().SetCode(ptrace.StatusCodeError)
-			span.Status().SetMessage(content.toolResult)
+			span.Status().SetMessage(spanContent.toolResult)
 		}
-		variant.putAttributes(attributes, spanRoleTool, turn, content, "")
+		variant.putAttributes(attributes, spanRoleTool, turn, spanContent, "")
 		putLinks(span, call.Links)
+	}
+	if turn.Truncated {
+		root.Attributes().PutBool("omnara.trace.truncated", true)
+	}
+	if content.clipped {
+		root.Attributes().PutBool("omnara.trace.content_truncated", true)
 	}
 	return traces
 }
@@ -335,9 +343,18 @@ func (call ModelCall) putAttributes(attributes pcommon.Map) {
 	if call.State == "succeeded" {
 		attributes.PutInt("gen_ai.usage.input_tokens", call.InputTokens)
 		attributes.PutInt("gen_ai.usage.output_tokens", call.OutputTokens)
-		attributes.PutInt("gen_ai.usage.cache_read.input_tokens", call.CacheReadTokens)
-		attributes.PutInt("gen_ai.usage.cache_write.input_tokens", call.CacheWriteTokens)
-		attributes.PutInt("gen_ai.usage.reasoning.output_tokens", call.ReasoningTokens)
+		for _, usage := range []struct {
+			key    string
+			tokens *int64
+		}{
+			{"gen_ai.usage.cache_read.input_tokens", call.CacheReadTokens},
+			{"gen_ai.usage.cache_write.input_tokens", call.CacheWriteTokens},
+			{"gen_ai.usage.reasoning.output_tokens", call.ReasoningTokens},
+		} {
+			if usage.tokens != nil {
+				attributes.PutInt(usage.key, *usage.tokens)
+			}
+		}
 	} else if call.ErrorKind != "" {
 		attributes.PutStr("error.type", call.ErrorKind)
 	}
@@ -359,13 +376,42 @@ type part struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-func parseParts(raw json.RawMessage, providerCallIDs map[string]string) []part {
+const (
+	// maxContentValueBytes bounds one message part, tool argument or result.
+	maxContentValueBytes = 256 * 1024
+	// maxTraceContentBytes bounds the content of one trace, so a turn of any
+	// size encodes to a request an endpoint can accept.
+	maxTraceContentBytes = 8 * 1024 * 1024
+)
+
+// contentReader turns stored content blocks into message parts within the
+// trace's content budget. clipped records that some content was cut, which the
+// root span reports rather than leaving the loss silent.
+type contentReader struct {
+	providerCallIDs map[string]string
+	budget          int
+	clipped         bool
+}
+
+func (reader *contentReader) clip(text string) string {
+	limit := max(min(maxContentValueBytes, reader.budget), 0)
+	if len(text) > limit {
+		reader.clipped = true
+		text = strings.ToValidUTF8(text[:limit], "")
+	}
+	reader.budget -= len(text)
+	return text
+}
+
+func (reader *contentReader) parts(raw json.RawMessage) []part {
 	var blocks []struct {
 		Type       string          `json:"type"`
 		Text       string          `json:"text"`
 		ToolCallID string          `json:"tool_call_id"`
 		Name       string          `json:"name"`
 		Input      json.RawMessage `json:"input"`
+		Value      json.RawMessage `json:"value"`
+		ArtifactID string          `json:"artifact_id"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
 		return []part{}
@@ -374,22 +420,43 @@ func parseParts(raw json.RawMessage, providerCallIDs map[string]string) []part {
 	for _, block := range blocks {
 		switch block.Type {
 		case "tool_call":
-			id := providerCallIDs[block.ToolCallID]
+			id := reader.providerCallIDs[block.ToolCallID]
 			if id == "" {
 				id = block.ToolCallID
 			}
-			parts = append(parts, part{Type: "tool_call", ID: id, Name: block.Name, Arguments: block.Input})
+			arguments := block.Input
+			if clipped := reader.clip(string(arguments)); len(clipped) != len(arguments) {
+				// Cut JSON is no longer JSON, so it is carried as a string.
+				arguments = json.RawMessage(jsonString(clipped))
+			}
+			parts = append(parts, part{Type: "tool_call", ID: id, Name: block.Name, Arguments: arguments})
+		case "structured_data":
+			parts = append(parts, part{Type: block.Type, Content: reader.clip(string(block.Value))})
+		case "media_ref":
+			parts = append(parts, part{Type: block.Type, ID: block.ArtifactID})
 		default:
-			parts = append(parts, part{Type: block.Type, Content: block.Text})
+			parts = append(parts, part{Type: block.Type, Content: reader.clip(block.Text)})
 		}
 	}
 	return parts
 }
 
+func hasToolCall(parts []part) bool {
+	for _, part := range parts {
+		if part.Type == "tool_call" {
+			return true
+		}
+	}
+	return false
+}
+
 func partsText(parts []part) string {
 	texts := make([]string, 0, len(parts))
 	for _, part := range parts {
-		if part.Content != "" && part.Type != "reasoning" {
+		switch {
+		case part.Type == "media_ref":
+			texts = append(texts, "[media "+part.ID+"]")
+		case part.Content != "" && part.Type != "reasoning":
 			texts = append(texts, part.Content)
 		}
 	}

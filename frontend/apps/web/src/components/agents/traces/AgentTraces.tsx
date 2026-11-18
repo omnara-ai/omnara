@@ -120,7 +120,9 @@ function TurnTrace({
   // Until a span is picked, the turn's root span is shown.
   const selected = trace?.spans.find((span) => span.id === chosenSpanId) ?? trace?.spans.at(0)
   const truncated = trace?.spans.some((span) =>
-    span.attributes.some(({ key }) => key === 'omnara.trace.truncated'),
+    span.attributes.some(
+      ({ key }) => key === 'omnara.trace.truncated' || key === 'omnara.trace.content_truncated',
+    ),
   )
 
   return (
@@ -133,7 +135,7 @@ function TurnTrace({
             {trace && trace.spans.length > 0 && (
               <p className="text-muted-foreground truncate text-sm">
                 {trace.spans.length === 1 ? '1 span' : `${String(trace.spans.length)} spans`}
-                {truncated && ' · Earliest events omitted'}
+                {truncated && ' · Truncated'}
               </p>
             )}
           </>,

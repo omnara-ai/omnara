@@ -176,6 +176,7 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 				}
 			}
 		}
+		h.exportTurn(turn)
 		m.head.StopSequence = result.Event.Sequence
 		m.head.PendingToolOutputID = uuid.Nil
 		m.head.PendingOutputLimitID = uuid.Nil

@@ -506,6 +506,16 @@ func (s *Service) deleteProjectOnce(
 	if err != nil {
 		return nil, err
 	}
+	if err := q.DeleteProjectOtelExporters(ctx, dbsqlc.DeleteProjectOtelExportersParams{
+		OrgID: orgID, ProjectID: &projectID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete project otel exporters: %w", err)
+	}
+	if err := q.DeleteProjectOtelExportDeliveries(ctx, dbsqlc.DeleteProjectOtelExportDeliveriesParams{
+		OrgID: orgID, ProjectID: projectID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete project otel export deliveries: %w", err)
+	}
 	rows, err := q.DeleteProject(ctx, dbsqlc.DeleteProjectParams{OrgID: orgID, ID: projectID})
 	if err != nil {
 		return nil, fmt.Errorf("delete project: %w", err)

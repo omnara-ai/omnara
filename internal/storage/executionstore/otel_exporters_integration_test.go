@@ -3,10 +3,12 @@
 package executionstore_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	otelconfig "github.com/omnara-ai/omnara/internal/otelexport/config"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -36,19 +38,56 @@ func otelDeliveryTurns(t *testing.T, fixture processDaemonFixture, exporterID uu
 	return turns
 }
 
-func closeTurnForOtelTest(t *testing.T, fixture processDaemonFixture, sequence int64) {
+// startOtelTestTurn opens a turn with a model call in flight, through the
+// commands the worker uses.
+func startOtelTestTurn(t *testing.T, fixture processDaemonFixture, key string) (turnID, contextID uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
-	pending := notifications.NewTxNotifications()
-	pending.AddAgentEvent(fixture.AgentID, sequence, "model_output")
-	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + key + `"}]`),
+		IdempotencyKey: "otel-export-" + key, DeliveryMode: executionstore.DeliveryModeSteering,
+	})
 	require.NoError(t, err)
-	defer func() { _ = unit.Rollback(ctx) }()
-	*unit.Notifications() = *pending
-	require.NoError(t, unit.Commit(ctx, "otel export test"))
+	_, found := admitNextAgentInputAndOpenTurnForTest(
+		t, ctx, fixture.Store, testProjectID, fixture.AgentID, fixture.Lock.ID)
+	require.True(t, found)
+	prepared, err := fixture.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+		OpeningInputIDs: []uuid.UUID{input.ID},
+	})
+	require.NoError(t, err)
+	require.True(t, prepared.Claim.Claimed)
+	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+		SELECT id FROM agent_turns WHERE agent_id = $1 ORDER BY turn_sequence DESC LIMIT 1`,
+		fixture.AgentID).Scan(&turnID))
+	return turnID, prepared.Claim.Context.ID
 }
 
-func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
+func recordOtelTestOutput(
+	t *testing.T, fixture processDaemonFixture, contextID uuid.UUID,
+	stopReason modelenvelope.StopReason, content ...modelenvelope.ResponsePart,
+) {
+	t.Helper()
+	ctx := t.Context()
+	_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
+		executionstore.RecordModelOutputAndCompleteContextInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: contextID,
+			ProviderResponse: modelenvelope.ResponseEnvelope{
+				RequestedProviderModelSlug: modelProviderSlugForContext(
+					t, ctx, fixture.Store, testProjectID, fixture.AgentID, contextID),
+				APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+				Normalized: modelenvelope.ResponseNormalized{
+					ID: "resp_" + contextID.String(), Content: content, StopReason: stopReason,
+					Usage: modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
+				},
+			},
+		})
+	require.NoError(t, err)
+}
+
+func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "otel_export")
 	store := fixture.Store.Execution()
@@ -90,35 +129,12 @@ func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 	})
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 
-	toolID := createToolCallForProcessTestWithPermission(t, ctx, fixture, "otel-export", "ask_question", true)
-	ownedCompleteTool(t, ctx, fixture, toolID)
-	var outputSequence int64
-	var turnID uuid.UUID
-	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
-		SELECT sequence, turn_id FROM agent_events
-		WHERE agent_id = $1 AND event_kind = 'model_output' ORDER BY sequence DESC LIMIT 1`,
-		fixture.AgentID).Scan(&outputSequence, &turnID))
-	closeTurnForOtelTest(t, fixture, outputSequence)
-	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
+	text := modelenvelope.ResponsePart{Type: "text", Text: "done"}
 
-	// An output cut off at max_tokens is continued by another model call, so
-	// it leaves the turn open; an output that ends the turn queues it.
-	for _, stopReason := range []string{"max_tokens", "end_turn"} {
-		for _, statement := range []string{
-			`ALTER TABLE model_outputs DISABLE TRIGGER USER`,
-			`UPDATE model_outputs SET stop_reason = '` + stopReason + `' WHERE agent_id = '` + fixture.AgentID.String() + `'`,
-			`ALTER TABLE model_outputs ENABLE TRIGGER USER`,
-		} {
-			_, err = fixture.Store.pool.Exec(ctx, statement)
-			require.NoError(t, err)
-		}
-		if stopReason == "max_tokens" {
-			closeTurnForOtelTest(t, fixture, outputSequence)
-			require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
-		}
-	}
-	closeTurnForOtelTest(t, fixture, outputSequence)
-	closeTurnForOtelTest(t, fixture, outputSequence)
+	// An output that neither calls tools nor is cut off finishes its turn.
+	turnID, contextID := startOtelTestTurn(t, fixture, "finished")
+	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
+	recordOtelTestOutput(t, fixture, contextID, modelenvelope.StopReasonEndTurn, text)
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, orgWide.ID))
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
 	require.Empty(t, otelDeliveryTurns(t, fixture, unsampled.ID))
@@ -140,18 +156,15 @@ func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 
 	turn, err := store.LoadTurnTraceForExport(ctx, fixture.AgentID, turnID)
 	require.NoError(t, err)
-	require.Len(t, turn.ToolCalls, 1)
-	require.Equal(t, toolID, turn.ToolCalls[0].ID)
-	require.NotEmpty(t, turn.ModelCalls)
+	require.Len(t, turn.ModelCalls, 1)
 	var names []string
 	spans := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 	for _, span := range spans.All() {
 		names = append(names, span.Name())
 		require.Equal(t, oteltrace.TraceID(turnID), span.TraceID())
 	}
-	require.Len(t, names, 2+len(turn.ModelCalls))
+	require.Len(t, names, 2)
 	require.Contains(t, names[0], "invoke_agent")
-	require.Equal(t, "execute_tool ask_question", names[len(names)-1])
 	_, err = store.LoadTurnTraceForExport(ctx, fixture.AgentID, uuid.New())
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = store.LoadTurnTrace(ctx, uuid.New(), fixture.AgentID, turnID)
@@ -172,14 +185,7 @@ func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, store.CompleteOtelExportDelivery(ctx, orgDelivery.ID, orgDelivery.ClaimToken))
 	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
 
-	// The turn closing again re-arms the claimed delivery, so the stale claim
-	// can no longer complete it.
-	closeTurnForOtelTest(t, fixture, outputSequence)
-	require.NoError(t, store.CompleteOtelExportDelivery(ctx, projectDelivery.ID, projectDelivery.ClaimToken))
-	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
-	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, orgWide.ID))
-	_, err = fixture.Store.pool.Exec(ctx, `DELETE FROM otel_export_deliveries WHERE exporter_id = $1`, orgWide.ID)
-	require.NoError(t, err)
+	require.NoError(t, store.RetryOtelExportDelivery(ctx, projectDelivery.ID, projectDelivery.ClaimToken, 0))
 	projectDelivery, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
 	// Only the current claim can release the delivery for another attempt.
@@ -191,6 +197,33 @@ func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, project.ID, retried.ExporterID)
 	require.EqualValues(t, 3, retried.AttemptCount)
+	require.NoError(t, store.CompleteOtelExportDelivery(ctx, retried.ID, retried.ClaimToken))
+
+	// An output cut off at the output limit is continued by another model
+	// call, so its turn stays open until a new turn replaces it.
+	cutOffTurn, contextID := startOtelTestTurn(t, fixture, "cut-off")
+	recordOtelTestOutput(t, fixture, contextID, modelenvelope.StopReasonMaxTokens, text)
+	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
+	canceledTurn, _ := startOtelTestTurn(t, fixture, "canceled")
+	require.Equal(t, []uuid.UUID{cutOffTurn}, otelDeliveryTurns(t, fixture, orgWide.ID))
+
+	// Cancellation finishes a turn that has no closing output.
+	_, err = store.CancelAgent(ctx, executionstore.CancelAgentInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{cutOffTurn, canceledTurn}, otelDeliveryTurns(t, fixture, orgWide.ID))
+	require.Equal(t, []uuid.UUID{cutOffTurn, canceledTurn}, otelDeliveryTurns(t, fixture, project.ID))
+	canceled, err := store.LoadTurnTraceForExport(ctx, fixture.AgentID, canceledTurn)
+	require.NoError(t, err)
+	require.Len(t, canceled.ModelCalls, 1)
+	require.Equal(t, "canceled", canceled.ModelCalls[0].State)
+
+	// A secret an exporter sends as a header cannot be deleted from under it.
+	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(owner.ID),
+	})
+	require.ErrorIs(t, err, storeerr.ErrConflict)
 
 	sampleRate := 12.345
 	updated, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
@@ -212,7 +245,15 @@ func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 	require.Len(t, listed.Exporters, 1)
 	require.Equal(t, project.ID, listed.Exporters[0].ID)
 
+	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(owner.ID),
+	})
+	require.NoError(t, err)
+
+	// Deleting an exporter drops the turns still queued for it.
+	require.NotEmpty(t, otelDeliveryTurns(t, fixture, project.ID))
 	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, project.ID))
+	require.Empty(t, otelDeliveryTurns(t, fixture, project.ID))
 	_, err = store.GetOtelExportDestination(ctx, testOrgID, project.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testOrgID, project.ID), storeerr.ErrNotFound)

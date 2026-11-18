@@ -151,73 +151,85 @@ func (q *Queries) DeleteOtelExporter(ctx context.Context, arg DeleteOtelExporter
 	return result.RowsAffected(), nil
 }
 
+const deleteOtelExporterDeliveries = `-- name: DeleteOtelExporterDeliveries :exec
+DELETE FROM otel_export_deliveries WHERE org_id = $1 AND exporter_id = $2
+`
+
+type DeleteOtelExporterDeliveriesParams struct {
+	OrgID      uuid.UUID
+	ExporterID uuid.UUID
+}
+
+// Deleting an exporter drops the turns still queued for it.
+func (q *Queries) DeleteOtelExporterDeliveries(ctx context.Context, arg DeleteOtelExporterDeliveriesParams) error {
+	_, err := q.db.Exec(ctx, deleteOtelExporterDeliveries, arg.OrgID, arg.ExporterID)
+	return err
+}
+
+const deleteProjectOtelExportDeliveries = `-- name: DeleteProjectOtelExportDeliveries :exec
+DELETE FROM otel_export_deliveries delivery
+USING agents agent
+WHERE agent.id = delivery.agent_id
+  AND agent.org_id = $1
+  AND agent.project_id = $2
+`
+
+type DeleteProjectOtelExportDeliveriesParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+// Turns of a deleted project's agents are dropped whichever exporter they
+// were queued for, organization-wide ones included.
+func (q *Queries) DeleteProjectOtelExportDeliveries(ctx context.Context, arg DeleteProjectOtelExportDeliveriesParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectOtelExportDeliveries, arg.OrgID, arg.ProjectID)
+	return err
+}
+
+const deleteProjectOtelExporters = `-- name: DeleteProjectOtelExporters :exec
+UPDATE otel_exporters SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE org_id = $1 AND project_id = $2 AND deleted_at IS NULL
+`
+
+type DeleteProjectOtelExportersParams struct {
+	OrgID     uuid.UUID
+	ProjectID *uuid.UUID
+}
+
+// A deleted project retires its own and its agents' exporters.
+func (q *Queries) DeleteProjectOtelExporters(ctx context.Context, arg DeleteProjectOtelExportersParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectOtelExporters, arg.OrgID, arg.ProjectID)
+	return err
+}
+
 const enqueueOtelExportDeliveries = `-- name: EnqueueOtelExportDeliveries :exec
 INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id)
-SELECT DISTINCT exporter.org_id, exporter.id, closed.agent_id, closed.turn_id
-FROM (
-    SELECT event.agent_id, event.turn_id
-    FROM agent_events event
-    JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
-    WHERE event.agent_id = $1
-      AND event.sequence = ANY($2::bigint[])
-      AND event.event_kind = 'model_output'
-      AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
-    UNION
-    SELECT previous.agent_id, previous.id
-    FROM agent_events event
-    JOIN agent_turns turn ON turn.agent_id = event.agent_id AND turn.id = event.turn_id
-    JOIN agent_turns previous ON previous.agent_id = turn.agent_id
-        AND previous.turn_sequence = turn.turn_sequence - 1
-    JOIN LATERAL (
-        SELECT last.model_output_id
-        FROM agent_events last
-        WHERE last.agent_id = previous.agent_id
-          AND last.turn_id = previous.id
-          AND last.event_kind = 'model_output'
-        ORDER BY last.sequence DESC
-        LIMIT 1
-    ) final ON true
-    JOIN model_outputs final_output ON final_output.agent_id = previous.agent_id
-        AND final_output.id = final.model_output_id
-    WHERE event.agent_id = $1
-      AND event.sequence = ANY($2::bigint[])
-      AND event.event_kind = 'model_output'
-      AND final_output.stop_reason IN ('tool_use', 'max_tokens')
-      AND NOT EXISTS (
-          SELECT 1
-          FROM agent_events earlier
-          WHERE earlier.agent_id = event.agent_id
-            AND earlier.turn_id = event.turn_id
-            AND earlier.event_kind = 'model_output'
-            AND earlier.sequence < event.sequence
-      )
-) closed
-JOIN agents agent ON agent.id = closed.agent_id
+SELECT exporter.org_id, exporter.id, turn.agent_id, turn.id
+FROM agent_turns turn
+JOIN agents agent ON agent.id = turn.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND (exporter.project_id IS NULL OR exporter.project_id = agent.project_id)
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
-WHERE exporter.deleted_at IS NULL
+WHERE turn.agent_id = $1
+  AND turn.id = ANY($2::uuid[])
+  AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(closed.turn_id, exporter.sample_percent)
-ON CONFLICT (exporter_id, turn_id) DO UPDATE
-SET next_attempt_at = statement_timestamp(), claim_token = NULL, claim_expires_at = NULL
+  AND otel_trace_sampled(turn.id, exporter.sample_percent)
+ON CONFLICT (exporter_id, turn_id) DO NOTHING
 `
 
 type EnqueueOtelExportDeliveriesParams struct {
-	AgentID        uuid.UUID
-	EventSequences []int64
+	AgentID uuid.UUID
+	TurnIds []uuid.UUID
 }
 
-// A turn is queued when a model output ends it. A turn that instead stopped
-// on a tool call, such as one waiting on a subagent, has no such output, so it
-// is queued when the agent's next turn produces its first output.
-// A turn that closes again while its delivery is claimed is re-armed, so the
-// in-flight claim no longer owns the row.
+// Queues turns the execution commands have finished. Each turn finishes once,
+// so exporter matching and sampling are decided here once per turn.
 func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOtelExportDeliveriesParams) error {
-	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.AgentID, arg.EventSequences)
+	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.AgentID, arg.TurnIds)
 	return err
 }
 
@@ -312,6 +324,8 @@ SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
+JOIN projects project ON project.id = agent.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 WHERE ($1::uuid IS NULL OR agent.project_id = $1::uuid)
   AND turn.agent_id = $2
   AND turn.id = $3
@@ -525,10 +539,9 @@ SELECT context.id, context.operation_kind, context.attempt_number, context.state
        coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
        context.error_kind, context.error_message,
        coalesce(context.input_tokens_total, 0)::bigint AS input_tokens_total,
-       coalesce(context.cache_read_input_tokens, 0)::bigint AS cache_read_input_tokens,
-       coalesce(context.cache_write_input_tokens, 0)::bigint AS cache_write_input_tokens,
+       context.cache_read_input_tokens, context.cache_write_input_tokens,
        coalesce(context.output_tokens_total, 0)::bigint AS output_tokens_total,
-       coalesce(context.reasoning_output_tokens, 0)::bigint AS reasoning_output_tokens,
+       context.reasoning_output_tokens,
        context.created_at, context.completed_at,
        revision.provider_model_slug,
        coalesce(output.served_provider_model_slug, '')::text AS served_provider_model_slug,
@@ -541,12 +554,14 @@ LEFT JOIN model_outputs output ON output.agent_id = context.agent_id
 WHERE context.agent_id = $1
   AND context.turn_id = $2
   AND context.completed_at IS NOT NULL
-ORDER BY context.created_at, context.id
+ORDER BY context.created_at DESC, context.id DESC
+LIMIT $3
 `
 
 type ListTurnTraceModelCallsParams struct {
-	AgentID uuid.UUID
-	TurnID  uuid.UUID
+	AgentID  uuid.UUID
+	TurnID   uuid.UUID
+	RowLimit int32
 }
 
 type ListTurnTraceModelCallsRow struct {
@@ -560,10 +575,10 @@ type ListTurnTraceModelCallsRow struct {
 	ErrorKind               string
 	ErrorMessage            string
 	InputTokensTotal        int64
-	CacheReadInputTokens    int64
-	CacheWriteInputTokens   int64
+	CacheReadInputTokens    *int32
+	CacheWriteInputTokens   *int32
 	OutputTokensTotal       int64
-	ReasoningOutputTokens   int64
+	ReasoningOutputTokens   *int32
 	CreatedAt               time.Time
 	CompletedAt             *time.Time
 	ProviderModelSlug       string
@@ -571,8 +586,9 @@ type ListTurnTraceModelCallsRow struct {
 	StopReason              string
 }
 
+// Newest first, so a turn with more calls than the limit keeps its latest.
 func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTraceModelCallsParams) ([]ListTurnTraceModelCallsRow, error) {
-	rows, err := q.db.Query(ctx, listTurnTraceModelCalls, arg.AgentID, arg.TurnID)
+	rows, err := q.db.Query(ctx, listTurnTraceModelCalls, arg.AgentID, arg.TurnID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -673,12 +689,14 @@ FROM tool_call_read_projection call
 JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
 WHERE call.agent_id = $1
   AND call.turn_id = $2
-ORDER BY call.created_at, call.id
+ORDER BY call.created_at DESC, call.id DESC
+LIMIT $3
 `
 
 type ListTurnTraceToolCallsParams struct {
-	AgentID uuid.UUID
-	TurnID  uuid.UUID
+	AgentID  uuid.UUID
+	TurnID   uuid.UUID
+	RowLimit int32
 }
 
 type ListTurnTraceToolCallsRow struct {
@@ -691,8 +709,9 @@ type ListTurnTraceToolCallsRow struct {
 	CompletedAt    time.Time
 }
 
+// Newest first, so a turn with more calls than the limit keeps its latest.
 func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceToolCallsParams) ([]ListTurnTraceToolCallsRow, error) {
-	rows, err := q.db.Query(ctx, listTurnTraceToolCalls, arg.AgentID, arg.TurnID)
+	rows, err := q.db.Query(ctx, listTurnTraceToolCalls, arg.AgentID, arg.TurnID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

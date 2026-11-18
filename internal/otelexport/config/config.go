@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
+// MaxHeaders bounds each of headers and secret_headers, as the API schema does.
 const MaxHeaders = 20
 
 type Settings struct {
@@ -60,8 +61,8 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 	if settings.SecretHeaders == nil {
 		settings.SecretHeaders = map[string]uuid.UUID{}
 	}
-	if len(settings.Headers)+len(settings.SecretHeaders) > MaxHeaders {
-		return Settings{}, fmt.Errorf("headers and secret_headers may contain at most %d entries combined", MaxHeaders)
+	if len(settings.Headers) > MaxHeaders || len(settings.SecretHeaders) > MaxHeaders {
+		return Settings{}, fmt.Errorf("headers and secret_headers may each contain at most %d entries", MaxHeaders)
 	}
 	seen := make(map[string]bool, len(settings.Headers)+len(settings.SecretHeaders))
 	validateName := func(name string) error {

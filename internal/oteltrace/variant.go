@@ -122,6 +122,10 @@ func jsonValue(text string) string {
 	if json.Valid([]byte(text)) {
 		return text
 	}
+	return jsonString(text)
+}
+
+func jsonString(text string) string {
 	encoded, err := json.Marshal(text)
 	if err != nil {
 		return `""`

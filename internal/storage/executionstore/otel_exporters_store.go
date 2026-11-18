@@ -358,13 +358,25 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	return otelExporterRecordFromSQLC(row)
 }
 
+// DeleteOtelExporter deletes the exporter and drops the turns queued for it.
 func (s *Store) DeleteOtelExporter(ctx context.Context, orgID, id uuid.UUID) error {
-	count, err := s.q.DeleteOtelExporter(ctx, dbsqlc.DeleteOtelExporterParams{OrgID: orgID, ID: id})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := dbsqlc.New(tx)
+	count, err := q.DeleteOtelExporter(ctx, dbsqlc.DeleteOtelExporterParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return err
 	}
 	if count == 0 {
 		return storeerr.ErrNotFound
 	}
-	return nil
+	if err := q.DeleteOtelExporterDeliveries(ctx, dbsqlc.DeleteOtelExporterDeliveriesParams{
+		OrgID: orgID, ExporterID: id,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

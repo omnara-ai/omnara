@@ -44,10 +44,9 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			}
 			statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 			require.NoError(t, err)
-			// Each commit also queues the turn for OpenTelemetry export, in a statement of its own.
-			expectedStatements, expectedRoundTrips := 3, 3
+			expectedStatements, expectedRoundTrips := 2, 2
 			if step == "tool" {
-				expectedStatements, expectedRoundTrips = 5, 4
+				expectedStatements, expectedRoundTrips = 4, 3
 			}
 			require.Equal(t, expectedStatements, statements)
 			require.Equal(t, expectedRoundTrips, roundTrips)

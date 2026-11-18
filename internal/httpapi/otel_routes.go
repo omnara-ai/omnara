@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 func (s strictOpenAPIServer) GetTurnTrace(
@@ -231,11 +232,11 @@ func (s strictOpenAPIServer) ListOtelExporters(
 	if err != nil {
 		return nil, err
 	}
-	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindOtelExporter)
+	limit, err := parseOpenAPIPageLimit(request.Params.Limit)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	input := executionstore.ListOtelExportersInput{OrgID: org.ID, Limit: limit, After: after}
+	input := executionstore.ListOtelExportersInput{OrgID: org.ID, Limit: limit}
 	if request.Params.ScopeType != nil {
 		scope, err := parseOtelExporterScopeIDs(executionstore.OtelExporterScopeType(*request.Params.ScopeType),
 			request.Params.ProjectId, request.Params.AgentId)
@@ -245,6 +246,24 @@ func (s strictOpenAPIServer) ListOtelExporters(
 		input.Scope = &scope
 	} else if request.Params.ProjectId != nil || request.Params.AgentId != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "project or agent ID requires scope_type")
+	}
+	// The cursor is bound to the organization and the scope filter, so one
+	// list's position cannot be replayed against another.
+	sort := "created_at"
+	options, err := parseResourceListQuery(resourceListQueryInput{
+		Cursor: request.Params.Cursor, Sort: &sort, AllowedSorts: sortSet(sort),
+		ListKind: "otel_exporters", Scope: org.ID.String(),
+		IDKind: publicid.KindOtelExporter, Extra: input.Scope,
+	})
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	if options.After.Set {
+		createdAt, err := listing.ParseTimestampKey(options.After.Key)
+		if err != nil || createdAt.IsZero() || options.After.IsNull {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, errMalformedCursor.Error())
+		}
+		input.After = listing.KeysetCursor{Set: true, CreatedAt: createdAt, ID: options.After.ID}
 	}
 	page, err := s.server.store.Execution().ListOtelExporters(ctx, input)
 	if err != nil {
@@ -260,7 +279,9 @@ func (s strictOpenAPIServer) ListOtelExporters(
 		response.Data = append(response.Data, exporter)
 		last = record
 	}
-	next, err := encodeNextCursor(page.HasMore, last.CreatedAt, publicid.KindOtelExporter, last.ID)
+	next, err := encodeResourceListNextCursor(page.HasMore,
+		listing.Cursor{Set: last.ID != uuid.Nil, Key: listing.TimestampKey(last.CreatedAt), ID: last.ID},
+		options, "otel_exporters", org.ID.String(), publicid.KindOtelExporter, input.Scope)
 	if err != nil {
 		return nil, err
 	}

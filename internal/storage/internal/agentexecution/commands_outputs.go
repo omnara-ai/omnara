@@ -199,14 +199,18 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		}
 		sourceContext := attemptRecord(source).Context
 		sourceContext.State = ContextSucceeded
-		if err = applyAcceptedOutput(m,
+		finished, err := applyAcceptedOutput(m,
 			snapshot,
 			sourceContext,
 			output.ID,
 			event,
 			len(proposals) > 0,
-			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens); err != nil {
+			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens)
+		if err != nil {
 			return AcceptedOutput{}, err
+		}
+		if finished {
+			h.exportTurn(event.TurnID)
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
@@ -261,7 +265,7 @@ func applyAcceptedOutput(
 	id uuid.UUID,
 	event ExecutionEvent,
 	tools, limit bool,
-) error {
+) (finished bool, err error) {
 	if snapshot.View.NormalContext != nil && snapshot.View.NormalContext.ID == source.ID {
 		snapshot.View.NormalContext = &source
 	}
@@ -275,12 +279,12 @@ func applyAcceptedOutput(
 		snapshot.View.OutputLimit.Context = source
 	}
 	if source.TurnID != m.head.CurrentTurnID || event.Sequence < m.head.StopSequence {
-		return m.updated(snapshot)
+		return false, m.updated(snapshot)
 	}
 	if snapshot.View.ToolBatch != nil {
 		completion := snapshot.View.ToolBatch.Completion
 		if completion == nil || source.InputEventSequence < completion.LastResultSequence {
-			return errors.New("accepted model output does not cover pending tool results")
+			return false, errors.New("accepted model output does not cover pending tool results")
 		}
 		m.head.PendingToolOutputID = uuid.Nil
 		snapshot.View.ToolBatch = nil
@@ -299,7 +303,7 @@ func applyAcceptedOutput(
 		snapshot.View.Turn.LatestSemantic = event.EventBoundary
 	}
 	snapshot.databaseNow = event.Time
-	return m.updated(snapshot)
+	return !tools && !limit, m.updated(snapshot)
 }
 
 func (h *Handle) rejectProposal(ctx context.Context, m *executionMutation, call outputProposal) error {
