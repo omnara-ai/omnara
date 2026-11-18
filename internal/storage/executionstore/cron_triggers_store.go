@@ -46,17 +46,15 @@ type CronTriggerTarget struct {
 }
 
 type CreateCronTriggerInput struct {
-	OrgID           uuid.UUID
-	ProjectID       uuid.UUID
-	Name            string
-	Target          CronTriggerTarget
-	CronExpression  string
-	Timezone        string
-	MessageTemplate string
-	Enabled         bool
-	IdempotencyKey  string
-	// MaxTriggersForTargetAgent, when positive, rejects a new trigger that would
-	// leave the target agent with more triggers than this.
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	Name                      string
+	Target                    CronTriggerTarget
+	CronExpression            string
+	Timezone                  string
+	MessageTemplate           string
+	Enabled                   bool
+	IdempotencyKey            string
 	MaxTriggersForTargetAgent int
 }
 
@@ -237,7 +235,6 @@ func (s *Store) CreateCronTrigger(
 		)
 	}
 	if input.Target.Kind == CronTriggerTargetAgent && input.MaxTriggersForTargetAgent > 0 {
-		// The target agent is locked, so concurrent creates cannot both pass.
 		agentTriggerCount, err := qtx.CountCronTriggersForAgent(ctx, dbsqlc.CountCronTriggersForAgentParams{
 			ProjectID: input.ProjectID, AgentID: input.Target.ID,
 		})

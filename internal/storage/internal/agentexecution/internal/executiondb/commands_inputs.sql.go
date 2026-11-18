@@ -99,7 +99,6 @@ type CountPendingExecutionContentParams struct {
 	Capacity int64
 }
 
-// Scheduled content holds backlog capacity so a release can never overflow it.
 func (q *Queries) CountPendingExecutionContent(ctx context.Context, db DBTX, arg CountPendingExecutionContentParams) (int64, error) {
 	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID, arg.Capacity)
 	var pending int64

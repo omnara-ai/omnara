@@ -46,7 +46,6 @@ func (h *Handle) ChangeBacklog(ctx context.Context, change BacklogChange) (bool,
 			return false, err
 		}
 		if change.Cancel && selected.InputKind == "content" && selected.State == "scheduled" {
-			// Scheduled content is outside selection, so canceling it leaves execution untouched.
 			n, err := executiondb.New().CancelScheduledExecutionInput(ctx, h.unit.DB(),
 				executiondb.CancelScheduledExecutionInputParams{AgentID: h.route.AgentID, ID: selected.ID})
 			return n > 0, err

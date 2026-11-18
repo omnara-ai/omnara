@@ -35,25 +35,20 @@ func NewService(
 }
 
 type FireStats struct {
-	Claimed  int
-	Queued   int
-	Launched int
-	Inputs   int
-	Disabled int
-	Failures int
-	// ScheduledInputs counts one-time scheduled agent inputs queued for their agents.
+	Claimed         int
+	Queued          int
+	Launched        int
+	Inputs          int
+	Disabled        int
+	Failures        int
 	ScheduledInputs int
 }
 
-// FireDueTriggers fires every due cron trigger, then queues every one-time
-// scheduled agent input whose time has come. Both run on each call: a failure
-// in one does not skip the other.
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 	stats, err := s.fireDueCronTriggers(ctx)
 	scheduled, scheduledErr := s.execution.ReleaseDueScheduledAgentInputs(ctx, FireBatchSize)
 	stats.ScheduledInputs = scheduled.Released
 	if scheduledErr != nil {
-		// Inputs that failed stay scheduled and are retried on the next call.
 		err = errors.Join(err, fmt.Errorf("queue due scheduled agent inputs: %w", scheduledErr))
 	}
 	return stats, err

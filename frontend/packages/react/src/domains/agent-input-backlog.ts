@@ -25,7 +25,6 @@ interface AgentInputBacklogScope {
 export type AgentInputBacklogItem =
   AgentInput | { id: string; delivery_mode: 'optimistic'; text: string; attachmentCount: number }
 
-/** A scheduled input is held until its `scheduled_for` time and is not yet waiting for the agent. */
 export function isScheduledBacklogInput(
   input: AgentInputBacklogItem,
 ): input is AgentInput & { state: 'scheduled' } {
@@ -112,7 +111,6 @@ export function cacheAgentInputBacklog(
   const current = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
   if (current == null) return
   const inputs = current.data.filter((candidate) => candidate.id !== input.id)
-  // Scheduled inputs stay last; steering inputs go ahead of queued ones.
   const insertionIndex = inputs.findIndex(
     (candidate) =>
       candidate.state === 'scheduled' ||

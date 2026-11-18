@@ -17,11 +17,9 @@ import (
 
 const (
 	scheduledMessageIdempotencyScope = "scheduled_message"
-	// MaxScheduledMessageDelay bounds how far ahead an agent may schedule a message to itself.
-	MaxScheduledMessageDelay = 366 * 24 * time.Hour
+	MaxScheduledMessageDelay         = 24 * time.Hour
 )
 
-// ScheduledMessage is a scheduled input an agent created for itself.
 type ScheduledMessage struct {
 	ID           uuid.UUID
 	Text         string
@@ -29,18 +27,12 @@ type ScheduledMessage struct {
 	ScheduledFor time.Time
 }
 
-// CreateScheduledMessageInput schedules a message from the calling agent to
-// itself. Exactly one of SourceScheduledFor and Delay is set; Delay is added to
-// the database clock.
 type CreateScheduledMessageInput struct {
 	SourceScheduledFor *time.Time
 	Delay              time.Duration
-	// Compose builds the stored message text from the database creation time
-	// and the resolved delivery time.
-	Compose func(createdAt, scheduledFor time.Time) string
+	Compose            func(createdAt, scheduledFor time.Time) string
 }
 
-// DatabaseNow returns the database clock that scheduled inputs are released against.
 func (r *ToolCallReader) DatabaseNow(ctx context.Context) (time.Time, error) {
 	now, err := r.transaction.q.DBNow(ctx)
 	if err != nil {
@@ -49,9 +41,6 @@ func (r *ToolCallReader) DatabaseNow(ctx context.Context) (time.Time, error) {
 	return now, nil
 }
 
-// ListOwnScheduledMessages returns the calling agent's pending scheduled
-// messages that the agent itself created, soonest first. Messages scheduled by
-// other actors, such as API callers, are not included.
 func (r *ToolCallReader) ListOwnScheduledMessages(ctx context.Context) ([]ScheduledMessage, error) {
 	t := r.transaction
 	actorID, found, err := t.ownActorID(ctx)
@@ -97,8 +86,6 @@ func (r *ToolCallReader) ListOwnScheduledMessages(ctx context.Context) ([]Schedu
 	return messages, nil
 }
 
-// CreateScheduledMessageForToolCall schedules a message attributed to the
-// calling agent's own actor and completes the tool call in the same transaction.
 func CreateScheduledMessageForToolCall(
 	input CreateScheduledMessageInput,
 	completion ToolCallCompletionBuilder[ScheduledMessage],
@@ -125,8 +112,6 @@ func CreateScheduledMessageForToolCall(
 	})
 }
 
-// CancelScheduledMessageForToolCall cancels one of the calling agent's own
-// scheduled messages and completes the tool call in the same transaction.
 func CancelScheduledMessageForToolCall(inputID uuid.UUID, completion ToolCallCompletionInput) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if err := tx.lockForMutation(ctx); err != nil {
@@ -150,8 +135,6 @@ func (t *toolCallTransaction) ownActorParams(ctx context.Context) (*ActorParams,
 	return SubagentActorParams(agent.OrgID, agent)
 }
 
-// ownActorID looks up the calling agent's actor without creating it: an agent
-// that has never authored an input has no actor and owns no scheduled messages.
 func (t *toolCallTransaction) ownActorID(ctx context.Context) (uuid.UUID, bool, error) {
 	params, err := t.ownActorParams(ctx)
 	if err != nil {
@@ -194,7 +177,7 @@ func (t *toolCallTransaction) createScheduledMessage(
 		return ScheduledMessage{}, storeerr.InvalidRequest(errors.New("the scheduled time must be in the future"))
 	}
 	if scheduledFor.After(now.Add(MaxScheduledMessageDelay)) {
-		return ScheduledMessage{}, storeerr.InvalidRequest(errors.New("the scheduled time is more than 366 days away"))
+		return ScheduledMessage{}, storeerr.InvalidRequest(errors.New("the scheduled time is more than 24 hours away"))
 	}
 	actor, err := t.ownActorParams(ctx)
 	if err != nil {
@@ -244,8 +227,6 @@ func (t *toolCallTransaction) cancelOwnScheduledMessage(ctx context.Context, inp
 	if err != nil {
 		return fmt.Errorf("load scheduled message: %w", err)
 	}
-	// Anything the agent did not schedule itself, or that is no longer
-	// scheduled, is reported as missing rather than revealed.
 	if row.State != AgentInputStateScheduled || row.ActorID == nil || *row.ActorID != actorID {
 		return storeerr.ErrNotFound
 	}
@@ -266,16 +247,10 @@ func (t *toolCallTransaction) cancelOwnScheduledMessage(ctx context.Context, inp
 }
 
 const (
-	// MaxAgentSchedules bounds how many cron schedules may target an agent
-	// before the agent can no longer create another for itself.
-	MaxAgentSchedules = 32
-	// MaxAgentSchedulesListed bounds how many of an agent's cron schedules the
-	// scheduling tools list. It exceeds MaxAgentSchedules because schedules
-	// created through the API are not capped.
+	MaxAgentSchedules       = 32
 	MaxAgentSchedulesListed = 100
 )
 
-// AgentSchedule is a cron trigger that delivers a recurring message to an agent.
 type AgentSchedule struct {
 	ID              uuid.UUID
 	Name            string
@@ -288,8 +263,6 @@ type AgentSchedule struct {
 	CreatedAt       time.Time
 }
 
-// ListAgentSchedules returns every cron trigger that targets the calling
-// agent, whoever created it, oldest first.
 func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedule, error) {
 	t := r.transaction
 	rows, err := t.q.ListCronTriggersForAgent(ctx, dbsqlc.ListCronTriggersForAgentParams{
@@ -309,7 +282,6 @@ func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedul
 	return schedules, nil
 }
 
-// DeleteCronTriggerForAgent deletes a cron trigger only if it targets the given agent.
 func (s *Store) DeleteCronTriggerForAgent(ctx context.Context, projectID, agentID, id uuid.UUID) error {
 	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project, agent, and cron trigger are required")

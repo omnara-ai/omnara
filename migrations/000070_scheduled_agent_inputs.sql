@@ -1,7 +1,5 @@
 -- +goose Up
 
--- A scheduled content input is held outside the execution backlog until its
--- scheduled_for time, when the schedule loop releases it to 'received'.
 ALTER TABLE agent_inputs
     ADD COLUMN scheduled_for timestamptz,
     DROP CONSTRAINT agent_inputs_state_check,

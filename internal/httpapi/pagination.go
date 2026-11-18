@@ -173,10 +173,9 @@ func encodeNextAgentInputQueueCursor(hasMore bool, last executionstore.AgentInpu
 }
 
 type agentInputQueueCursor struct {
-	DeliveryMode string    `json:"delivery_mode"`
-	InputRank    int64     `json:"input_rank"`
-	QueuedAt     time.Time `json:"queued_at"`
-	// ScheduledFor marks a cursor positioned on a scheduled input, which sorts after waiting inputs.
+	DeliveryMode string     `json:"delivery_mode"`
+	InputRank    int64      `json:"input_rank"`
+	QueuedAt     time.Time  `json:"queued_at"`
 	ScheduledFor *time.Time `json:"scheduled_for,omitempty"`
 	ID           string     `json:"id"`
 }

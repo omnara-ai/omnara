@@ -100,7 +100,6 @@ FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(pro
  AND c.project_id=a.project_id AND c.id=sqlc.arg(config_id);
 
 -- name: CountPendingExecutionContent :one
--- Scheduled content holds backlog capacity so a release can never overflow it.
 SELECT ((SELECT count(*) FROM (
     SELECT 1 FROM agent_inputs r
     WHERE r.agent_id=sqlc.arg(agent_id) AND r.state='received' AND r.input_kind='content'

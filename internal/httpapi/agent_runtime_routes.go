@@ -342,7 +342,6 @@ func (s strictOpenAPIServer) CreateAgentInput(
 	return s.createAgentInput(ctx, request, scope.project, scope.agent)
 }
 
-// maxScheduledInputDelay bounds how far ahead an API caller may schedule an input.
 const maxScheduledInputDelay = 24 * time.Hour
 
 func (s strictOpenAPIServer) createAgentInput(

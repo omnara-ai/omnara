@@ -182,7 +182,6 @@ func TestDeleteScheduledMessageToolCancelsTheAgentsOwnMessage(t *testing.T) {
 func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixture(t, ctx, "scheduled-message-cron")
-	// A schedule created through the API for this agent is visible to, and removable by, the agent.
 	existing, err := fixture.Store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
 		ProjectID: toolsTestProjectID, Name: "api-made",
 		Target:         executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetAgent, ID: fixture.Agent.ID},

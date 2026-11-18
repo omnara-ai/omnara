@@ -23,8 +23,7 @@ type ReceiveContentInput struct {
 	IdempotencyKey      string
 	Metadata            json.RawMessage
 	Content             []Content
-	// SourceScheduledFor holds the input outside the backlog until ReleaseScheduledContent.
-	SourceScheduledFor *time.Time
+	SourceScheduledFor  *time.Time
 }
 
 type ReceivedContent struct {
@@ -98,7 +97,6 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			return ReceivedContent{}, err
 		}
 		if input.SourceScheduledFor != nil {
-			// Scheduled content is invisible to selection until it is released.
 			return ReceivedContent{ID: row.ID}, nil
 		}
 		if m.loaded != nil {
@@ -118,9 +116,6 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 	})
 }
 
-// ReleaseScheduledContent moves a due scheduled input to the back of its
-// delivery backlog. It reports false when the input is no longer scheduled or
-// is not due yet.
 func (h *Handle) ReleaseScheduledContent(ctx context.Context, id uuid.UUID) (bool, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (bool, error) {
 		row, err := executiondb.New().ReleaseScheduledExecutionInput(ctx, h.unit.DB(),

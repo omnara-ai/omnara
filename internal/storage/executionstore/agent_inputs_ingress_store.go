@@ -42,7 +42,6 @@ type AgentInputQueueCursor struct {
 	DeliveryMode AgentInputDeliveryMode
 	InputRank    int64
 	QueuedAt     time.Time
-	// ScheduledFor is set when the cursor row is a scheduled input.
 	ScheduledFor *time.Time
 	ID           uuid.UUID
 }
@@ -59,7 +58,6 @@ type ListQueuedBacklogInputsResult struct {
 	HasMore bool
 }
 
-// AgentInputStateScheduled marks a content input held until its ScheduledFor time.
 const AgentInputStateScheduled = "scheduled"
 
 const (

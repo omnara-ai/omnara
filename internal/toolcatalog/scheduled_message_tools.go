@@ -6,8 +6,7 @@ const (
 	ToolNameCreateScheduledMessage = "create_scheduled_message"
 	ToolNameDeleteScheduledMessage = "delete_scheduled_message"
 
-	// ScheduledMessageMaxDelaySeconds is 366 days.
-	ScheduledMessageMaxDelaySeconds = 366 * 24 * 60 * 60
+	ScheduledMessageMaxDelaySeconds = 24 * 60 * 60
 	ScheduledMessageMaxLength       = 20000
 
 	getCurrentTimeToolDescription = "Get the current date and time in UTC. Use it before scheduling a message " +
@@ -28,7 +27,6 @@ const (
 		"been delivered yet, or any recurring schedule that messages you, by the id from get_scheduled_messages."
 )
 
-// ScheduledMessageToolNames lists the tools that let an agent schedule messages to itself.
 func ScheduledMessageToolNames() []string {
 	return []string{
 		ToolNameGetCurrentTime,
@@ -61,7 +59,7 @@ func createScheduledMessageTool() (Entry, error) {
 			"timestamp": map[string]any{
 				"type": "string",
 				"description": "Delivery time as an RFC 3339 timestamp with a UTC offset, such as " +
-					"2026-12-01T09:00:00Z. Must be in the future and at most 366 days away.",
+					"2026-12-01T09:00:00Z. Must be in the future and at most 24 hours away.",
 			},
 			"delay_seconds": map[string]any{
 				"type":        "integer",

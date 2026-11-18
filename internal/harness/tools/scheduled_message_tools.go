@@ -27,10 +27,8 @@ type resolvedScheduledMessageRequest struct {
 	message      string
 	scheduledFor *time.Time
 	delay        time.Duration
-	// cron is set for a recurring schedule, which is stored as a cron trigger
-	// targeting the agent instead of a one-time scheduled input.
-	cron     string
-	timezone string
+	cron         string
+	timezone     string
 }
 
 type scheduleSummary struct {
@@ -152,8 +150,6 @@ func formatScheduledMessageTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
-// scheduledMessageText is the delivered message: a preset note saying the
-// agent scheduled it and when, followed by the agent's own text.
 func scheduledMessageText(message string, createdAt, scheduledFor time.Time) string {
 	return fmt.Sprintf(
 		"Scheduled message: you scheduled this message for yourself at %s, for delivery at %s.\n\n%s",
@@ -161,9 +157,6 @@ func scheduledMessageText(message string, createdAt, scheduledFor time.Time) str
 	)
 }
 
-// scheduleMessageTemplate is the cron trigger template for a recurring
-// schedule: a preset note with the firing time, then the agent's text with
-// template delimiters escaped so it is delivered verbatim.
 func scheduleMessageTemplate(input resolvedScheduledMessageRequest) string {
 	literal := func(text string) string { return strings.ReplaceAll(text, "{{", `{{"{{"}}`) }
 	return "Scheduled message: your recurring schedule " + literal(input.cron) + " (" + literal(input.timezone) +
@@ -202,8 +195,6 @@ func scheduledMessageSummaryFromRecord(message executionstore.ScheduledMessage) 
 	}, nil
 }
 
-// scheduledMessageFailureContent maps a storage error the agent can act on to
-// a tool failure. It reports false for errors that should fail the dispatch.
 func scheduledMessageFailureContent(code string, cause error) (toolResultContent, bool, error) {
 	message := cause.Error()
 	switch {
@@ -303,7 +294,6 @@ func createScheduledMessage(_ context.Context, call transactionalToolContext) (t
 		return nil, err
 	}
 	if input.cron != "" {
-		// A recurring schedule is a cron trigger, created outside the tool transaction.
 		return continueAsync(), nil
 	}
 	command := executionstore.CreateScheduledMessageForToolCall(
@@ -342,7 +332,6 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 		return nil, err
 	}
 	if _, err := publicid.Decode(publicid.KindCronTrigger, input.ID); err == nil {
-		// Recurring schedules are cron triggers, deleted outside the tool transaction.
 		return continueAsync(), nil
 	}
 	inputID, err := publicid.Decode(publicid.KindAgentInput, input.ID)
@@ -363,9 +352,6 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 	}), nil
 }
 
-// createSchedule creates the cron trigger for a create_scheduled_message call
-// that asked for a recurring schedule. The tool call id makes a retried
-// dispatch return the same trigger.
 func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
 	input, err := resolveCreateScheduledMessageRequest(call.Call.Input)
 	if err != nil {
@@ -410,8 +396,6 @@ func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 	return completeAsynchronously(content), nil
 }
 
-// deleteSchedule deletes a cron trigger that targets the calling agent,
-// whoever created it. Triggers for other agents are reported as missing.
 func deleteSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
 	input, err := resolveDeleteScheduledMessageRequest(call.Call.Input)
 	if err != nil {

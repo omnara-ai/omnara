@@ -12,16 +12,10 @@ import (
 )
 
 type ReleaseDueScheduledAgentInputsResult struct {
-	// Due is the number of due scheduled inputs found.
 	Due      int
 	Released int
 }
 
-// ReleaseDueScheduledAgentInputs moves every scheduled content input whose
-// time has come into its agent's backlog, reading them in pages of pageSize.
-// Each release commits on its own and the pass keeps going after a failure, so
-// one failing or busy agent does not hold back the rest; failures are joined
-// into the error, and failed or skipped inputs are retried on the next call.
 func (s *Store) ReleaseDueScheduledAgentInputs(
 	ctx context.Context,
 	pageSize int,
@@ -59,9 +53,6 @@ func (s *Store) ReleaseDueScheduledAgentInputs(
 	}
 }
 
-// releaseScheduledAgentInput reports false without waiting when another
-// transaction holds the agent, so one busy agent cannot stall the pass; the
-// input stays scheduled for the next call.
 func (s *Store) releaseScheduledAgentInput(ctx context.Context, projectID, agentID, inputID uuid.UUID) (bool, error) {
 	return agentexecution.Retry(ctx,
 		"release_scheduled_agent_input",

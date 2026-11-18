@@ -80,8 +80,6 @@ type ListDueScheduledAgentInputsRow struct {
 	ScheduledFor *time.Time
 }
 
-// The cursor lets one pass walk past inputs whose release failed, so they
-// cannot hold back later due inputs.
 func (q *Queries) ListDueScheduledAgentInputs(ctx context.Context, arg ListDueScheduledAgentInputsParams) ([]ListDueScheduledAgentInputsRow, error) {
 	rows, err := q.db.Query(ctx, listDueScheduledAgentInputs, arg.AfterID, arg.AfterScheduledFor, arg.RowLimit)
 	if err != nil {
@@ -114,7 +112,6 @@ WHERE input.project_id = $1
   AND input.agent_id = $2
   AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
-  -- Each state arm matches its own partial index.
   AND (
     (
       input.state = 'received'
@@ -184,7 +181,6 @@ type ListQueuedBacklogInputsRow struct {
 	ScheduledFor        *time.Time
 }
 
-// Waiting inputs come first in delivery order; scheduled inputs follow by due time.
 func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBacklogInputsParams) ([]ListQueuedBacklogInputsRow, error) {
 	rows, err := q.db.Query(ctx, listQueuedBacklogInputs,
 		arg.ProjectID,

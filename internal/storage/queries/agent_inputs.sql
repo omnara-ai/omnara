@@ -38,7 +38,6 @@ WHERE input.project_id = sqlc.arg(project_id)
   AND input.agent_id = sqlc.arg(agent_id)
   AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
-  -- Each state arm matches its own partial index.
   AND (
     (
       input.state = 'received'
@@ -65,7 +64,6 @@ WHERE input.project_id = sqlc.arg(project_id)
       )
     )
   )
--- Waiting inputs come first in delivery order; scheduled inputs follow by due time.
 ORDER BY
   (input.state = 'scheduled') ASC,
   CASE WHEN input.state = 'scheduled' THEN '' ELSE input.delivery_mode END DESC,
@@ -74,8 +72,6 @@ ORDER BY
   input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- The cursor lets one pass walk past inputs whose release failed, so they
--- cannot hold back later due inputs.
 -- name: ListDueScheduledAgentInputs :many
 SELECT input.id, input.project_id, input.agent_id, input.scheduled_for
 FROM agent_inputs input

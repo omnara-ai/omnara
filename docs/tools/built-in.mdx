@@ -78,8 +78,8 @@ Schedules a message to the agent itself, once or on a cron schedule. When a mess
 | Input | Type | Notes |
 | --- | --- | --- |
 | `message`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Up to 20,000 characters |
-| `timestamp` | string | RFC 3339 with a UTC offset; in the future, at most 366 days away |
-| `delay_seconds` | integer | 1–31,622,400 |
+| `timestamp` | string | RFC 3339 with a UTC offset; in the future, at most 24 hours away |
+| `delay_seconds` | integer | 1–86,400 |
 | `cron` | string | Five-field cron expression for a recurring schedule, such as `0 9 * * 1-5` |
 | `timezone` | string | IANA time zone for `cron`; default `UTC`. Only valid with `cron` |
 

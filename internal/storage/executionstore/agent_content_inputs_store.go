@@ -174,8 +174,6 @@ func admitAgentContentInputTx(
 			}, nil
 		}
 	}
-	// Checked only for a new input, so an idempotent replay still returns the
-	// stored input after its scheduled time has passed.
 	if input.SourceScheduledFor != nil && input.MaxScheduledDelay > 0 {
 		now, err := qtx.DBNow(ctx)
 		if err != nil {
@@ -326,10 +324,6 @@ type CreateAgentContentInputInput struct {
 	IdempotencyScope       string                           `json:"idempotency_scope,omitempty"`
 	IdempotencyKey         string                           `json:"idempotency_key,omitempty"`
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
-	// SourceScheduledFor is the caller's requested delivery time; the input stays
-	// scheduled until the schedule loop releases it.
-	SourceScheduledFor *time.Time `json:"scheduled_for,omitempty"`
-	// MaxScheduledDelay, when positive, requires a new input's SourceScheduledFor
-	// to be in the future and at most this far ahead of the database clock.
-	MaxScheduledDelay time.Duration `json:"-"`
+	SourceScheduledFor     *time.Time                       `json:"scheduled_for,omitempty"`
+	MaxScheduledDelay      time.Duration                    `json:"-"`
 }
