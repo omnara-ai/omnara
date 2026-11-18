@@ -110,7 +110,7 @@ func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec 
 }
 
 func toolSearchSummary(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) string {
-	if len(search.ToolNames) == 0 && len(search.CodeModeTools) == 0 {
+	if len(search.ToolNames) == 0 {
 		return fmt.Sprintf(
 			"No deferred tools matched \"%s\" (%d deferred tools available). Try a broader pattern.",
 			search.Pattern,
@@ -118,31 +118,14 @@ func toolSearchSummary(specs []modelcontext.ToolSpec, search modelcontext.ToolSe
 		)
 	}
 	var b strings.Builder
-	if len(search.ToolNames) > 0 {
-		fmt.Fprintf(&b, "Loaded %d tool(s) matching \"%s\":", len(search.ToolNames), search.Pattern)
-		for _, name := range search.ToolNames {
-			writeToolSearchLine(&b, specs, name)
-		}
-	}
-	if len(search.CodeModeTools) > 0 {
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		fmt.Fprintf(&b, "%d tool(s) matching \"%s\" are called from a command with "+
-			"`omnarad call <tool> '<json input>'`, not as tools of yours; code_mode_tools has their input "+
-			"and output schemas:", len(search.CodeModeTools), search.Pattern)
-		for _, tool := range search.CodeModeTools {
-			writeToolSearchLine(&b, specs, tool.Name)
+	fmt.Fprintf(&b, "Loaded %d tool(s) matching \"%s\":", len(search.ToolNames), search.Pattern)
+	for _, name := range search.ToolNames {
+		b.WriteString("\n- ")
+		b.WriteString(name)
+		if spec, ok := modelcontext.ToolSpecByName(specs, name); ok && spec.Description != "" {
+			b.WriteString(": ")
+			b.WriteString(spec.Description)
 		}
 	}
 	return b.String()
-}
-
-func writeToolSearchLine(b *strings.Builder, specs []modelcontext.ToolSpec, name string) {
-	b.WriteString("\n- ")
-	b.WriteString(name)
-	if spec, ok := modelcontext.ToolSpecByName(specs, name); ok && spec.Description != "" {
-		b.WriteString(": ")
-		b.WriteString(spec.Description)
-	}
 }

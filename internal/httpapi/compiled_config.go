@@ -69,7 +69,8 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 	for name, tool := range compiled.Tools {
 		projected := openapi.CompiledTool{
 			Enabled: tool.Enabled, Type: openapi.CompiledToolType(tool.Type), Permission: tool.Permission,
-			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
+			Deferred: tool.Deferred, CodeMode: tool.CodeMode,
+			Description: tool.Description, InputSchema: tool.InputSchema,
 		}
 		if tool.IntegrationID != uuid.Nil {
 			projected.IntegrationId, err = publicCompiledID(publicid.KindIntegration, tool.IntegrationID)
@@ -101,13 +102,15 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 	}
 	if codeMode := compiled.CodeMode; codeMode != nil {
-		response.CodeMode = &openapi.CompiledCodeMode{Enabled: codeMode.Enabled}
+		response.CodeMode = &openapi.CompiledCodeMode{
+			Enabled: codeMode.Enabled, DefaultAllowed: codeMode.DefaultAllowed,
+		}
 	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
 	for name, server := range compiled.MCP {
 		mcp := openapi.CompiledMCPServer{
 			Url: server.URL, DefaultEnabled: server.DefaultEnabled,
-			Permission: server.Permission, Deferred: server.Deferred,
+			Permission: server.Permission, Deferred: server.Deferred, CodeMode: server.CodeMode,
 			Tools: make(map[string]openapi.CompiledMCPTool, len(server.Tools)),
 		}
 		if server.Auth != nil {
@@ -135,6 +138,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		for toolName, tool := range server.Tools {
 			mcp.Tools[toolName] = openapi.CompiledMCPTool{
 				Enabled: tool.Enabled, Permission: tool.Permission, Deferred: tool.Deferred,
+				CodeMode: tool.CodeMode,
 			}
 		}
 		response.Mcp[name] = mcp

@@ -93,8 +93,9 @@ const mcpAuth = z.discriminatedUnion('type', [
   }),
 ])
 
+// The form has no per-tool code_mode control, so a config that sets one opens in the editor.
 const mcpToolEntry = z.strictObject({
-  ...zAgentConfigDefinitionMcpTool.shape,
+  ...zAgentConfigDefinitionMcpTool.omit({ code_mode: true }).shape,
   permission: permission.optional(),
 })
 

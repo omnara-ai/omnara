@@ -362,7 +362,7 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 }
 
-func TestToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
+func TestToolSearchLoadsDeferredToolsInCodeMode(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "code-mode-search", toolFixtureOptions{
 		withMemory: true, withMachine: true,
@@ -411,15 +411,12 @@ func TestToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 	}
 
 	found := search("call_search_code_mode")
-	require.Equal(t, []string{toolcatalog.ToolNameStorageWrite}, found.ToolNames,
-		"a deferred tool commands cannot call is added")
-	var names []string
-	for _, tool := range found.CodeModeTools {
-		require.NotEmpty(t, tool.OutputSchema, tool.Name)
-		names = append(names, tool.Name)
-	}
 	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
-		toolcatalog.ToolNameStorageSearch}, names)
+		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameStorageWrite}, found.ToolNames,
+		"code mode does not change which deferred tools the model loads")
+	for _, name := range found.ToolNames {
+		require.Equal(t, name != toolcatalog.ToolNameStorageWrite, turn.Tools[name].CodeMode, name)
+	}
 }
 
 func programKey(label string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)).String() }

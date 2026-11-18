@@ -32,7 +32,8 @@ type IntegrationToolDefinition struct {
 	IntegrationKind integrationdefinition.Kind
 	Scope           IntegrationToolScope
 	Description     string
-	// CodeMode marks a tool commands can call with `omnarad call`; it requires outputSchema.
+	// CodeMode marks a tool that supports being called from commands with `omnarad call`; it
+	// requires outputSchema.
 	CodeMode     bool
 	required     []string
 	properties   map[string]any

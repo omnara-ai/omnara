@@ -9771,16 +9771,24 @@ components:
       description: >-
         Code mode lets commands started by run_command call the agent's tools
         with `omnarad call <tool> '<json input>'`; results go to the command,
-        not to the model. Commands can call MCP tools, storage_read,
-        storage_list, storage_search, web_search, web_fetch and integration
-        read tools, whether or not they are `deferred`. A deferred tool that
-        commands can call is not added to the model's tools: `tool_search`
-        returns its input and output schemas instead. A subagent keeps the
-        setting of the config it is built from.
+        not to the model. The tools that support this are MCP tools,
+        storage_read, storage_list, storage_search, web_search, web_fetch and
+        integration read tools. Commands can call each of them unless
+        `default_allowed` or the tool's own `code_mode` setting says otherwise.
+        Code mode is independent of `deferred` and never changes which tools
+        the model can call or load. A subagent keeps the setting of the config
+        it is built from.
       type: object
       additionalProperties: false
       required: [enabled]
       properties:
+        default_allowed:
+          description: >-
+            Whether commands can call tools that support code mode when the tool
+            or its MCP server does not set `code_mode`. Defaults to true.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         enabled:
           description: Whether commands the agent runs can call its tools with `omnarad call`.
           type: boolean
@@ -9860,6 +9868,13 @@ components:
         auth:
           description: How to authenticate to the server. Omit if it needs none.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
+        code_mode:
+          description: >-
+            Whether commands can call the server's tools with `omnarad call` when code mode is on.
+            Null follows code_mode.default_allowed.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         default_enabled:
           description: Whether tools are enabled unless overridden in tools. Defaults to true.
           anyOf:
@@ -9898,6 +9913,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        code_mode:
+          description: Overrides the server's code_mode setting. Null inherits it.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         deferred:
           description: Overrides the server's deferred setting. Null inherits it.
           anyOf:
@@ -10169,6 +10189,13 @@ components:
       type: object
       additionalProperties: false
       properties:
+        code_mode:
+          description: >-
+            Whether commands can call the tool with `omnarad call` when code mode is on. Only for
+            tools that support code mode. Null follows code_mode.default_allowed.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         deferred:
           description: Keep the tool out of context until tool_search loads it. Defaults to false.
           type: boolean
@@ -12871,6 +12898,9 @@ components:
         deferred:
           type: boolean
           x-go-type-skip-optional-pointer: true
+        code_mode:
+          type: boolean
+          description: The tool's own code mode setting. Absent follows the agent default.
         description:
           type: string
           x-go-type-skip-optional-pointer: true
@@ -12919,6 +12949,10 @@ components:
       properties:
         enabled:
           type: boolean
+        default_allowed:
+          type: boolean
+          description: >-
+            Present and false when commands can call only the tools that set code_mode to true.
     CompiledMCPServer:
       type: object
       additionalProperties: false
@@ -12938,6 +12972,9 @@ components:
         deferred:
           type: boolean
           x-go-type-skip-optional-pointer: true
+        code_mode:
+          type: boolean
+          description: The server's code mode setting. Absent follows the agent default.
         tools:
           type: object
           x-go-type-skip-optional-pointer: true
@@ -13014,6 +13051,8 @@ components:
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/toolpermission
         deferred:
+          type: boolean
+        code_mode:
           type: boolean
     CompiledSkill:
       type: object

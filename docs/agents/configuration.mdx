@@ -193,17 +193,27 @@ code_mode:
   enabled: true                 # default: off
 ```
 
-Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools, when the agent has them. This list is fixed: there is no per-tool setting, and it does not depend on whether a tool is `deferred`.
+The tools that support code mode are MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. With code mode on, commands can call each of them the agent has, unless you say otherwise:
 
-Deferring only changes what the model sees:
+```yaml
+code_mode:
+  enabled: true
+  default_allowed: false        # default: true
+tools:
+  web_fetch:
+    code_mode: true             # overrides default_allowed for this tool
+mcp:
+  linear:
+    url: https://mcp.linear.app/mcp
+    code_mode: true             # default for this server's tools
+    tools:
+      delete_issue:
+        code_mode: false        # overrides the server's setting
+```
 
-| Tool | The model | Commands |
-| --- | --- | --- |
-| Loaded, callable from commands | Calls it as usual | Can call it |
-| Deferred, callable from commands | Never gets it; `tool_search` returns its input and output schemas | Can call it |
-| Deferred, any other tool | `tool_search` adds it to the model's tools | Cannot call it |
+`code_mode.default_allowed` is the default for every tool that supports code mode. A tool's own `code_mode` overrides it; for an MCP tool, the tool's setting overrides its server's, which overrides the default. Setting `code_mode` on a tool that doesn't support it, such as `run_command` or a custom tool, is a config error.
 
-A deferred tool that commands can call is reached only from commands, so the agent needs a machine to use it.
+Code mode only decides what commands can call. It is independent of [`deferred`](#deferred-tools) and never changes the model's own tools: the model calls a loaded tool as usual and loads a deferred one with `tool_search`, whether or not commands can call it.
 
 <Warning>
 Agents bound to the same machine run commands as the same OS user, so with code mode on each can call the others' tools. Use it on machines dedicated to one agent or to agents you trust equally.

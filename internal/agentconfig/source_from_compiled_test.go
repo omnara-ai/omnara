@@ -87,7 +87,7 @@ machine_sources:
     machine_provider_options_overlay: {image: custom}
 tools:
   run_command: {permission: {mode: always_ask}}
-  web_fetch: {enabled: false}
+  web_fetch: {enabled: false, code_mode: true}
   lookup_order:
     type: custom
     description: Look up an <order>.
@@ -99,14 +99,15 @@ mcp:
     default_enabled: false
     permission: {mode: always_allow}
     deferred: true
+    code_mode: true
     auth: {type: sigv4, secret_id: `+secretID+`, service: execute-api, region: us-east-1}
-    tools: {search: {enabled: true, permission: {mode: always_allow}, deferred: false}}
+    tools: {search: {enabled: true, permission: {mode: always_allow}, deferred: false, code_mode: false}}
   search:
     url: https://example.com/search
 interaction_handlers:
   engineering-team: {}
 git_credentials: {integration: reviews, repository_ids: [123], read_only: true}
-code_mode: {enabled: true}
+code_mode: {enabled: true, default_allowed: false}
 skills: [`+testMachineSourcePublicID(t, publicid.KindSkill, "test-skill")+`]
 subagents:
   helper:

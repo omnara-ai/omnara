@@ -134,7 +134,8 @@ type Entry struct {
 	InputSchema       json.RawMessage
 	// OutputSchema describes the tool's structured result. Code-mode tools must define one.
 	OutputSchema json.RawMessage
-	// CodeMode marks a tool commands can call with `omnarad call` when the agent defers it in code mode.
+	// CodeMode marks a tool that supports being called from commands with `omnarad call`. Whether
+	// an agent's commands can call it is decided by the agent's config.
 	CodeMode bool
 }
 

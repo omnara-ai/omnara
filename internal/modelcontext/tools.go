@@ -67,6 +67,7 @@ func runtimeContractToolSpecs(
 			agentconfig.Compiled{
 				Tools:               contract.IntegrationTools,
 				InteractionHandlers: contract.InteractionHandlers,
+				CodeMode:            contract.CodeMode,
 			},
 			integrations,
 		)
@@ -117,7 +118,7 @@ func runtimeContractToolSpecs(
 			Deferred:     tool.Deferred,
 			Type:         tool.Type,
 			Permission:   tool.Permission,
-			CodeMode:     tool.CodeMode && contract.CodeModeEnabled(),
+			CodeMode:     tool.CodeMode,
 		})
 	}
 	if only == "" || toolcatalog.IsMCPRuntimeToolName(only) {
@@ -226,8 +227,8 @@ func runtimeMCPToolSpecs(
 					Deferred:     resolution.Deferred,
 					Type:         toolcatalog.ToolTypeMCP,
 					Permission:   resolution.Permission,
-					// Every MCP tool can be called from commands.
-					CodeMode: contract.CodeModeEnabled(),
+					// Every MCP tool supports code mode; the config decides which ones commands can call.
+					CodeMode: contract.CodeModeAllows(resolution.CodeMode),
 				},
 			)
 		}

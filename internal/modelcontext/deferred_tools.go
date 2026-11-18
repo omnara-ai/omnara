@@ -23,7 +23,6 @@ type ToolSearchResult struct {
 	ToolNames          []string               `json:"tool_names"`
 	TotalDeferredTools int                    `json:"total_deferred_tools"`
 	Tools              []ToolSearchDefinition `json:"tools"`
-	CodeModeTools      []ToolSearchDefinition `json:"code_mode_tools,omitempty"`
 }
 
 func toolSearchDefinition(spec ToolSpec) ToolSearchDefinition {
@@ -32,18 +31,6 @@ func toolSearchDefinition(spec ToolSpec) ToolSearchDefinition {
 		schema = json.RawMessage(`{"type":"object","properties":{}}`)
 	}
 	return ToolSearchDefinition{Name: spec.Name, Description: spec.Description, InputSchema: schema}
-}
-
-func CodeModeToolsNote(search ToolSearchResult) string {
-	if len(search.CodeModeTools) == 0 {
-		return ""
-	}
-	encoded, err := json.Marshal(search.CodeModeTools)
-	if err != nil {
-		return ""
-	}
-	return "Commands call these with `omnarad call <tool> '<json input>'`; they are not tools of yours: " +
-		string(encoded)
 }
 
 func DeferredToolsEnabled(specs []ToolSpec) bool {
@@ -100,7 +87,7 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 	}
 	maxResults = min(maxResults, toolcatalog.ToolSearchMaxResults)
 	deferred := DeferredToolSpecs(specs)
-	pattern, matches, err := searchTools(deferred, pattern, 0)
+	pattern, matches, err := searchTools(deferred, pattern, maxResults)
 	if err != nil {
 		return ToolSearchResult{}, err
 	}
@@ -110,20 +97,9 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 		TotalDeferredTools: len(deferred),
 		Tools:              []ToolSearchDefinition{},
 	}
-	// The limit applies to each kind on its own, so tools commands call cannot crowd out the ones
-	// the model can only reach by having them added.
 	for _, spec := range matches {
-		definition := toolSearchDefinition(spec)
-		switch {
-		case CommandOnly(spec):
-			if len(result.CodeModeTools) < maxResults {
-				definition.OutputSchema = spec.OutputSchema
-				result.CodeModeTools = append(result.CodeModeTools, definition)
-			}
-		case len(result.Tools) < maxResults:
-			result.ToolNames = append(result.ToolNames, spec.Name)
-			result.Tools = append(result.Tools, definition)
-		}
+		result.ToolNames = append(result.ToolNames, spec.Name)
+		result.Tools = append(result.Tools, toolSearchDefinition(spec))
 	}
 	return result, nil
 }

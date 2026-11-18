@@ -3,9 +3,10 @@
 import * as z from 'zod';
 
 /**
- * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
  */
 export const zAgentConfigDefinitionCodeMode = z.object({
+    default_allowed: z.boolean().nullish(),
     enabled: z.boolean()
 });
 
@@ -60,6 +61,7 @@ export const zAgentConfigDefinitionToolPermission = z.object({
 });
 
 export const zAgentConfigDefinitionMcpTool = z.object({
+    code_mode: z.boolean().nullish(),
     deferred: z.boolean().nullish(),
     enabled: z.boolean().nullish(),
     permission: zAgentConfigDefinitionToolPermission.optional()
@@ -67,6 +69,7 @@ export const zAgentConfigDefinitionMcpTool = z.object({
 
 export const zAgentConfigDefinitionMcpServer = z.object({
     auth: zAgentConfigDefinitionMcpAuth.optional(),
+    code_mode: z.boolean().nullish(),
     default_enabled: z.boolean().nullish(),
     deferred: z.boolean().optional(),
     permission: zAgentConfigDefinitionToolPermission.optional(),
@@ -77,6 +80,7 @@ export const zAgentConfigDefinitionMcpServer = z.object({
 export const zAgentConfigDefinitionMcpServers = z.record(z.string(), zAgentConfigDefinitionMcpServer).nullable();
 
 export const zAgentConfigDefinitionTool = z.object({
+    code_mode: z.boolean().nullish(),
     deferred: z.boolean().optional(),
     description: z.string().min(1).optional(),
     enabled: z.boolean().nullish(),
@@ -1286,7 +1290,8 @@ export const zCompiledMachineSource = z.object({
  * Present when commands started by run_command can call the agent's tools.
  */
 export const zCompiledCodeMode = z.object({
-    enabled: z.boolean()
+    enabled: z.boolean(),
+    default_allowed: z.boolean().optional()
 });
 
 export const zCompiledMcpAuthBearer = z.object({
@@ -1315,7 +1320,8 @@ export const zCompiledMcpAuth = z.discriminatedUnion('type', [
 export const zCompiledMcpTool = z.object({
     enabled: z.boolean().optional(),
     permission: zToolPermissionSelection.optional(),
-    deferred: z.boolean().optional()
+    deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional()
 });
 
 export const zCompiledMcpServer = z.object({
@@ -1324,6 +1330,7 @@ export const zCompiledMcpServer = z.object({
     default_enabled: z.boolean(),
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional(),
     tools: z.record(z.string(), zCompiledMcpTool).optional()
 });
 
@@ -3357,6 +3364,7 @@ export const zCompiledTool = z.object({
     type: z.enum(['built_in', 'custom']).optional(),
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional(),
     description: z.string().optional(),
     input_schema: z.record(z.string(), z.unknown()).optional()
 });

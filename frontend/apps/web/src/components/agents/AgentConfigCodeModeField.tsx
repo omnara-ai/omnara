@@ -18,14 +18,15 @@ export function AgentConfigCodeModeField({
         description={
           <>
             Let commands this agent runs call its tools with <code>omnarad call</code>. Calls follow
-            each tool’s permissions and stay out of the model’s context. A deferred tool that
-            commands can call is not added to the model’s tools. Subagents that copy this agent
-            inherit it.
+            each tool’s permissions and stay out of the model’s context. This does not change which
+            tools the model can call. To choose which tools commands can call, set{' '}
+            <code>code_mode</code> on a tool or MCP server in the config editor. Subagents that copy
+            this agent inherit it.
           </>
         }
         checked={value?.enabled === true}
         onChange={(event) => {
-          onChange(event.target.checked ? { enabled: true } : undefined)
+          onChange(event.target.checked ? { ...value, enabled: true } : undefined)
         }}
       />
     </FieldGroup>

@@ -82,9 +82,13 @@ export type AgentConfigToolsDefinition = {
 };
 
 /**
- * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
  */
 export type AgentConfigDefinitionCodeMode = {
+    /**
+     * Whether commands can call tools that support code mode when the tool or its MCP server does not set `code_mode`. Defaults to true.
+     */
+    default_allowed?: boolean | null;
     /**
      * Whether commands the agent runs can call its tools with `omnarad call`.
      */
@@ -148,6 +152,10 @@ export type AgentConfigDefinitionMcpServer = {
      */
     auth?: AgentConfigDefinitionMcpAuth;
     /**
+     * Whether commands can call the server's tools with `omnarad call` when code mode is on. Null follows code_mode.default_allowed.
+     */
+    code_mode?: boolean | null;
+    /**
      * Whether tools are enabled unless overridden in tools. Defaults to true.
      */
     default_enabled?: boolean | null;
@@ -176,6 +184,10 @@ export type AgentConfigDefinitionMcpServers = {
 } | null;
 
 export type AgentConfigDefinitionMcpTool = {
+    /**
+     * Overrides the server's code_mode setting. Null inherits it.
+     */
+    code_mode?: boolean | null;
     /**
      * Overrides the server's deferred setting. Null inherits it.
      */
@@ -375,6 +387,10 @@ export type AgentConfigDefinitionSubagents = {
 } | null;
 
 export type AgentConfigDefinitionTool = {
+    /**
+     * Whether commands can call the tool with `omnarad call` when code mode is on. Only for tools that support code mode. Null follows code_mode.default_allowed.
+     */
+    code_mode?: boolean | null;
     /**
      * Keep the tool out of context until tool_search loads it. Defaults to false.
      */
@@ -2157,6 +2173,10 @@ export type CompiledTool = {
     type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
     deferred?: boolean;
+    /**
+     * The tool's own code mode setting. Absent follows the agent default.
+     */
+    code_mode?: boolean;
     description?: string;
     input_schema?: {
         [key: string]: unknown;
@@ -2182,6 +2202,10 @@ export type CompiledGitCredentials = {
  */
 export type CompiledCodeMode = {
     enabled: boolean;
+    /**
+     * Present and false when commands can call only the tools that set code_mode to true.
+     */
+    default_allowed?: boolean;
 };
 
 export type CompiledMcpServer = {
@@ -2190,6 +2214,10 @@ export type CompiledMcpServer = {
     default_enabled: boolean;
     permission: ToolPermissionSelection;
     deferred?: boolean;
+    /**
+     * The server's code mode setting. Absent follows the agent default.
+     */
+    code_mode?: boolean;
     tools?: {
         [key: string]: CompiledMcpTool;
     };
@@ -2224,6 +2252,7 @@ export type CompiledMcpTool = {
     enabled?: boolean;
     permission?: ToolPermissionSelection;
     deferred?: boolean;
+    code_mode?: boolean;
 };
 
 export type CompiledSkill = {
