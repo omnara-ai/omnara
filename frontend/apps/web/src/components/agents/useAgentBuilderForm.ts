@@ -14,16 +14,14 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpServerNamesUnique,
-  mcpServerValid,
   mcpWire,
   permissionWire,
 } from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
+import { basicConfigProblems } from '@/components/agents/agentConfigProblems'
 import {
   type BasicSubagent,
   maxDepthValid,
-  subagentsValid,
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
@@ -32,20 +30,16 @@ import {
   overlayFromSecretRows,
   overlayFromTextRows,
   type SecretRow,
-  secretRowsValid,
   type TextRow,
-  textRowsValid,
 } from '@/components/key-value/keyValueRows'
 import {
   emptyProviderOptions,
-  optionalIdleDeletionMinutesValid,
-  optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
-import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
-import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
+import { memoryGbToMb } from '@/lib/machine-memory'
+import { normalizeResourceName } from '@/lib/resource-name'
 
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 export {
@@ -163,11 +157,11 @@ export function useAgentBuilderForm(
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
 
-  const blocked =
-    unavailableSkillIds.length > 0 ||
-    unavailableSourceIds.length > 0 ||
-    modelUnavailable ||
-    !basicConfigValid(draft)
+  const problems = basicConfigProblems(draft, {
+    modelUnavailable,
+    unavailableSourceIds,
+    unavailableSkillIds,
+  })
 
   const patch = (fields: Partial<BasicConfig>) => {
     setDraft((prev) => ({ ...prev, ...fields }))
@@ -176,7 +170,7 @@ export function useAgentBuilderForm(
   return {
     draft,
     yaml: session.apply(draft),
-    blocked,
+    problems,
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
@@ -251,38 +245,6 @@ export function useAgentBuilderForm(
     reportUnavailableSourceIds: setUnavailableSourceIds,
     reportUnavailableSkillIds: setUnavailableSkillIds,
   }
-}
-
-export function basicConfigValid(draft: BasicConfig) {
-  return (
-    draft.instruction.trim() !== '' &&
-    resourceNameValid(draft.providerConfig) &&
-    resourceNameValid(draft.modelName) &&
-    draft.machineSources.every(machineSourceValid) &&
-    mcpServerNamesUnique(draft.mcpServers) &&
-    draft.mcpServers.every(mcpServerValid) &&
-    subagentsValid(draft.subagents, draft.maxSubagents, draft.maxDepth)
-  )
-}
-
-const nonNegativeIntegerPattern = /^(0|[1-9][0-9]*)$/
-
-function machineCountValid(value: string) {
-  return value === '' || nonNegativeIntegerPattern.test(value)
-}
-
-function machineSourceValid(source: BasicMachineSource) {
-  return (
-    resourceNameValid(source.name) &&
-    textRowsValid(source.envRows) &&
-    secretRowsValid(source.secretEnvRows) &&
-    (source.kind === 'machine' ||
-      (machineCountValid(source.initialNumMachines) &&
-        machineCountValid(source.maxMachines) &&
-        optionalIdleDeletionMinutesValid(source.deleteAfterIdleMinutes) &&
-        optionalPositiveInt32Valid(source.machineCpu) &&
-        memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
-  )
 }
 
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject

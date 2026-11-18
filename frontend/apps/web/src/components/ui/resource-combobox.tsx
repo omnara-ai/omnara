@@ -42,7 +42,13 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     triggerRef?: RefObject<HTMLButtonElement | null>
     triggerClassName?: string
   }) {
-    const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
+    const debouncing = search?.debouncing ?? false
+    const rootProps = useResourceComboboxRootProps(
+      config,
+      search,
+      debouncing ? [] : items,
+      disabled,
+    )
     const localTriggerRef = useRef<HTMLButtonElement>(null)
     const triggerRef = externalTriggerRef ?? localTriggerRef
     const [open, setOpenState] = useState(false)
@@ -107,7 +113,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
         </div>
         <ResourceComboboxContent
           config={config}
-          pending={pending}
+          pending={pending || debouncing}
           emptyMessage={emptyMessage}
           query={query}
           action={action}

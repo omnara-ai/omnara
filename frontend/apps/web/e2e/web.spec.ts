@@ -241,10 +241,10 @@ test('creates an agent with the Builder', async ({ page }) => {
 
   await page.getByRole('button', { name: `Clear ${modelName} · ${providerConfig}` }).click()
   await expect(modelPicker).not.toContainText(modelName)
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+  await expect(page.getByText('Choose a model.', { exact: true })).toBeVisible()
   await selectConfiguredModel(page)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -396,7 +396,8 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(page.getByText('# draft edit')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('No changes to save.', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Launch' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -442,7 +443,7 @@ test('keeps the save pending across tab switches while the revision uploads', as
   releaseSave()
   expect((await saveResponse).ok()).toBe(true)
 
-  await expect(saveButton).toBeDisabled()
+  await expect(saveButton).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
   expect(failures).toEqual([])
 })
@@ -495,21 +496,34 @@ test('deletes a profile from its detail page', async ({ page }) => {
 
 test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
+  const helperName = uniqueName('Builder Edit Helper')
+  await createProfile(page, helperName, 'Help the parent agent.')
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
-  const save = page.getByRole('button', { name: 'Save revision' })
-  await expect(save).toBeDisabled()
 
   await instruction.fill('Updated instruction.')
-  await expect(save).toBeEnabled()
-  await save.click()
-  await expect(save).toBeDisabled()
+  await page.getByRole('button', { name: 'Add subagent' }).click()
+  await page.getByRole('textbox', { name: 'Subagent name' }).fill('helper')
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toBeVisible()
+  await page.getByRole('combobox').filter({ hasText: 'Search agent profiles…' }).click()
+  const profileResults = page.waitForResponse(
+    (response) => new URL(response.url()).searchParams.get('name') === `*${helperName}*`,
+  )
+  await page.getByPlaceholder('Search agent profiles…').fill(helperName)
+  await profileResults
+  await expect(page.getByRole('option', { name: helperName })).toBeVisible()
+  await page.getByPlaceholder('Search agent profiles…').press('Enter')
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Version 2', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
+  await expect(page.locator('.monaco-editor')).toContainText(`profile: ${helperName}`)
 
   expect(failures).toEqual([])
 })
@@ -740,7 +754,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     )
     await page.getByRole('button', { name: 'Save revision', exact: true }).click()
     expect((await savedRevision).status()).toBe(200)
-    await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
 
     const conversation = await exerciseIntegrationConversations(
       page,

@@ -5,6 +5,7 @@ import { type SyntheticEvent, useState } from 'react'
 import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { SubmitCheckFeedback } from '@/components/agents/SubmitCheckFeedback'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
@@ -49,6 +50,7 @@ export function AgentProfileConfigEditor({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(noConfigError)
+    if (!editor.saveCheck.check()) return
     try {
       const config = await createConfig.mutateAsync({
         source: editor.yaml,
@@ -92,6 +94,10 @@ export function AgentProfileConfigEditor({
         {error.message && (
           <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
         )}
+        <SubmitCheckFeedback
+          problems={editor.saveCheck.problems}
+          unchanged={editor.saveCheck.unchanged}
+        />
         {canManage && (
           <div className="flex items-center justify-end gap-2">
             {editor.dirty && !pending && (
@@ -107,11 +113,7 @@ export function AgentProfileConfigEditor({
             >
               Delete profile
             </Button>
-            <Button
-              type="submit"
-              disabled={pending || !editor.dirty || editor.saveBlocked}
-              loading={pending}
-            >
+            <Button type="submit" disabled={pending} loading={pending}>
               Save revision
             </Button>
           </div>

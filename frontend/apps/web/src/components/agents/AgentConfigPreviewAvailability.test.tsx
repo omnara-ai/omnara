@@ -127,7 +127,7 @@ function PreviewModeHarness() {
         Draft YAML
       </button>
       <output
-        data-blocked={editor.saveBlocked}
+        data-blocked={editor.form.problems.length > 0}
         data-pending={editor.form.toolsPending}
         data-error={editor.form.toolsError}
         data-editor-mode={editor.mode.mode}
@@ -209,7 +209,7 @@ function SubagentPreviewHarness({ source }: { source: string }) {
       >
         Remove subagents
       </button>
-      <output data-pending={form.toolsPending} data-blocked={form.blocked}>
+      <output data-pending={form.toolsPending} data-blocked={form.problems.length > 0}>
         {form.yaml}
       </output>
     </>

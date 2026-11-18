@@ -34,9 +34,14 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
   const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
   const savedProfile = useRef<SavedProfile | null>(null)
 
-  async function submit(name: string, yaml: string, action: SubmitAction) {
+  function clearErrors() {
     setLaunchError(undefined)
     setIssues([])
+    setStatus(idle)
+  }
+
+  async function submit(name: string, yaml: string, action: SubmitAction) {
+    clearErrors()
     setStatus(submitting)
     setPendingAction(action)
     const result = await settleSubmission(async () => {
@@ -92,5 +97,5 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
     }
   }
 
-  return { submit, status, pendingAction, launchError, issues }
+  return { submit, clearErrors, status, pendingAction, launchError, issues }
 }

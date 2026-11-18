@@ -3,12 +3,8 @@ import { parse } from 'yaml'
 
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
-import {
-  type BasicConfig,
-  basicConfigValid,
-  createBasicConfigSession,
-  emptyBasicConfig,
-} from './useAgentBuilderForm'
+import { basicConfigProblems } from './agentConfigProblems'
+import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
   ...emptyBasicConfig,
@@ -764,8 +760,10 @@ subagents:
 })
 
 it('accepts max_depth without subagents', () => {
-  expect(basicConfigValid({ ...fullConfig, subagents: [], maxSubagents: '' })).toBe(true)
-  expect(basicConfigValid({ ...fullConfig, subagents: [] })).toBe(false)
+  expect(basicConfigProblems({ ...fullConfig, subagents: [], maxSubagents: '' })).toEqual([])
+  expect(basicConfigProblems({ ...fullConfig, subagents: [] })).toEqual([
+    'Max active subagents needs at least one subagent.',
+  ])
 })
 
 describe('basic agent config names', () => {
@@ -773,28 +771,28 @@ describe('basic agent config names', () => {
     ['provider config', { providerConfig: ' anthropic' }],
     ['configured model', { modelName: 'claude-sonnet-5 ' }],
   ])('rejects rather than trims %s references', (_case, patch) => {
-    expect(basicConfigValid({ ...fullConfig, ...patch })).toBe(false)
+    expect(basicConfigProblems({ ...fullConfig, ...patch })).not.toEqual([])
   })
 
   it('rejects rather than trims machine references', () => {
     const machineSources = fullConfig.machineSources.map((source, index) =>
       index === 0 ? { ...source, name: ` ${source.name}` } : source,
     )
-    expect(basicConfigValid({ ...fullConfig, machineSources })).toBe(false)
+    expect(basicConfigProblems({ ...fullConfig, machineSources })).not.toEqual([])
   })
 
   it('rejects rather than trims MCP server keys', () => {
     const mcpServers = fullConfig.mcpServers.map((server, index) =>
       index === 0 ? { ...server, name: ` ${server.name}` } : server,
     )
-    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+    expect(basicConfigProblems({ ...fullConfig, mcpServers })).not.toEqual([])
   })
 
   it('rejects duplicate MCP server keys', () => {
     const mcpServers = fullConfig.mcpServers.map((server, index) =>
       index === 1 ? { ...server, name: fullConfig.mcpServers[0]?.name ?? '' } : server,
     )
-    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+    expect(basicConfigProblems({ ...fullConfig, mcpServers })).not.toEqual([])
   })
 
   it('preserves accepted resource names except for NFC canonicalization', () => {
