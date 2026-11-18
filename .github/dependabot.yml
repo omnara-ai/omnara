@@ -1,12 +1,18 @@
 version: 2
 updates:
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      - /examples/sharepoint-mount
+      - /examples/unikraft-machine
     schedule:
       interval: weekly
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
+    groups:
+      shared-docker-images:
+        group-by: dependency-name
     ignore:
       - dependency-name: "*node"
         update-types:
@@ -65,6 +71,24 @@ updates:
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
+    open-pull-requests-limit: 20
+    allow:
+      - dependency-type: direct
+      # Dependabot skips Go tool dependencies: dependabot/dependabot-core#12050.
+      - dependency-name: github.com/air-verse/air
+        dependency-type: indirect
+      - dependency-name: github.com/golangci/golangci-lint/v2
+        dependency-type: indirect
+      - dependency-name: github.com/oapi-codegen/oapi-codegen/v2
+        dependency-type: indirect
+      - dependency-name: github.com/oasdiff/oasdiff
+        dependency-type: indirect
+      - dependency-name: github.com/pressly/goose/v3
+        dependency-type: indirect
+      - dependency-name: github.com/sqlc-dev/sqlc
+        dependency-type: indirect
+      - dependency-name: golang.org/x/vuln
+        dependency-type: indirect
     groups:
       aws-sdk-minor-and-patch:
         applies-to: version-updates
@@ -112,17 +136,5 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # Dependabot leaves pnpm overrides unchanged: dependabot/dependabot-core#16529.
-      - dependency-name: react
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
-          - version-update:semver-patch
-      - dependency-name: react-dom
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
-          - version-update:semver-patch
     cooldown:
       default-days: 7
