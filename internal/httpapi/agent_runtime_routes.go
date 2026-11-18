@@ -342,7 +342,7 @@ func (s strictOpenAPIServer) CreateAgentInput(
 	return s.createAgentInput(ctx, request, scope.project, scope.agent)
 }
 
-const maxScheduledInputDelay = 24 * time.Hour
+const maxScheduledInputDelay = 90 * 24 * time.Hour
 
 func (s strictOpenAPIServer) createAgentInput(
 	ctx context.Context,

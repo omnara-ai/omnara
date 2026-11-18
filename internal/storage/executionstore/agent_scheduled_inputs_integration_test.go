@@ -337,24 +337,23 @@ func TestScheduledAgentInputCancelAndBacklogChanges(t *testing.T) {
 	}
 }
 
-func TestScheduledAgentInputsCountTowardBacklogCapacityAndArchiveCancelsThem(t *testing.T) {
+func TestScheduledAgentInputsHaveTheirOwnCapacityAndArchiveCancelsThem(t *testing.T) {
 	t.Parallel()
 	f := newScheduledInputFixture(t, "scheduled-capacity@example.com")
 	future := time.Now().Add(time.Hour)
 	var first executionstore.AgentInputRecord
-	for i := range executionpolicy.MaxPendingAgentContentInputs {
+	for i := range executionpolicy.MaxScheduledAgentContentInputs {
 		input := f.mustCreate("capacity-"+uuid.NewString(), executionstore.DeliveryModeQueued, &future)
 		if i == 0 {
 			first = input
 		}
 	}
-	_, err := f.create("overflow", executionstore.DeliveryModeQueued, nil)
-	if !errors.Is(err, storeerr.ErrAgentBacklogFull) {
-		t.Fatalf("queued input over capacity error = %v, want backlog full", err)
+	if _, err := f.create("still-accepted", executionstore.DeliveryModeQueued, nil); err != nil {
+		t.Fatalf("queued input with scheduled inputs at capacity: %v", err)
 	}
-	_, err = f.create("overflow-scheduled", executionstore.DeliveryModeQueued, &future)
-	if !errors.Is(err, storeerr.ErrAgentBacklogFull) {
-		t.Fatalf("scheduled input over capacity error = %v, want backlog full", err)
+	_, err := f.create("overflow-scheduled", executionstore.DeliveryModeQueued, &future)
+	if !errors.Is(err, storeerr.ErrAgentScheduledInputsFull) {
+		t.Fatalf("scheduled input over capacity error = %v, want scheduled inputs full", err)
 	}
 
 	_, _, err = f.store.Execution().ArchiveAgent(f.t.Context(), testProjectID, f.agentID, userPrincipal(f.userID))

@@ -3,7 +3,6 @@ package tools
 import (
 	"encoding/json"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
-	"strings"
 	"testing"
 	"time"
 
@@ -45,13 +44,12 @@ func TestResolveCreateScheduledMessageRequest(t *testing.T) {
 	}
 }
 
-func TestScheduledMessageTextPrefixesTheMessage(t *testing.T) {
+func TestScheduledMessageNoteStatesBothTimes(t *testing.T) {
 	t.Parallel()
 	created := time.Date(2026, 11, 18, 18, 0, 0, 0, time.UTC)
-	text := scheduledMessageText("Check the deploy.", created, created.Add(time.Hour))
-	require.True(t, strings.HasSuffix(text, "\n\nCheck the deploy."))
-	require.Contains(t, text, "at 2026-11-18T18:00:00Z")
-	require.Contains(t, text, "delivery at 2026-11-18T19:00:00Z")
+	note := scheduledMessageNote(created, created.Add(time.Hour))
+	require.Contains(t, note, "at 2026-11-18T18:00:00Z")
+	require.Contains(t, note, "delivery at 2026-11-18T19:00:00Z")
 }
 
 func TestResolveDeleteScheduledMessageRequest(t *testing.T) {
@@ -79,10 +77,30 @@ func TestResolveCreateScheduledMessageRequestWithCron(t *testing.T) {
 		scheduleMessageTemplate(recurring), cronschedule.MessageData("agent-schedule", firedAt, nil),
 	)
 	require.NoError(t, err)
-	require.Equal(t, "Scheduled message: your recurring schedule 0 9 * * 1-5 (America/New_York) fired at "+
+	require.Equal(t, "Scheduled message: your recurring schedule fired at "+
 		"2026-11-18T14:00:00Z.\n\nSummarize {{.trigger.name}} today.", rendered)
 
 	utc, err := resolveCreateScheduledMessageRequest(json.RawMessage(`{"message":"check","cron":"*/5 * * * *"}`))
 	require.NoError(t, err)
 	require.Equal(t, "UTC", utc.timezone)
+}
+
+func TestListScheduledMessagesCursor(t *testing.T) {
+	t.Parallel()
+	offset, err := resolveListScheduledMessagesOffset(json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.Zero(t, offset)
+	offset, err = resolveListScheduledMessagesOffset(json.RawMessage(`{"cursor":"20"}`))
+	require.NoError(t, err)
+	require.Equal(t, 20, offset)
+	for _, raw := range []string{`{"cursor":"-1"}`, `{"cursor":"abc"}`, `{"limit":5}`} {
+		_, err := resolveListScheduledMessagesOffset(json.RawMessage(raw))
+		require.Error(t, err, raw)
+	}
+
+	messages, schedules := []int{1, 2, 3}, []int{4, 5}
+	require.Equal(t, []int{3}, pageSlice(messages, 2, 4))
+	require.Equal(t, []int{4}, pageSlice(schedules, 2-len(messages), 4-len(messages)))
+	require.Empty(t, pageSlice(messages, 4, 6))
+	require.Equal(t, []int{5}, pageSlice(schedules, 4-len(messages), 6-len(messages)))
 }

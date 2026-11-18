@@ -185,7 +185,7 @@ func admitAgentContentInputTx(
 		}
 		if input.SourceScheduledFor.After(now.Add(input.MaxScheduledDelay)) {
 			return createAgentContentInputTxResult{}, storeerr.InvalidRequest(fmt.Errorf(
-				"scheduled_for must be at most %d hours in the future", int(input.MaxScheduledDelay.Hours())))
+				"scheduled_for must be at most %s in the future", scheduledDelayLabel(input.MaxScheduledDelay)))
 		}
 	}
 	snapshot, err := h.LoadExecution(ctx)
@@ -326,4 +326,11 @@ type CreateAgentContentInputInput struct {
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
 	SourceScheduledFor     *time.Time                       `json:"scheduled_for,omitempty"`
 	MaxScheduledDelay      time.Duration                    `json:"-"`
+}
+
+func scheduledDelayLabel(delay time.Duration) string {
+	if delay >= 48*time.Hour && delay%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%d days", delay/(24*time.Hour))
+	}
+	return fmt.Sprintf("%d hours", int(delay.Hours()))
 }

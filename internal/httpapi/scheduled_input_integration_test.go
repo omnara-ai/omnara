@@ -44,10 +44,10 @@ func TestScheduledAgentInputHTTP(t *testing.T) {
 	past := `{"scheduled_for":"2020-01-01T00:00:00Z","content_blocks":[{"type":"text","text":"past"}]}`
 	rejected := requestJSONWithHeaders(t, handler, http.MethodPost, path, past, "", http.StatusBadRequest, headers)
 	require.Equal(t, "invalid request: scheduled_for must be in the future", rejected["error"])
-	tooFar := `{"scheduled_for":"` + time.Now().Add(25*time.Hour).UTC().Format(time.RFC3339) +
+	tooFar := `{"scheduled_for":"` + time.Now().Add(91*24*time.Hour).UTC().Format(time.RFC3339) +
 		`","content_blocks":[{"type":"text","text":"too far"}]}`
 	rejected = requestJSONWithHeaders(t, handler, http.MethodPost, path, tooFar, "", http.StatusBadRequest, headers)
-	require.Equal(t, "invalid request: scheduled_for must be at most 24 hours in the future", rejected["error"])
+	require.Equal(t, "invalid request: scheduled_for must be at most 90 days in the future", rejected["error"])
 	steering := `{"scheduled_for":"` + scheduledFor.Format(time.RFC3339) +
 		`","delivery_mode":"steering","cancel_open_interactions":true,` +
 		`"content_blocks":[{"type":"text","text":"steer"}]}`

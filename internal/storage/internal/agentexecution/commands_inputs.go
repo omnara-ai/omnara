@@ -72,7 +72,18 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		if !input.capacityExempt {
+		if input.SourceScheduledFor != nil {
+			scheduled, err := q.CountScheduledExecutionContent(ctx, h.unit.DB(),
+				executiondb.CountScheduledExecutionContentParams{
+					AgentID: h.route.AgentID, Capacity: executionpolicy.MaxScheduledAgentContentInputs,
+				})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if scheduled >= executionpolicy.MaxScheduledAgentContentInputs {
+				return ReceivedContent{}, storeerr.ErrAgentScheduledInputsFull
+			}
+		} else if !input.capacityExempt {
 			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
 				AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
 			})

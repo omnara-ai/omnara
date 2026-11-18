@@ -7,6 +7,7 @@ import {
   FetchedAgentReferenceLink,
   ProfileReferenceLink,
 } from '@/components/agents/AgentReferenceLinks'
+import { AgentScheduledMessages } from '@/components/agents/AgentScheduledMessages'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -412,6 +413,12 @@ function AgentCronGroup({
         )}
       </div>
       <SidebarGroupContent>
+        <AgentScheduledMessages
+          orgId={orgId}
+          projectId={projectId}
+          agentId={agentId}
+          canManage={canManage}
+        />
         <CronTriggersList
           orgId={orgId}
           projectId={projectId}

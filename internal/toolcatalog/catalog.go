@@ -456,7 +456,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameGetCurrentTime], err = getCurrentTimeTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameGetScheduledMessages], err = getScheduledMessagesTool(); err != nil {
+	if entries[ToolNameListScheduledMessages], err = listScheduledMessagesTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameCreateScheduledMessage], err = createScheduledMessageTool(); err != nil {

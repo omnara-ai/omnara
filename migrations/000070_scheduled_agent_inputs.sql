@@ -1,5 +1,7 @@
 -- +goose Up
 
+ALTER TABLE cron_triggers ADD COLUMN created_by_agent_id uuid;
+
 ALTER TABLE agent_inputs
     ADD COLUMN scheduled_for timestamptz,
     DROP CONSTRAINT agent_inputs_state_check,
@@ -94,5 +96,40 @@ BEGIN
 
     RETURN NEW;
 END;
+$$;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION agent_subtree_has_schedule(project_id uuid, agent_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+PARALLEL SAFE
+AS $$
+    WITH RECURSIVE subtree AS (
+        SELECT agent_subtree_has_schedule.agent_id AS id, 1 AS depth
+        UNION ALL
+        SELECT child.id, subtree.depth + 1
+        FROM agents child
+        JOIN subtree ON child.parent_agent_id = subtree.id
+        WHERE child.project_id = agent_subtree_has_schedule.project_id
+          AND child.state = 'active'
+          AND subtree.depth < 64
+    )
+    SELECT EXISTS (
+        SELECT 1
+        FROM subtree
+        WHERE EXISTS (
+                SELECT 1 FROM agent_inputs input
+                WHERE input.agent_id = subtree.id AND input.state = 'scheduled'
+            )
+           OR EXISTS (
+                SELECT 1 FROM cron_triggers trigger
+                WHERE trigger.project_id = agent_subtree_has_schedule.project_id
+                  AND trigger.agent_id = subtree.id
+                  AND trigger.enabled
+                  AND trigger.deleted_at IS NULL
+            )
+    );
 $$;
 -- +goose StatementEnd

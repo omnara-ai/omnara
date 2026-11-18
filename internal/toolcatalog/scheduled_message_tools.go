@@ -2,19 +2,21 @@ package toolcatalog
 
 const (
 	ToolNameGetCurrentTime         = "get_current_time"
-	ToolNameGetScheduledMessages   = "get_scheduled_messages"
+	ToolNameListScheduledMessages  = "list_scheduled_messages"
 	ToolNameCreateScheduledMessage = "create_scheduled_message"
 	ToolNameDeleteScheduledMessage = "delete_scheduled_message"
 
 	ScheduledMessageMaxDelaySeconds = 24 * 60 * 60
 	ScheduledMessageMaxLength       = 20000
+	ScheduledMessagesPageSize       = 20
 
 	getCurrentTimeToolDescription = "Get the current date and time in UTC. Use it before scheduling a message " +
 		"for a specific time; do not guess the current time."
-	getScheduledMessagesToolDescription = "List what is scheduled for you. `scheduled_messages` holds the " +
+	listScheduledMessagesToolDescription = "List what is scheduled for you. `scheduled_messages` holds the " +
 		"one-time messages you scheduled for yourself that have not been delivered yet, soonest first; one-time " +
-		"messages scheduled by anyone else are not listed. `schedules` holds every recurring cron schedule that " +
-		"messages you, including ones you did not create."
+		"messages scheduled by anyone else are not listed. `schedules` holds the recurring cron schedules you " +
+		"created for yourself; schedules created by anyone else are not listed. Results come 20 at a time: " +
+		"when `next_cursor` is returned, pass it as `cursor` to get the rest."
 	createScheduledMessageToolDescription = "Schedule a message to yourself, to remind yourself to check on " +
 		"something or continue work. Provide exactly one of `timestamp` or `delay_seconds` for a one-time " +
 		"message, or `cron` for a recurring schedule that keeps messaging you until it is deleted; you can " +
@@ -22,15 +24,15 @@ const (
 		"message is due it is added to your queue and starts a new turn once you are free; delivery can lag by " +
 		"about a minute. The delivered message is prefixed with a note about the schedule, so write `message` " +
 		"as complete instructions to your future self. One-time scheduled messages count toward your " +
-		"pending-message limit."
+		"limit of 25 scheduled messages; use `cron` for anything recurring."
 	deleteScheduledMessageToolDescription = "Delete a one-time message you scheduled for yourself that has not " +
-		"been delivered yet, or any recurring schedule that messages you, by the id from get_scheduled_messages."
+		"been delivered yet, or a recurring schedule you created for yourself, by the id from list_scheduled_messages."
 )
 
 func ScheduledMessageToolNames() []string {
 	return []string{
 		ToolNameGetCurrentTime,
-		ToolNameGetScheduledMessages,
+		ToolNameListScheduledMessages,
 		ToolNameCreateScheduledMessage,
 		ToolNameDeleteScheduledMessage,
 	}
@@ -40,8 +42,13 @@ func getCurrentTimeTool() (Entry, error) {
 	return toolEntry(ToolNameGetCurrentTime, getCurrentTimeToolDescription, nil, nil)
 }
 
-func getScheduledMessagesTool() (Entry, error) {
-	return toolEntry(ToolNameGetScheduledMessages, getScheduledMessagesToolDescription, nil, nil)
+func listScheduledMessagesTool() (Entry, error) {
+	return toolEntry(ToolNameListScheduledMessages, listScheduledMessagesToolDescription, nil, map[string]any{
+		"cursor": map[string]any{
+			"type":        "string",
+			"description": "The `next_cursor` from an earlier call, to continue the list.",
+		},
+	})
 }
 
 func createScheduledMessageTool() (Entry, error) {
@@ -90,7 +97,7 @@ func deleteScheduledMessageTool() (Entry, error) {
 			"id": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "The id from create_scheduled_message or get_scheduled_messages: a one-time message (ain_...) or a recurring schedule (cron_...).",
+				"description": "The id from create_scheduled_message or list_scheduled_messages: a one-time message (ain_...) or a recurring schedule (cron_...).",
 			},
 		},
 	)

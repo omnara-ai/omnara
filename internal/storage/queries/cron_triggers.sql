@@ -3,7 +3,7 @@ INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
     integration_id, integration_settings,
     cron_expression, timezone, message_template, delivery_mode, enabled,
-    next_fire_after, idempotency_key, created_at, updated_at
+    next_fire_after, idempotency_key, created_by_agent_id, created_at, updated_at
 )
 VALUES (
     uuidv7(), sqlc.arg(project_id), sqlc.arg(name),
@@ -11,7 +11,7 @@ VALUES (
     sqlc.narg(integration_id), sqlc.narg(integration_settings),
     sqlc.arg(cron_expression), sqlc.arg(timezone), NULLIF(sqlc.arg(message_template)::text, ''),
     sqlc.arg(delivery_mode), sqlc.arg(enabled), sqlc.narg(next_fire_after),
-    sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp()
+    sqlc.narg(idempotency_key), sqlc.narg(created_by_agent_id), transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
@@ -283,29 +283,32 @@ SET last_integration_receipt_id = sqlc.arg(receipt_id), updated_at = statement_t
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND claim_token = sqlc.arg(claim_token) AND claimed_until > statement_timestamp() AND deleted_at IS NULL;
 
--- name: ListCronTriggersForAgent :many
+-- name: ListCronTriggersCreatedByAgent :many
 SELECT trigger.id, trigger.name, trigger.cron_expression, trigger.timezone,
        coalesce(trigger.message_template, '')::text AS message_template,
        trigger.enabled, trigger.last_fired_at, trigger.next_fire_after, trigger.created_at
 FROM cron_triggers trigger
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.agent_id = sqlc.arg(agent_id)::uuid
+  AND trigger.created_by_agent_id = sqlc.arg(agent_id)::uuid
   AND trigger.deleted_at IS NULL
 ORDER BY trigger.created_at ASC, trigger.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: DeleteCronTriggerForAgent :execrows
+-- name: DeleteCronTriggerCreatedByAgent :execrows
 UPDATE cron_triggers
 SET deleted_at = statement_timestamp(),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)::uuid
+  AND created_by_agent_id = sqlc.arg(agent_id)::uuid
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
--- name: CountCronTriggersForAgent :one
+-- name: CountCronTriggersCreatedByAgent :one
 SELECT count(*)::bigint
 FROM cron_triggers
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)::uuid
+  AND created_by_agent_id = sqlc.arg(agent_id)::uuid
   AND deleted_at IS NULL;

@@ -14,7 +14,7 @@ const { data } = await sdk.createAgentInput({
   client,
   path: { orgID, projectID, agentID },
   body: {
-    scheduled_for: '2026-12-01T09:00:00Z',
+    scheduled_for: new Date(Date.now() + 3600_000).toISOString(),
     content_blocks: [{ type: 'text', text: 'Post the weekly summary.' }],
   },
 })

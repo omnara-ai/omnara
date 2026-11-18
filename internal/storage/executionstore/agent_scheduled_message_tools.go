@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -17,6 +18,7 @@ import (
 
 const (
 	scheduledMessageIdempotencyScope = "scheduled_message"
+	hiddenContentBlockMetadataKey    = "omnara_hidden"
 	MaxScheduledMessageDelay         = 24 * time.Hour
 )
 
@@ -30,7 +32,8 @@ type ScheduledMessage struct {
 type CreateScheduledMessageInput struct {
 	SourceScheduledFor *time.Time
 	Delay              time.Duration
-	Compose            func(createdAt, scheduledFor time.Time) string
+	Message            string
+	Note               func(createdAt, scheduledFor time.Time) string
 }
 
 func (r *ToolCallReader) DatabaseNow(ctx context.Context) (time.Time, error) {
@@ -51,7 +54,7 @@ func (r *ToolCallReader) ListOwnScheduledMessages(ctx context.Context) ([]Schedu
 		ProjectID: t.input.ProjectID,
 		AgentID:   t.input.AgentID,
 		ActorID:   actorID,
-		RowLimit:  executionpolicy.MaxPendingAgentContentInputs,
+		RowLimit:  executionpolicy.MaxScheduledAgentContentInputs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list scheduled messages: %w", err)
@@ -76,7 +79,14 @@ func (r *ToolCallReader) ListOwnScheduledMessages(ctx context.Context) ([]Schedu
 	}
 	texts := make(map[uuid.UUID][]string, len(inputIDs))
 	for _, block := range blocks {
-		if block.OwnerAgentInputID != nil && block.BlockKind == string(ContentBlockKindText) {
+		if block.OwnerAgentInputID == nil || block.BlockKind != string(ContentBlockKindText) {
+			continue
+		}
+		metadata, err := resourcemeta.FromJSON(block.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("decode scheduled message content metadata: %w", err)
+		}
+		if metadata[hiddenContentBlockMetadataKey] != "true" {
 			texts[*block.OwnerAgentInputID] = append(texts[*block.OwnerAgentInputID], block.TextContent)
 		}
 	}
@@ -159,8 +169,8 @@ func (t *toolCallTransaction) createScheduledMessage(
 	ctx context.Context,
 	input CreateScheduledMessageInput,
 ) (ScheduledMessage, error) {
-	if input.Compose == nil {
-		return ScheduledMessage{}, errors.New("scheduled message composer is required")
+	if input.Note == nil || input.Message == "" {
+		return ScheduledMessage{}, errors.New("scheduled message text and note are required")
 	}
 	if (input.SourceScheduledFor == nil) == (input.Delay == 0) {
 		return ScheduledMessage{}, storeerr.InvalidRequest(errors.New("provide exactly one of timestamp or delay_seconds"))
@@ -183,8 +193,14 @@ func (t *toolCallTransaction) createScheduledMessage(
 	if err != nil {
 		return ScheduledMessage{}, err
 	}
-	text := input.Compose(now, scheduledFor)
-	contentBlocks, contentBlocksJSON, err := textInputContentBlocks(text)
+	contentBlocks := []CreateContentBlockInput{
+		{
+			Ordinal: 0, BlockKind: ContentBlockKindText, TextContent: input.Note(now, scheduledFor),
+			Metadata: resourcemeta.Metadata{hiddenContentBlockMetadataKey: "true"},
+		},
+		{Ordinal: 1, BlockKind: ContentBlockKindText, TextContent: input.Message},
+	}
+	contentBlocksJSON, err := marshalAgentInputContentBlocks(contentBlocks)
 	if err != nil {
 		return ScheduledMessage{}, err
 	}
@@ -206,7 +222,7 @@ func (t *toolCallTransaction) createScheduledMessage(
 		return ScheduledMessage{}, errors.New("scheduled message has no scheduled time")
 	}
 	return ScheduledMessage{
-		ID: record.ID, Text: text, CreatedAt: record.QueuedAt, ScheduledFor: *record.ScheduledFor,
+		ID: record.ID, Text: input.Message, CreatedAt: record.QueuedAt, ScheduledFor: *record.ScheduledFor,
 	}, nil
 }
 
@@ -246,10 +262,7 @@ func (t *toolCallTransaction) cancelOwnScheduledMessage(ctx context.Context, inp
 	return nil
 }
 
-const (
-	MaxAgentSchedules       = 32
-	MaxAgentSchedulesListed = 100
-)
+const MaxAgentSchedules = 32
 
 type AgentSchedule struct {
 	ID              uuid.UUID
@@ -265,8 +278,8 @@ type AgentSchedule struct {
 
 func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedule, error) {
 	t := r.transaction
-	rows, err := t.q.ListCronTriggersForAgent(ctx, dbsqlc.ListCronTriggersForAgentParams{
-		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, RowLimit: MaxAgentSchedulesListed,
+	rows, err := t.q.ListCronTriggersCreatedByAgent(ctx, dbsqlc.ListCronTriggersCreatedByAgentParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, RowLimit: MaxAgentSchedules,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list agent schedules: %w", err)
@@ -282,11 +295,11 @@ func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedul
 	return schedules, nil
 }
 
-func (s *Store) DeleteCronTriggerForAgent(ctx context.Context, projectID, agentID, id uuid.UUID) error {
+func (s *Store) DeleteCronTriggerCreatedByAgent(ctx context.Context, projectID, agentID, id uuid.UUID) error {
 	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project, agent, and cron trigger are required")
 	}
-	rows, err := s.q.DeleteCronTriggerForAgent(ctx, dbsqlc.DeleteCronTriggerForAgentParams{
+	rows, err := s.q.DeleteCronTriggerCreatedByAgent(ctx, dbsqlc.DeleteCronTriggerCreatedByAgentParams{
 		ProjectID: projectID, AgentID: agentID, ID: id,
 	})
 	if err != nil {

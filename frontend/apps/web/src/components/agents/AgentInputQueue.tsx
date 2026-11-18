@@ -22,10 +22,9 @@ import {
   reorderAgentInputBacklog,
   type UseAgentChatResult,
 } from '@omnara/react'
-import { Clock, File, GripVertical, X } from 'lucide-react'
+import { File, GripVertical, X } from 'lucide-react'
 import { type ComponentProps, type CSSProperties, startTransition, useOptimistic } from 'react'
 
-import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
 export function AgentInputQueue({
@@ -44,13 +43,12 @@ export function AgentInputQueue({
   const [inputs, moveOptimistically] = useOptimistic<
     AgentInputBacklogItem[],
     AgentInputBacklogMove
-  >(backlog.inputs, reorderAgentInputBacklog)
-  const queuedInputs = inputs.filter(
-    (input) => input.delivery_mode === 'queued' && !isScheduledBacklogInput(input),
+  >(
+    backlog.inputs.filter((input) => !isScheduledBacklogInput(input)),
+    reorderAgentInputBacklog,
   )
-  const waitingInputs = inputs.filter(
-    (input) => input.delivery_mode !== 'steering' && !isScheduledBacklogInput(input),
-  )
+  const queuedInputs = inputs.filter((input) => input.delivery_mode === 'queued')
+  const waitingInputs = inputs.filter((input) => input.delivery_mode !== 'steering')
   const queuedIndexes = new Map(waitingInputs.map((input, index) => [input.id, index]))
 
   if (inputs.length === 0) return null
@@ -91,7 +89,7 @@ export function AgentInputQueue({
                 input={input}
                 queueIndex={queueIndex}
                 showReorderHandle={inputs.length >= 2}
-                reorderable={queuedIndexes.has(input.id) && queuedInputs.length >= 2}
+                reorderable={input.delivery_mode === 'queued' && queuedInputs.length >= 2}
                 canOperate={canOperate}
                 canSendNow={canSendNow}
                 actionPending={backlog.actionPending}
@@ -214,8 +212,7 @@ function QueueRow({
   onCancel: () => void
 }) {
   const pending = input.delivery_mode === 'optimistic'
-  const scheduled = isScheduledBacklogInput(input)
-  const sending = input.delivery_mode === 'steering' && !scheduled
+  const sending = input.delivery_mode === 'steering'
   const preview = backlogInputPreview(input)
   const busy = pending || !canOperate || actionPending
   const dragDisabled = busy || !reorderable
@@ -223,7 +220,7 @@ function QueueRow({
     id: input.id,
     disabled: dragDisabled,
   })
-  const kind = scheduled ? 'scheduled' : sending ? 'sending' : 'queued'
+  const kind = sending ? 'sending' : 'queued'
 
   return (
     <div
@@ -233,24 +230,14 @@ function QueueRow({
     >
       {showReorderHandle && (
         <ReorderHandle
-          label={
-            scheduled
-              ? 'Reorder scheduled message'
-              : sending
-                ? 'Reorder sending message'
-                : `Reorder queued message ${queueIndex + 1}`
-          }
+          label={sending ? 'Reorder sending message' : `Reorder queued message ${queueIndex + 1}`}
           disabled={dragDisabled}
           visible={reorderable}
           handleProps={{ ...attributes, ...listeners }}
         />
       )}
       <span className="text-muted-foreground w-8 shrink-0 text-xs font-medium tabular-nums">
-        {scheduled ? (
-          <Clock aria-label="Scheduled" className="size-3.5" />
-        ) : (
-          queuePosition(sending, queueIndex)
-        )}
+        {queuePosition(sending, queueIndex)}
       </span>
       <p className="text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-sm">
         {preview.attachmentCount > 0 && (
@@ -258,21 +245,12 @@ function QueueRow({
         )}
         <span className="truncate">{preview.text}</span>
       </p>
-      {scheduled ? (
-        <time
-          dateTime={input.scheduled_for}
-          className="text-muted-foreground shrink-0 text-xs tabular-nums"
-        >
-          {formatDateTime(input.scheduled_for)}
-        </time>
-      ) : (
-        <SendNowButton
-          sending={sending || pending}
-          canSendNow={canSendNow}
-          actionPending={actionPending}
-          onPromote={onPromote}
-        />
-      )}
+      <SendNowButton
+        sending={sending || pending}
+        canSendNow={canSendNow}
+        actionPending={actionPending}
+        onPromote={onPromote}
+      />
       <button
         type="button"
         aria-label={`Remove ${kind} message`}

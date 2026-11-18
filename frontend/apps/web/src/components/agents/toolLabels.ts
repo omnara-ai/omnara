@@ -118,7 +118,7 @@ const toolDefs = {
     target: () => 'a message to itself',
     noun: ['scheduled message', 'scheduled messages'],
   },
-  get_scheduled_messages: { verbs: list, target: () => 'its scheduled messages' },
+  list_scheduled_messages: { verbs: list, target: () => 'its scheduled messages' },
   delete_scheduled_message: {
     verbs: ['delete', 'Deleting', 'Deleted'],
     target: () => 'a scheduled message',

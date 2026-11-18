@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,9 +60,28 @@ func validateGetCurrentTimeInput(raw json.RawMessage) error {
 	return decodeStrictToolRequest(toolcatalog.ToolNameGetCurrentTime, raw, &input)
 }
 
-func validateGetScheduledMessagesInput(raw json.RawMessage) error {
-	var input struct{}
-	return decodeStrictToolRequest(toolcatalog.ToolNameGetScheduledMessages, raw, &input)
+type listScheduledMessagesRequest struct {
+	Cursor *string `json:"cursor,omitempty"`
+}
+
+func validateListScheduledMessagesInput(raw json.RawMessage) error {
+	_, err := resolveListScheduledMessagesOffset(raw)
+	return err
+}
+
+func resolveListScheduledMessagesOffset(raw json.RawMessage) (int, error) {
+	var input listScheduledMessagesRequest
+	if err := decodeStrictToolRequest(toolcatalog.ToolNameListScheduledMessages, raw, &input); err != nil {
+		return 0, err
+	}
+	if input.Cursor == nil || strings.TrimSpace(*input.Cursor) == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(strings.TrimSpace(*input.Cursor))
+	if err != nil || offset < 0 {
+		return 0, errors.New("list_scheduled_messages cursor must be a next_cursor from an earlier call")
+	}
+	return offset, nil
 }
 
 func validateCreateScheduledMessageInput(raw json.RawMessage) error {
@@ -150,17 +170,16 @@ func formatScheduledMessageTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
-func scheduledMessageText(message string, createdAt, scheduledFor time.Time) string {
+func scheduledMessageNote(createdAt, scheduledFor time.Time) string {
 	return fmt.Sprintf(
-		"Scheduled message: you scheduled this message for yourself at %s, for delivery at %s.\n\n%s",
-		formatScheduledMessageTime(createdAt), formatScheduledMessageTime(scheduledFor), message,
+		"Scheduled message: you scheduled this message for yourself at %s, for delivery at %s.",
+		formatScheduledMessageTime(createdAt), formatScheduledMessageTime(scheduledFor),
 	)
 }
 
 func scheduleMessageTemplate(input resolvedScheduledMessageRequest) string {
 	literal := func(text string) string { return strings.ReplaceAll(text, "{{", `{{"{{"}}`) }
-	return "Scheduled message: your recurring schedule " + literal(input.cron) + " (" + literal(input.timezone) +
-		") fired at {{.trigger.fired_at}}.\n\n" + literal(input.message)
+	return "Scheduled message: your recurring schedule fired at {{.trigger.fired_at}}.\n\n" + literal(input.message)
 }
 
 func scheduleSummaryFromRecord(schedule executionstore.AgentSchedule) (scheduleSummary, error) {
@@ -198,12 +217,12 @@ func scheduledMessageSummaryFromRecord(message executionstore.ScheduledMessage) 
 func scheduledMessageFailureContent(code string, cause error) (toolResultContent, bool, error) {
 	message := cause.Error()
 	switch {
-	case errors.Is(cause, storeerr.ErrAgentBacklogFull):
+	case errors.Is(cause, storeerr.ErrAgentScheduledInputsFull):
 		code = storeerr.AgentBacklogFullCode
-		message = storeerr.ErrAgentBacklogFull.Error()
+		message = storeerr.ErrAgentScheduledInputsFull.Error()
 	case errors.Is(cause, storeerr.ErrNotFound):
 		message = "No scheduled message or schedule of yours has that id. It may already have been delivered or " +
-			"deleted; use get_scheduled_messages to list them."
+			"deleted; use list_scheduled_messages to list them."
 	case errors.Is(cause, storeerr.ErrInvalidRequest), errors.Is(cause, storeerr.ErrStateTransitionConflict),
 		errors.Is(cause, storeerr.ErrConflict):
 	default:
@@ -253,7 +272,11 @@ func getCurrentTime(ctx context.Context, call transactionalToolContext) (transac
 	return completeInTransaction(content), nil
 }
 
-func getScheduledMessages(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
+func listScheduledMessages(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
+	offset, err := resolveListScheduledMessagesOffset(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
 	messages, err := call.Reader.ListOwnScheduledMessages(ctx)
 	if err != nil {
 		return nil, err
@@ -278,10 +301,16 @@ func getScheduledMessages(ctx context.Context, call transactionalToolContext) (t
 		}
 		scheduleSummaries = append(scheduleSummaries, summary)
 	}
-	content, err := structuredToolResultContent(map[string]any{
-		"scheduled_messages": summaries,
-		"schedules":          scheduleSummaries,
-	})
+	total := len(summaries) + len(scheduleSummaries)
+	end := min(offset+toolcatalog.ScheduledMessagesPageSize, total)
+	result := map[string]any{
+		"scheduled_messages": pageSlice(summaries, offset, end),
+		"schedules":          pageSlice(scheduleSummaries, offset-len(summaries), end-len(summaries)),
+	}
+	if end < total {
+		result["next_cursor"] = strconv.Itoa(end)
+	}
+	content, err := structuredToolResultContent(result)
 	if err != nil {
 		return nil, err
 	}
@@ -300,9 +329,8 @@ func createScheduledMessage(_ context.Context, call transactionalToolContext) (t
 		executionstore.CreateScheduledMessageInput{
 			SourceScheduledFor: input.scheduledFor,
 			Delay:              input.delay,
-			Compose: func(createdAt, scheduledFor time.Time) string {
-				return scheduledMessageText(input.message, createdAt, scheduledFor)
-			},
+			Message:            input.message,
+			Note:               scheduledMessageNote,
 		},
 		func(message executionstore.ScheduledMessage) (executionstore.ToolCallCompletionInput, error) {
 			summary, err := scheduledMessageSummaryFromRecord(message)
@@ -374,7 +402,8 @@ func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		Enabled:         true,
 		IdempotencyKey:  "tool_call:" + call.ToolCallID.String(),
 
-		MaxTriggersForTargetAgent: executionstore.MaxAgentSchedules,
+		CreatedByAgentID:          call.Turn.AgentID,
+		MaxTriggersCreatedByAgent: executionstore.MaxAgentSchedules,
 	})
 	if err != nil {
 		return failScheduledMessageAsync("create_scheduled_message_failed", err)
@@ -405,7 +434,7 @@ func deleteSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 	if err != nil {
 		return nil, errors.New("delete_scheduled_message reached the schedule phase without a schedule id")
 	}
-	err = call.Executor.Store.Execution().DeleteCronTriggerForAgent(ctx, call.Turn.ProjectID, call.Turn.AgentID, triggerID)
+	err = call.Executor.Store.Execution().DeleteCronTriggerCreatedByAgent(ctx, call.Turn.ProjectID, call.Turn.AgentID, triggerID)
 	if err != nil {
 		return failScheduledMessageAsync("delete_scheduled_message_failed", err)
 	}
@@ -414,4 +443,10 @@ func deleteSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		return nil, err
 	}
 	return completeAsynchronously(content), nil
+}
+
+func pageSlice[T any](items []T, start, end int) []T {
+	start = min(max(start, 0), len(items))
+	end = min(max(end, start), len(items))
+	return items[start:end]
 }

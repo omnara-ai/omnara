@@ -14,7 +14,7 @@ The tools are grouped by what they do:
 | --- | --- |
 | Web | `web_search`, `web_fetch` |
 | Questions | `ask_question` |
-| Scheduling | `get_current_time`, `create_scheduled_message`, `get_scheduled_messages`, `delete_scheduled_message` |
+| Scheduling | `get_current_time`, `create_scheduled_message`, `list_scheduled_messages`, `delete_scheduled_message` |
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `watch_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
@@ -63,9 +63,9 @@ Asks a person one or more multiple-choice questions. The agent pauses until the 
 
 These tools let an agent schedule messages to itself, for example to check on a deploy in an hour or to post a summary every weekday. They are not included by default; add each one you want under `tools:`.
 
-A one-time message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it appears in the waiting list and counts toward the agent's pending-message limit. The agent can only list and delete one-time messages it scheduled itself, not ones scheduled through the API.
+A one-time message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it counts toward the agent's limit of 25 scheduled inputs. The agent can only list and delete one-time messages it scheduled itself, not ones scheduled through the API.
 
-A recurring message is a cron schedule that targets the agent, the same kind you create in the dashboard or API. The agent can list and delete every schedule that targets it, including ones it did not create. Its messages are attributed to the schedule. An agent cannot create a recurring schedule once 32 schedules target it.
+A recurring message is a cron schedule that targets the agent, the same kind you create in the dashboard or API. The agent can only list and delete schedules it created itself, not ones created in the dashboard or API. Its messages are attributed to the schedule. An agent can have at most 32 schedules it created.
 
 ### `get_current_time`
 
@@ -85,13 +85,17 @@ Schedules a message to the agent itself, once or on a cron schedule. When a mess
 
 Provide exactly one of `timestamp`, `delay_seconds`, or `cron`.
 
-### `get_scheduled_messages`
+### `list_scheduled_messages`
 
-Returns `scheduled_messages`, the agent's own undelivered one-time messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It also returns `schedules`, every cron schedule that targets the agent, with each one's `id`, `cron`, `timezone`, `enabled`, `next_run_at`, and `message`. It takes no inputs.
+Returns `scheduled_messages`, the agent's own undelivered one-time messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It also returns `schedules`, the cron schedules the agent created for itself, with each one's `id`, `cron`, `timezone`, `enabled`, `next_run_at`, and `message`. Results come 20 at a time; when the result includes `next_cursor`, pass it as `cursor` to get the rest.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `cursor` | string | `next_cursor` from an earlier call |
 
 ### `delete_scheduled_message`
 
-Deletes one of the agent's own undelivered one-time messages, or any cron schedule that targets the agent.
+Deletes one of the agent's own undelivered one-time messages, or a cron schedule the agent created for itself.
 
 | Input | Type | Notes |
 | --- | --- | --- |

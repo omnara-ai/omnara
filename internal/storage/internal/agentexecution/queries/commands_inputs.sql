@@ -100,15 +100,18 @@ FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(pro
  AND c.project_id=a.project_id AND c.id=sqlc.arg(config_id);
 
 -- name: CountPendingExecutionContent :one
-SELECT ((SELECT count(*) FROM (
-    SELECT 1 FROM agent_inputs r
-    WHERE r.agent_id=sqlc.arg(agent_id) AND r.state='received' AND r.input_kind='content'
-    ORDER BY r.delivery_mode,r.input_rank,r.queued_at,r.id LIMIT sqlc.arg(capacity)::bigint
-) received) + (SELECT count(*) FROM (
-    SELECT 1 FROM agent_inputs s
-    WHERE s.agent_id=sqlc.arg(agent_id) AND s.state='scheduled'
-    ORDER BY s.scheduled_for,s.id LIMIT sqlc.arg(capacity)::bigint
-) scheduled))::bigint AS pending;
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT sqlc.arg(capacity)::bigint
+) pending;
+
+-- name: CountScheduledExecutionContent :one
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=sqlc.arg(agent_id) AND state='scheduled'
+    ORDER BY scheduled_for,id LIMIT sqlc.arg(capacity)::bigint
+) scheduled;
 
 -- name: ReleaseScheduledExecutionInput :one
 UPDATE agent_inputs i SET state='received',input_rank=coalesce((

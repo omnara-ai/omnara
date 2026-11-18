@@ -332,9 +332,9 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameGetScheduledMessages,
-			semanticInputValidator: validateGetScheduledMessagesInput,
-			handler:                toolHandler{Transactional: getScheduledMessages},
+			name:                   toolcatalog.ToolNameListScheduledMessages,
+			semanticInputValidator: validateListScheduledMessagesInput,
+			handler:                toolHandler{Transactional: listScheduledMessages},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{

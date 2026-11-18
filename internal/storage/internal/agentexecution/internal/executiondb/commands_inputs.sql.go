@@ -83,15 +83,11 @@ func (q *Queries) ChangeExecutionInput(ctx context.Context, db DBTX, arg ChangeE
 }
 
 const countPendingExecutionContent = `-- name: CountPendingExecutionContent :one
-SELECT ((SELECT count(*) FROM (
-    SELECT 1 FROM agent_inputs r
-    WHERE r.agent_id=$1 AND r.state='received' AND r.input_kind='content'
-    ORDER BY r.delivery_mode,r.input_rank,r.queued_at,r.id LIMIT $2::bigint
-) received) + (SELECT count(*) FROM (
-    SELECT 1 FROM agent_inputs s
-    WHERE s.agent_id=$1 AND s.state='scheduled'
-    ORDER BY s.scheduled_for,s.id LIMIT $2::bigint
-) scheduled))::bigint AS pending
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=$1 AND state='received' AND input_kind='content'
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT $2::bigint
+) pending
 `
 
 type CountPendingExecutionContentParams struct {
@@ -101,9 +97,29 @@ type CountPendingExecutionContentParams struct {
 
 func (q *Queries) CountPendingExecutionContent(ctx context.Context, db DBTX, arg CountPendingExecutionContentParams) (int64, error) {
 	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID, arg.Capacity)
-	var pending int64
-	err := row.Scan(&pending)
-	return pending, err
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countScheduledExecutionContent = `-- name: CountScheduledExecutionContent :one
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=$1 AND state='scheduled'
+    ORDER BY scheduled_for,id LIMIT $2::bigint
+) scheduled
+`
+
+type CountScheduledExecutionContentParams struct {
+	AgentID  uuid.UUID
+	Capacity int64
+}
+
+func (q *Queries) CountScheduledExecutionContent(ctx context.Context, db DBTX, arg CountScheduledExecutionContentParams) (int64, error) {
+	row := db.QueryRow(ctx, countScheduledExecutionContent, arg.AgentID, arg.Capacity)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const findExecutionInput = `-- name: FindExecutionInput :one

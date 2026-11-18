@@ -55,7 +55,8 @@ type CreateCronTriggerInput struct {
 	MessageTemplate           string
 	Enabled                   bool
 	IdempotencyKey            string
-	MaxTriggersForTargetAgent int
+	CreatedByAgentID          uuid.UUID
+	MaxTriggersCreatedByAgent int
 }
 
 type UpdateCronTriggerInput struct {
@@ -234,17 +235,17 @@ func (s *Store) CreateCronTrigger(
 			limits.MaxActiveCronTriggersPerProject,
 		)
 	}
-	if input.Target.Kind == CronTriggerTargetAgent && input.MaxTriggersForTargetAgent > 0 {
-		agentTriggerCount, err := qtx.CountCronTriggersForAgent(ctx, dbsqlc.CountCronTriggersForAgentParams{
-			ProjectID: input.ProjectID, AgentID: input.Target.ID,
+	if input.CreatedByAgentID != uuid.Nil && input.MaxTriggersCreatedByAgent > 0 {
+		created, err := qtx.CountCronTriggersCreatedByAgent(ctx, dbsqlc.CountCronTriggersCreatedByAgentParams{
+			ProjectID: input.ProjectID, AgentID: input.CreatedByAgentID,
 		})
 		if err != nil {
 			return CronTriggerRecord{}, fmt.Errorf("count agent cron triggers: %w", err)
 		}
-		if agentTriggerCount > int64(input.MaxTriggersForTargetAgent) {
+		if created > int64(input.MaxTriggersCreatedByAgent) {
 			return CronTriggerRecord{}, storeerr.InvalidRequest(fmt.Errorf(
-				"this agent already has %d recurring schedules, the most allowed; delete one before creating another",
-				input.MaxTriggersForTargetAgent,
+				"you already have %d recurring schedules, the most allowed; delete one before creating another",
+				input.MaxTriggersCreatedByAgent,
 			))
 		}
 	}
@@ -501,15 +502,16 @@ func insertCronTriggerTx(
 		nextFireAfter = &next
 	}
 	params := dbsqlc.InsertCronTriggerParams{
-		ProjectID:       input.ProjectID,
-		Name:            input.Name,
-		CronExpression:  input.CronExpression,
-		Timezone:        input.Timezone,
-		MessageTemplate: input.MessageTemplate,
-		DeliveryMode:    cronTriggerDeliveryModeColumn(input.Target),
-		Enabled:         input.Enabled,
-		NextFireAfter:   nextFireAfter,
-		IdempotencyKey:  storeutil.TextFromEmpty(input.IdempotencyKey),
+		ProjectID:        input.ProjectID,
+		Name:             input.Name,
+		CronExpression:   input.CronExpression,
+		Timezone:         input.Timezone,
+		MessageTemplate:  input.MessageTemplate,
+		DeliveryMode:     cronTriggerDeliveryModeColumn(input.Target),
+		Enabled:          input.Enabled,
+		NextFireAfter:    nextFireAfter,
+		IdempotencyKey:   storeutil.TextFromEmpty(input.IdempotencyKey),
+		CreatedByAgentID: storeutil.IDFromNil(input.CreatedByAgentID),
 	}
 	switch input.Target.Kind {
 	case CronTriggerTargetIntegration:

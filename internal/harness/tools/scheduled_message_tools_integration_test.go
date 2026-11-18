@@ -91,7 +91,7 @@ func TestScheduledMessageToolsScheduleAsTheAgentAndHideOtherActors(t *testing.T)
 		{ID: "call_now", Name: toolcatalog.ToolNameGetCurrentTime, Input: json.RawMessage(`{}`)},
 		{ID: "call_create", Name: toolcatalog.ToolNameCreateScheduledMessage,
 			Input: json.RawMessage(`{"message":"Check the deploy.","delay_seconds":3600}`)},
-		{ID: "call_list", Name: toolcatalog.ToolNameGetScheduledMessages, Input: json.RawMessage(`{}`)},
+		{ID: "call_list", Name: toolcatalog.ToolNameListScheduledMessages, Input: json.RawMessage(`{}`)},
 		{ID: "call_delete_foreign", Name: toolcatalog.ToolNameDeleteScheduledMessage,
 			Input: json.RawMessage(`{"id":"` + foreignID + `"}`)},
 		{ID: "call_past", Name: toolcatalog.ToolNameCreateScheduledMessage,
@@ -116,20 +116,26 @@ func TestScheduledMessageToolsScheduleAsTheAgentAndHideOtherActors(t *testing.T)
 
 	agentPublicID, err := publicid.Encode(publicid.KindAgent, fixture.Agent.ID)
 	require.NoError(t, err)
-	var state, deliveryMode, provider, providerUserID, text string
+	var state, deliveryMode, provider, providerUserID, note, text string
+	var noteHidden, textHidden bool
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
-SELECT i.state, i.delivery_mode, a.provider, a.provider_user_id, b.text_content
+SELECT i.state, i.delivery_mode, a.provider, a.provider_user_id,
+       note.text_content, coalesce(note.metadata->>'omnara_hidden' = 'true', false),
+       body.text_content, coalesce(body.metadata->>'omnara_hidden' = 'true', false)
 FROM agent_inputs i JOIN actors a ON a.id = i.actor_id
-JOIN content_blocks b ON b.agent_id = i.agent_id AND b.owner_agent_input_id = i.id
+JOIN content_blocks note ON note.agent_id = i.agent_id AND note.owner_agent_input_id = i.id AND note.ordinal = 0
+JOIN content_blocks body ON body.agent_id = i.agent_id AND body.owner_agent_input_id = i.id AND body.ordinal = 1
 WHERE i.agent_id = $1 AND i.id = $2`, fixture.Agent.ID, createdID,
-	).Scan(&state, &deliveryMode, &provider, &providerUserID, &text))
+	).Scan(&state, &deliveryMode, &provider, &providerUserID, &note, &noteHidden, &text, &textHidden))
 	require.Equal(t, "scheduled", state)
 	require.Equal(t, "queued", deliveryMode)
 	require.Equal(t, string(executionstore.ActorProviderOmnara), provider)
 	require.Equal(t, agentPublicID, providerUserID)
-	require.Contains(t, text, "Scheduled message: you scheduled this message for yourself at ")
-	require.Contains(t, text, "for delivery at "+testutil.RequireType[string](t, created["scheduled_for"]))
-	require.Contains(t, text, "\n\nCheck the deploy.")
+	require.Contains(t, note, "Scheduled message: you scheduled this message for yourself at ")
+	require.Contains(t, note, "for delivery at "+testutil.RequireType[string](t, created["scheduled_for"]))
+	require.True(t, noteHidden)
+	require.Equal(t, "Check the deploy.", text)
+	require.False(t, textHidden)
 
 	listed := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[2])
 	messages := testutil.RequireType[[]any](t, listed["scheduled_messages"])
@@ -160,7 +166,7 @@ func TestDeleteScheduledMessageToolCancelsTheAgentsOwnMessage(t *testing.T) {
 	calls := []model.ToolCall{
 		{ID: "call_delete_own", Name: toolcatalog.ToolNameDeleteScheduledMessage,
 			Input: json.RawMessage(`{"id":"` + ownID + `"}`)},
-		{ID: "call_list_after", Name: toolcatalog.ToolNameGetScheduledMessages, Input: json.RawMessage(`{}`)},
+		{ID: "call_list_after", Name: toolcatalog.ToolNameListScheduledMessages, Input: json.RawMessage(`{}`)},
 		{ID: "call_delete_again", Name: toolcatalog.ToolNameDeleteScheduledMessage,
 			Input: json.RawMessage(`{"id":"` + ownID + `"}`)},
 	}
@@ -196,7 +202,7 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	calls := []model.ToolCall{
 		{ID: "call_cron", Name: toolcatalog.ToolNameCreateScheduledMessage,
 			Input: json.RawMessage(`{"message":"Post the summary.","cron":"0 9 * * 1-5","timezone":"America/New_York"}`)},
-		{ID: "call_list_cron", Name: toolcatalog.ToolNameGetScheduledMessages, Input: json.RawMessage(`{}`)},
+		{ID: "call_list_cron", Name: toolcatalog.ToolNameListScheduledMessages, Input: json.RawMessage(`{}`)},
 		{ID: "call_delete_existing", Name: toolcatalog.ToolNameDeleteScheduledMessage,
 			Input: json.RawMessage(`{"id":"` + existingID + `"}`)},
 		{ID: "call_delete_missing", Name: toolcatalog.ToolNameDeleteScheduledMessage,
@@ -231,20 +237,20 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	listed := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[1])
 	require.Empty(t, listed["scheduled_messages"])
 	schedules := testutil.RequireType[[]any](t, listed["schedules"])
-	require.Len(t, schedules, 2)
-	first := testutil.RequireType[map[string]any](t, schedules[0])
-	second := testutil.RequireType[map[string]any](t, schedules[1])
-	require.Equal(t, existingID, first["id"])
-	require.Equal(t, "Midday check.", first["message"])
-	require.Equal(t, created["id"], second["id"])
-	require.Equal(t, "0 9 * * 1-5", second["cron"])
+	require.Len(t, schedules, 1)
+	own := testutil.RequireType[map[string]any](t, schedules[0])
+	require.Equal(t, created["id"], own["id"])
+	require.Equal(t, "0 9 * * 1-5", own["cron"])
 
-	deleted := dispatchAsync(calls[2])
-	require.Equal(t, true, deleted["deleted"])
+	denied := dispatchAsync(calls[2])
+	require.Equal(t, "delete_scheduled_message_failed", denied["error_code"])
 	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, existing.ID)
-	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, createdID)
 	require.NoError(t, err)
+
+	require.NoError(t, fixture.Store.Execution().DeleteCronTriggerCreatedByAgent(
+		ctx, toolsTestProjectID, fixture.Agent.ID, createdID))
+	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, createdID)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
 	missing := dispatchAsync(calls[3])
 	require.Equal(t, "delete_scheduled_message_failed", missing["error_code"])
@@ -258,7 +264,7 @@ func TestAgentScheduleLimitRejectsOnlyNewSchedules(t *testing.T) {
 			ProjectID: toolsTestProjectID, Name: name,
 			Target:         executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetAgent, ID: fixture.Agent.ID},
 			CronExpression: "0 12 * * *", Timezone: "UTC", MessageTemplate: "Midday check.", Enabled: true,
-			IdempotencyKey: name, MaxTriggersForTargetAgent: 1,
+			IdempotencyKey: name, CreatedByAgentID: fixture.Agent.ID, MaxTriggersCreatedByAgent: 1,
 		})
 		return err
 	}
@@ -267,5 +273,5 @@ func TestAgentScheduleLimitRejectsOnlyNewSchedules(t *testing.T) {
 	require.NoError(t, create("first"), "an idempotent replay must not count against the limit")
 	err := create("second")
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	require.ErrorContains(t, err, "already has 1 recurring schedules")
+	require.ErrorContains(t, err, "already have 1 recurring schedules")
 }

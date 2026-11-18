@@ -51,7 +51,7 @@ const toolDescriptions = new Map([
   ['web_fetch', 'Read the contents of a public webpage.'],
   ['get_current_time', 'Check the current date and time.'],
   ['create_scheduled_message', 'Schedule a message to itself for a later time.'],
-  ['get_scheduled_messages', 'List the messages it has scheduled for itself.'],
+  ['list_scheduled_messages', 'List the messages it has scheduled for itself.'],
   ['delete_scheduled_message', 'Delete a message it scheduled for itself.'],
 ])
 

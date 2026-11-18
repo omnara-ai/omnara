@@ -1,4 +1,5 @@
 import {
+  type AgentEvent,
   type AgentInput,
   type ListAgentInputsResponse,
   type OkResponse,
@@ -6,6 +7,7 @@ import {
   sdk,
 } from '@omnara/sdk'
 import {
+  listCronTriggersQueryKey,
   listQueuedBacklogInputsOptions,
   listQueuedBacklogInputsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -154,6 +156,8 @@ export function optimisticBacklogUpdate<Variables>(
   }
 }
 
+const scheduledInputRefetchIntervalMs = 30_000
+
 export function useAgentInputBacklog(path: AgentInputBacklogScope) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
@@ -161,7 +165,13 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
   const optimisticUpdate = <Variables>(
     update: (inputs: AgentInput[], variables: Variables) => AgentInput[],
   ) => optimisticBacklogUpdate(queryClient, queryKey, update)
-  const query = useQuery(listQueuedBacklogInputsOptions({ path, query: backlogQuery, client }))
+  const query = useQuery({
+    ...listQueuedBacklogInputsOptions({ path, query: backlogQuery, client }),
+    refetchInterval: (current) =>
+      current.state.data?.data.some((input) => input.state === 'scheduled')
+        ? scheduledInputRefetchIntervalMs
+        : false,
+  })
   const beginCancellation = async (inputIDs: string[], dismissRelatedInputs: () => () => void) => {
     const ids = new Set(inputIDs)
     await queryClient.cancelQueries({ queryKey })
@@ -219,4 +229,38 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
   })
 
   return { query, beginCancellation, cancel, promote, move }
+}
+
+const schedulingToolNames = new Set(['create_scheduled_message', 'delete_scheduled_message'])
+
+export function invalidateBacklogOnEvent(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  scope: AgentInputBacklogScope,
+  event: AgentEvent,
+  hasEvent: (matches: (event: AgentEvent) => boolean) => boolean,
+): void {
+  if (event.event_kind === 'agent_input' && event.input_kind === 'content') {
+    void queryClient.invalidateQueries({ queryKey: agentInputBacklogQueryKey(client, scope) })
+    return
+  }
+  if (event.event_kind !== 'tool_result') return
+  const scheduling = hasEvent(
+    (candidate) =>
+      candidate.event_kind === 'model_output' &&
+      candidate.content_blocks.some(
+        (block) =>
+          block.type === 'tool_call' &&
+          block.tool_call_id === event.tool_call_id &&
+          schedulingToolNames.has(block.name),
+      ),
+  )
+  if (!scheduling) return
+  void queryClient.invalidateQueries({ queryKey: agentInputBacklogQueryKey(client, scope) })
+  void queryClient.invalidateQueries({
+    queryKey: listCronTriggersQueryKey({
+      path: { orgID: scope.orgID, projectID: scope.projectID },
+      client,
+    }),
+  })
 }
