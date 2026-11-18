@@ -482,7 +482,7 @@ func runCronTriggerFireLoop(
 		stats, err := runCronTriggerFireTick(ctx, log, service)
 		if err != nil && ctx.Err() == nil {
 			log.Error("fire due cron triggers", "error", err)
-		} else if stats.Claimed > 0 || stats.Disabled > 0 {
+		} else if stats.Claimed > 0 || stats.Disabled > 0 || stats.ScheduledInputs > 0 {
 			log.Info(
 				"fired due cron triggers",
 				"claimed", stats.Claimed,
@@ -491,34 +491,11 @@ func runCronTriggerFireLoop(
 				"inputs", stats.Inputs,
 				"disabled", stats.Disabled,
 				"failures", stats.Failures,
+				"scheduled_inputs", stats.ScheduledInputs,
 			)
-		}
-		released, err := runScheduledInputReleaseTick(ctx, log, service)
-		if err != nil && ctx.Err() == nil {
-			log.Error("release due scheduled agent inputs", "released", released, "error", err)
-		} else if released > 0 {
-			log.Info("released due scheduled agent inputs", "released", released)
 		}
 		return stats.Claimed == crontrigger.FireBatchSize
 	})
-}
-
-func runScheduledInputReleaseTick(
-	ctx context.Context,
-	log *slog.Logger,
-	service *crontrigger.Service,
-) (released int, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("scheduled input release tick panicked: %v", recovered)
-			log.Error(
-				"scheduled input release tick panicked",
-				"error", recovered,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-	return service.ReleaseDueScheduledInputs(ctx)
 }
 
 func runCronTriggerFireTick(

@@ -41,9 +41,25 @@ type FireStats struct {
 	Inputs   int
 	Disabled int
 	Failures int
+	// ScheduledInputs counts one-time scheduled agent inputs queued for their agents.
+	ScheduledInputs int
 }
 
+// FireDueTriggers fires every due cron trigger, then queues every one-time
+// scheduled agent input whose time has come. Both run on each call: a failure
+// in one does not skip the other.
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
+	stats, err := s.fireDueCronTriggers(ctx)
+	scheduled, scheduledErr := s.execution.ReleaseDueScheduledAgentInputs(ctx, FireBatchSize)
+	stats.ScheduledInputs = scheduled.Released
+	if scheduledErr != nil {
+		// Inputs that failed stay scheduled and are retried on the next call.
+		err = errors.Join(err, fmt.Errorf("queue due scheduled agent inputs: %w", scheduledErr))
+	}
+	return stats, err
+}
+
+func (s *Service) fireDueCronTriggers(ctx context.Context) (FireStats, error) {
 	claim, err := s.execution.ClaimDueCronTriggers(ctx, FireBatchSize)
 	if err != nil {
 		return FireStats{}, fmt.Errorf("claim due cron triggers: %w", err)
@@ -125,17 +141,6 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		}
 	}
 	return stats, nil
-}
-
-// ReleaseDueScheduledInputs moves every scheduled agent input whose time has
-// come into its agent's backlog and reports how many were released.
-func (s *Service) ReleaseDueScheduledInputs(ctx context.Context) (int, error) {
-	result, err := s.execution.ReleaseDueScheduledAgentInputs(ctx, FireBatchSize)
-	if err != nil {
-		// Inputs that failed stay scheduled and are retried on the next tick.
-		return result.Released, fmt.Errorf("release due scheduled agent inputs: %w", err)
-	}
-	return result.Released, nil
 }
 
 func (s *Service) fireTrigger(ctx context.Context, trigger executionstore.ClaimedCronTrigger) error {
