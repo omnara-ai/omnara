@@ -16,14 +16,11 @@ function Part({ part }: { part: TraceMessage['parts'][number] }) {
 export function TraceMessages({ messages }: { messages: TraceMessage[] }) {
   return (
     <ol className="bg-background flex max-h-96 flex-col divide-y overflow-y-auto rounded-xl border">
-      {messages.map((message, index) => (
-        // Messages have no identity of their own; their order is fixed.
-        // eslint-disable-next-line react/no-array-index-key
-        <li key={index} className="flex min-w-0 flex-col gap-2 px-3 py-2">
+      {messages.map((message) => (
+        <li key={message.id} className="flex min-w-0 flex-col gap-2 px-3 py-2">
           <span className="text-muted-foreground type-caption capitalize">{message.role}</span>
-          {message.parts.map((part, partIndex) => (
-            // eslint-disable-next-line react/no-array-index-key
-            <Part key={partIndex} part={part} />
+          {message.parts.map((part) => (
+            <Part key={part.id} part={part} />
           ))}
         </li>
       ))}

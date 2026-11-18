@@ -35,7 +35,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 			require.NoError(t, err)
 			prepared = prepareCommand(t, h, lease)
 		})
-		measured("accept_tools", 15, func(h *agentexecution.Handle) {
+		measured("accept_tools", 14, func(h *agentexecution.Handle) {
 			response := commandResponse(modelenvelope.StopReasonToolUse)
 			response.Normalized.Content = []modelenvelope.ResponsePart{{Type: "tool_call", ProviderCallID: "one", ToolName: "tool", ToolInput: json.RawMessage(`{}`)}}
 			var err error

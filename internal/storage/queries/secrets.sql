@@ -337,6 +337,11 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM integrations install
   WHERE install.org_id = sqlc.arg(org_id) AND install.credential_secret_id = sqlc.arg(secret_id)::uuid
+  UNION ALL
+  SELECT 1 FROM otel_exporters exporter
+  CROSS JOIN LATERAL jsonb_each_text(exporter.secret_headers) header
+  WHERE exporter.org_id = sqlc.arg(org_id) AND exporter.deleted_at IS NULL
+    AND header.value = sqlc.arg(secret_id)::uuid::text
 ) AS is_referenced;
 
 -- name: InsertSecretGrant :one

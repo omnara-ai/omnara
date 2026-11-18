@@ -2,8 +2,10 @@ package oteltrace
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -43,7 +45,8 @@ func testTurn() Turn {
 				StartedAt: at(1), CompletedAt: at(2)},
 			{ID: first, Operation: "normal", Attempt: 2, State: "succeeded", APIFormat: "anthropic-messages",
 				RequestModel: "claude", ResponseModel: "claude-served", ResponseID: "msg_1", StopReason: "tool_use",
-				CostUSD: "0.0125", StartedAt: at(2), CompletedAt: at(4), InputTokens: 100, CacheReadTokens: 40, OutputTokens: 20},
+				CostUSD: "0.0125", StartedAt: at(2), CompletedAt: at(4),
+				InputTokens: 100, CacheReadTokens: new(int64(40)), OutputTokens: 20},
 			{ID: second, Operation: "normal", Attempt: 1, State: "succeeded", APIFormat: "openai-responses",
 				RequestModel: "claude", StopReason: "end_turn", StartedAt: at(6), CompletedAt: at(8)},
 		},
@@ -244,5 +247,55 @@ func TestVariantSessionsAreTheAgentNotItsRoot(t *testing.T) {
 		if got := attribute(t, buildSpans(turn, variant)[0], key); got != "agt_1" {
 			t.Errorf("%s %s = %q, want the agent's own ID", variant, key, got)
 		}
+	}
+}
+
+func TestBuildOmitsUsageTheProviderDidNotReport(t *testing.T) {
+	chat := buildSpans(testTurn(), VariantOTel)[2]
+	for _, key := range []string{"gen_ai.usage.cache_write.input_tokens", "gen_ai.usage.reasoning.output_tokens"} {
+		if _, ok := chat.Attributes().Get(key); ok {
+			t.Errorf("%s was not reported, so it must not be exported as zero", key)
+		}
+	}
+}
+
+func TestBuildDoesNotCloseTurnOnOutputThatCallsTools(t *testing.T) {
+	turn := testTurn()
+	// A provider may report end_turn on an output that still calls tools.
+	turn.Events, turn.ModelCalls = turn.Events[:3], turn.ModelCalls[:2]
+	turn.Events[1].StopReason = "end_turn"
+	if got := attribute(t, buildSpans(turn, VariantOTel)[0], "gen_ai.output.messages"); got != "" {
+		t.Fatalf("an output that calls tools is followed by another model call: %s", got)
+	}
+}
+
+func TestBuildKeepsStructuredAndMediaContent(t *testing.T) {
+	turn := testTurn()
+	turn.Events[2].ContentBlocks = json.RawMessage(
+		`[{"type":"structured_data","value":{"hits":3}},{"type":"media_ref","artifact_id":"art_1"}]`)
+	turn.ToolCalls[0].Outcome = "failed"
+	tool := buildSpans(turn, VariantOTel)[4]
+	if got := tool.Status().Message(); got != "{\"hits\":3}\n[media art_1]" {
+		t.Fatalf("a failed tool keeps its structured explanation and media references: %q", got)
+	}
+}
+
+func TestBuildBoundsContentAndReportsIt(t *testing.T) {
+	turn := testTurn()
+	long, err := json.Marshal(strings.Repeat("é", maxContentValueBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Events[2].ContentBlocks = json.RawMessage(`[{"type":"text","text":` + string(long) + `}]`)
+	spans := buildSpans(turn, VariantOTel)
+	result := attribute(t, spans[4], "gen_ai.tool.call.result")
+	if len(result) > maxContentValueBytes || !utf8.ValidString(result) || result == "" {
+		t.Fatalf("content must be cut to a valid bounded value, got %d bytes", len(result))
+	}
+	if attribute(t, spans[0], "omnara.trace.content_truncated") != "true" {
+		t.Fatal("cut content must be reported on the root span")
+	}
+	if _, ok := buildSpans(testTurn(), VariantOTel)[0].Attributes().Get("omnara.trace.content_truncated"); ok {
+		t.Fatal("an uncut trace must not be marked")
 	}
 }

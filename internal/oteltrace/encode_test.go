@@ -74,21 +74,22 @@ func TestParsePartialSuccess(t *testing.T) {
 		name, contentType string
 		body              []byte
 		rejected          int64
-		message           string
+		unreadable        bool
 	}{
 		{"json string count", "application/json",
-			[]byte(`{"partialSuccess":{"rejectedSpans":"3","errorMessage":"too big"}}`), 3, "too big"},
-		{"json number count", "application/json; charset=utf-8", []byte(`{"partialSuccess":{"rejectedSpans":3}}`), 3, ""},
-		{"json full success", "application/json", []byte(`{}`), 0, ""},
-		{"empty body", "", nil, 0, ""},
-		{"not json", "text/html", []byte(`<html>ok</html>`), 0, ""},
-		{"protobuf", "application/x-protobuf", encoded, 3, "too big"},
-		{"protobuf full success", "application/x-protobuf", nil, 0, ""},
-		{"protobuf garbage", "application/x-protobuf", []byte{0xff, 0xff, 0xff}, 0, ""},
+			[]byte(`{"partialSuccess":{"rejectedSpans":"3","errorMessage":"too big"}}`), 3, false},
+		{"json number count", "application/json; charset=utf-8", []byte(`{"partialSuccess":{"rejectedSpans":3}}`), 3, false},
+		{"json full success", "application/json", []byte(`{}`), 0, false},
+		{"empty body", "", nil, 0, false},
+		{"not json", "text/html", []byte(`<html>ok</html>`), 0, true},
+		{"protobuf", "application/x-protobuf", encoded, 3, false},
+		{"protobuf without content type", "", encoded, 3, false},
+		{"protobuf full success", "application/x-protobuf", nil, 0, false},
+		{"protobuf garbage", "application/x-protobuf", []byte{0xff, 0xff, 0xff}, 0, true},
 	} {
-		rejected, message := ParsePartialSuccess(test.contentType, test.body)
-		if rejected != test.rejected || message != test.message {
-			t.Errorf("%s: got %d %q, want %d %q", test.name, rejected, message, test.rejected, test.message)
+		rejected, err := ParsePartialSuccess(test.contentType, EncodingProtobuf, test.body)
+		if rejected != test.rejected || (err != nil) != test.unreadable {
+			t.Errorf("%s: got %d %v, want %d unreadable=%t", test.name, rejected, err, test.rejected, test.unreadable)
 		}
 	}
 }

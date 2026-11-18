@@ -15,7 +15,17 @@ const part = z.union([
     .transform((raw) => ({ type: 'other' as const, json: JSON.stringify(raw, null, 2) })),
 ])
 
-const messages = z.array(z.object({ role: z.string(), parts: z.array(part) })).min(1)
+// Messages and parts have no identity of their own, so each takes its position as its ID.
+const messages = z
+  .array(z.object({ role: z.string(), parts: z.array(part) }))
+  .min(1)
+  .transform((list) =>
+    list.map((message, index) => ({
+      ...message,
+      id: `message-${String(index)}`,
+      parts: message.parts.map((item, partIndex) => ({ ...item, id: `part-${String(partIndex)}` })),
+    })),
+  )
 
 export type TraceMessage = z.infer<typeof messages>[number]
 

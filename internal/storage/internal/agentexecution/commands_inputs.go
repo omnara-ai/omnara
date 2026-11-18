@@ -213,6 +213,7 @@ func (h *Handle) admitInputs(
 		return InputAdmission{}, err
 	}
 	loaded := m.loaded
+	h.exportReplacedTurn(m)
 	m.openTurn(result.TurnID)
 	if loaded == nil {
 		return result, nil

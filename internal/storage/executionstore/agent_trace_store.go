@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -18,6 +19,9 @@ import (
 
 const (
 	maxTurnTraceEvents = 5000
+	// maxTurnTraceCalls bounds the model calls and the tool calls a trace
+	// reads. A turn with more keeps its most recent ones and is marked truncated.
+	maxTurnTraceCalls = 2000
 	// maxTurnTraceInputLinks bounds the links on a turn's root span.
 	maxTurnTraceInputLinks = 50
 )
@@ -64,11 +68,15 @@ func (s *Store) loadTurnTrace(
 	}
 
 	modelCalls, err := s.q.ListTurnTraceModelCalls(ctx, dbsqlc.ListTurnTraceModelCallsParams{
-		AgentID: agentID, TurnID: turnID,
+		AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceCalls + 1,
 	})
 	if err != nil {
 		return oteltrace.Turn{}, fmt.Errorf("list turn trace model calls: %w", err)
 	}
+	if len(modelCalls) > maxTurnTraceCalls {
+		modelCalls, turn.Truncated = modelCalls[:maxTurnTraceCalls], true
+	}
+	slices.Reverse(modelCalls)
 	turn.ModelCalls = make([]oteltrace.ModelCall, 0, len(modelCalls))
 	for _, call := range modelCalls {
 		turn.ModelCalls = append(turn.ModelCalls, oteltrace.ModelCall{
@@ -77,18 +85,23 @@ func (s *Store) loadTurnTrace(
 			ResponseID: call.ProviderResponseID, StopReason: call.StopReason, CostUSD: call.ProviderReportedCostUsd,
 			ErrorKind: call.ErrorKind, ErrorMessage: call.ErrorMessage,
 			StartedAt: call.CreatedAt, CompletedAt: storeutil.TimeOrZero(call.CompletedAt),
-			InputTokens: call.InputTokensTotal, CacheReadTokens: call.CacheReadInputTokens,
-			CacheWriteTokens: call.CacheWriteInputTokens, OutputTokens: call.OutputTokensTotal,
-			ReasoningTokens: call.ReasoningOutputTokens,
+			InputTokens: call.InputTokensTotal, OutputTokens: call.OutputTokensTotal,
+			CacheReadTokens:  tokenCount(call.CacheReadInputTokens),
+			CacheWriteTokens: tokenCount(call.CacheWriteInputTokens),
+			ReasoningTokens:  tokenCount(call.ReasoningOutputTokens),
 		})
 	}
 
 	toolCalls, err := s.q.ListTurnTraceToolCalls(ctx, dbsqlc.ListTurnTraceToolCallsParams{
-		AgentID: agentID, TurnID: turnID,
+		AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceCalls + 1,
 	})
 	if err != nil {
 		return oteltrace.Turn{}, fmt.Errorf("list turn trace tool calls: %w", err)
 	}
+	if len(toolCalls) > maxTurnTraceCalls {
+		toolCalls, turn.Truncated = toolCalls[:maxTurnTraceCalls], true
+	}
+	slices.Reverse(toolCalls)
 	turn.ToolCalls = make([]oteltrace.ToolCall, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		turn.ToolCalls = append(turn.ToolCalls, oteltrace.ToolCall{
@@ -123,7 +136,7 @@ func (s *Store) loadTurnTrace(
 			if err != nil {
 				return oteltrace.Turn{}, err
 			}
-			turn.Truncated = len(older) > 0
+			turn.Truncated = turn.Truncated || len(older) > 0
 		}
 	}
 	for i := len(pages) - 1; i >= 0; i-- {
@@ -137,6 +150,13 @@ func (s *Store) loadTurnTrace(
 		}
 	}
 	return turn, nil
+}
+
+func tokenCount(count *int32) *int64 {
+	if count == nil {
+		return nil
+	}
+	return new(int64(*count))
 }
 
 // traceLinkSource reads where an input came from out of its idempotency key.

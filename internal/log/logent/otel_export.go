@@ -45,20 +45,17 @@ func OtelExportResponse(ctx context.Context, status int) {
 	log.Attach(ctx, log.Fields{"http.status_code": status})
 }
 
-func OtelExportPartialSuccess(ctx context.Context, rejectedSpans int64, message string) {
-	if len(message) > 512 {
-		message = message[:512]
-	}
-	log.Attach(ctx, log.Fields{
-		"otel_export.rejected_spans": rejectedSpans, "otel_export.partial_success_message": message,
-	})
+// OtelExportPartialSuccess records only the count. The endpoint's message is
+// receiver-controlled text that can echo prompts or tool results.
+func OtelExportPartialSuccess(ctx context.Context, rejectedSpans int64) {
+	log.Attach(ctx, log.Fields{"otel_export.rejected_spans": rejectedSpans})
 }
 
 func OtelExportDeliveryResult(ctx context.Context, outcome, cause string, err error) {
 	log.Attach(ctx, log.Fields{"otel_export.outcome": outcome, "otel_export.cause": cause})
 	log.Error(ctx, err)
 	switch outcome {
-	case "dropped", "retry_scheduled", "partially_rejected":
+	case "dropped", "retry_scheduled", "partially_rejected", "unacknowledged":
 		log.Level(ctx, log.WarnLevel)
 	case "retry_failed", "complete_failed":
 		log.Level(ctx, log.ErrorLevel)

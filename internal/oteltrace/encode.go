@@ -57,17 +57,26 @@ func Encode(traces ptrace.Traces, encoding Encoding) (body []byte, contentType s
 }
 
 // ParsePartialSuccess reads an OTLP export response and reports how many
-// spans the endpoint rejected despite answering with success.
-func ParsePartialSuccess(contentType string, body []byte) (rejectedSpans int64, message string) {
+// spans the endpoint rejected despite answering with success. An empty body
+// acknowledges every span. A response without a content type is read in the
+// encoding the request was sent in. The response's error message is left
+// unread: an endpoint may echo span content in it.
+func ParsePartialSuccess(contentType string, requestEncoding Encoding, body []byte) (rejectedSpans int64, err error) {
+	if len(body) == 0 {
+		return 0, nil
+	}
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	if mediaType == "" && requestEncoding == EncodingProtobuf {
+		mediaType = contentTypeProtobuf
+	}
 	response := ptraceotlp.NewExportResponse()
-	var err error
-	if mediaType, _, _ := mime.ParseMediaType(contentType); mediaType == contentTypeProtobuf {
+	if mediaType == contentTypeProtobuf {
 		err = response.UnmarshalProto(body)
 	} else {
 		err = response.UnmarshalJSON(body)
 	}
 	if err != nil {
-		return 0, ""
+		return 0, fmt.Errorf("decode otel export response: %w", err)
 	}
-	return response.PartialSuccess().RejectedSpans(), response.PartialSuccess().ErrorMessage()
+	return response.PartialSuccess().RejectedSpans(), nil
 }

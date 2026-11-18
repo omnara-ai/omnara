@@ -27,6 +27,7 @@ type Unit struct {
 	claimedAgent      uuid.UUID
 	tx                pgx.Tx
 	notifications     *notifications.TxNotifications
+	finishedTurns     map[uuid.UUID][]uuid.UUID
 	handles           map[uuid.UUID]*Handle
 	exclusiveProjects map[uuid.UUID]struct{}
 	runtimeLocked     bool

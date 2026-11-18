@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,9 +268,55 @@ func TestSenderReadsPartialSuccess(t *testing.T) {
 	outcome, err := sender.send(t.Context(), delivery)
 	require.Equal(t, outcomePartiallyRejected, outcome)
 	require.ErrorContains(t, err, "rejected 1 spans")
+	require.NotContains(t, err.Error(), "span too large")
 
 	// Rejected spans are reported, and never retried: the endpoint kept the rest.
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, []uuid.UUID{delivery.ID}, store.completed)
 	require.Empty(t, store.retried)
+}
+
+func TestSenderKeepsReceiverMessageOutOfLogs(t *testing.T) {
+	turn := testTurn()
+	store := &fakeStore{destination: protobufDestination, turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn}}
+	sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(
+			`{"partialSuccess":{"rejectedSpans":1,"errorMessage":"rejected: tool said secret-tool-output"}}`))
+	})
+	var output bytes.Buffer
+	sender.log = slog.New(slog.NewJSONHandler(&output, nil))
+	sender.deliver(t.Context(), testDelivery(turn.TurnID))
+	require.Contains(t, output.String(), `"otel_export.rejected_spans":1`)
+	require.NotContains(t, output.String(), "secret-tool-output")
+}
+
+func TestSenderDoesNotCountUnreadableAcknowledgmentAsDelivered(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{"oversized", `{"partialSuccess":{"rejectedSpans":1,"errorMessage":"` +
+			strings.Repeat("x", responseReadLimit) + `"}}`},
+		{"not an acknowledgment", `<html>secret-page-content</html>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			turn := testTurn()
+			store := &fakeStore{destination: protobufDestination, turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn}}
+			sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.body))
+			})
+			var output bytes.Buffer
+			sender.log = slog.New(slog.NewJSONHandler(&output, nil))
+			delivery := testDelivery(turn.TurnID)
+			sender.deliver(t.Context(), delivery)
+			// OTLP makes it non-retryable, and it is reported apart from full delivery.
+			require.Equal(t, []uuid.UUID{delivery.ID}, store.completed)
+			require.Empty(t, store.retried)
+			require.Contains(t, output.String(), `"otel_export.outcome":"unacknowledged"`)
+			require.Contains(t, output.String(), `"level":"WARN"`)
+			require.NotContains(t, output.String(), "secret-page-content")
+		})
+	}
 }

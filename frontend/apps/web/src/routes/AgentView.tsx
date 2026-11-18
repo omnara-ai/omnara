@@ -56,14 +56,51 @@ const viewPaths = {
   traces: '/projects/$projectId/agents/$agentId/traces',
 } as const
 
+function useAgentViewMode(): AgentViewMode {
+  const matchRoute = useMatchRoute()
+  if (matchRoute({ to: viewPaths.chat })) return 'chat'
+  if (matchRoute({ to: viewPaths.traces })) return 'traces'
+  return 'events'
+}
+
+/** The agent's event log, chat or traces, whichever view the route names. */
+function AgentViewBody({
+  view,
+  chat,
+  currentActorId,
+  orgId,
+  projectId,
+  agentId,
+  tracesToolbar,
+}: {
+  view: AgentViewMode
+  chat: ReturnType<typeof useAgentChat>
+  currentActorId: ReturnType<typeof useCurrentActorId>
+  orgId: string
+  projectId: string
+  agentId: string
+  tracesToolbar: HTMLElement | null
+}) {
+  if (view === 'events')
+    return <AgentEventLog chat={chat} orgId={orgId} projectId={projectId} agentId={agentId} />
+  if (view === 'traces')
+    return (
+      <AgentTraces orgID={orgId} projectID={projectId} agentID={agentId} toolbar={tracesToolbar} />
+    )
+  return (
+    <AgentConversation
+      chat={chat}
+      currentActorId={currentActorId}
+      orgID={orgId}
+      projectID={projectId}
+      agentID={agentId}
+    />
+  )
+}
+
 export function AgentView() {
   const navigate = useNavigate()
-  const matchRoute = useMatchRoute()
-  const view: AgentViewMode = matchRoute({ to: viewPaths.chat })
-    ? 'chat'
-    : matchRoute({ to: viewPaths.traces })
-      ? 'traces'
-      : 'events'
+  const view = useAgentViewMode()
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
   const params = useParams({ strict: false })
@@ -229,29 +266,15 @@ export function AgentView() {
             </main>
           ) : (
             <main className="min-h-0 flex-1">
-              {view === 'events' ? (
-                <AgentEventLog
-                  chat={chat}
-                  orgId={activeOrg.id}
-                  projectId={projectId}
-                  agentId={agentId}
-                />
-              ) : view === 'traces' ? (
-                <AgentTraces
-                  orgID={activeOrg.id}
-                  projectID={projectId}
-                  agentID={agentId}
-                  toolbar={tracesToolbar}
-                />
-              ) : (
-                <AgentConversation
-                  chat={chat}
-                  currentActorId={currentActorId}
-                  orgID={activeOrg.id}
-                  projectID={projectId}
-                  agentID={agentId}
-                />
-              )}
+              <AgentViewBody
+                view={view}
+                chat={chat}
+                currentActorId={currentActorId}
+                orgId={activeOrg.id}
+                projectId={projectId}
+                agentId={agentId}
+                tracesToolbar={tracesToolbar}
+              />
             </main>
           )}
 

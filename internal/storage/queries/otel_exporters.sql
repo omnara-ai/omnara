@@ -47,64 +47,43 @@ RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, headers
 UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 
+-- name: DeleteOtelExporterDeliveries :exec
+-- Deleting an exporter drops the turns still queued for it.
+DELETE FROM otel_export_deliveries WHERE org_id = $1 AND exporter_id = $2;
+
+-- name: DeleteProjectOtelExporters :exec
+-- A deleted project retires its own and its agents' exporters.
+UPDATE otel_exporters SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
+
+-- name: DeleteProjectOtelExportDeliveries :exec
+-- Turns of a deleted project's agents are dropped whichever exporter they
+-- were queued for, organization-wide ones included.
+DELETE FROM otel_export_deliveries delivery
+USING agents agent
+WHERE agent.id = delivery.agent_id
+  AND agent.org_id = sqlc.arg(org_id)
+  AND agent.project_id = sqlc.arg(project_id);
+
 -- name: EnqueueOtelExportDeliveries :exec
--- A turn is queued when a model output ends it. A turn that instead stopped
--- on a tool call, such as one waiting on a subagent, has no such output, so it
--- is queued when the agent's next turn produces its first output.
--- A turn that closes again while its delivery is claimed is re-armed, so the
--- in-flight claim no longer owns the row.
+-- Queues turns the execution commands have finished. Each turn finishes once,
+-- so exporter matching and sampling are decided here once per turn.
 INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id)
-SELECT DISTINCT exporter.org_id, exporter.id, closed.agent_id, closed.turn_id
-FROM (
-    SELECT event.agent_id, event.turn_id
-    FROM agent_events event
-    JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
-    WHERE event.agent_id = sqlc.arg(agent_id)
-      AND event.sequence = ANY(sqlc.arg(event_sequences)::bigint[])
-      AND event.event_kind = 'model_output'
-      AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
-    UNION
-    SELECT previous.agent_id, previous.id
-    FROM agent_events event
-    JOIN agent_turns turn ON turn.agent_id = event.agent_id AND turn.id = event.turn_id
-    JOIN agent_turns previous ON previous.agent_id = turn.agent_id
-        AND previous.turn_sequence = turn.turn_sequence - 1
-    JOIN LATERAL (
-        SELECT last.model_output_id
-        FROM agent_events last
-        WHERE last.agent_id = previous.agent_id
-          AND last.turn_id = previous.id
-          AND last.event_kind = 'model_output'
-        ORDER BY last.sequence DESC
-        LIMIT 1
-    ) final ON true
-    JOIN model_outputs final_output ON final_output.agent_id = previous.agent_id
-        AND final_output.id = final.model_output_id
-    WHERE event.agent_id = sqlc.arg(agent_id)
-      AND event.sequence = ANY(sqlc.arg(event_sequences)::bigint[])
-      AND event.event_kind = 'model_output'
-      AND final_output.stop_reason IN ('tool_use', 'max_tokens')
-      AND NOT EXISTS (
-          SELECT 1
-          FROM agent_events earlier
-          WHERE earlier.agent_id = event.agent_id
-            AND earlier.turn_id = event.turn_id
-            AND earlier.event_kind = 'model_output'
-            AND earlier.sequence < event.sequence
-      )
-) closed
-JOIN agents agent ON agent.id = closed.agent_id
+SELECT exporter.org_id, exporter.id, turn.agent_id, turn.id
+FROM agent_turns turn
+JOIN agents agent ON agent.id = turn.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND (exporter.project_id IS NULL OR exporter.project_id = agent.project_id)
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
-WHERE exporter.deleted_at IS NULL
+WHERE turn.agent_id = sqlc.arg(agent_id)
+  AND turn.id = ANY(sqlc.arg(turn_ids)::uuid[])
+  AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(closed.turn_id, exporter.sample_percent)
-ON CONFLICT (exporter_id, turn_id) DO UPDATE
-SET next_attempt_at = statement_timestamp(), claim_token = NULL, claim_expires_at = NULL;
+  AND otel_trace_sampled(turn.id, exporter.sample_percent)
+ON CONFLICT (exporter_id, turn_id) DO NOTHING;
 
 -- name: ClaimOtelExportDelivery :one
 WITH saturated_orgs AS MATERIALIZED (
@@ -163,20 +142,22 @@ SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
+JOIN projects project ON project.id = agent.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 WHERE (sqlc.narg(project_id)::uuid IS NULL OR agent.project_id = sqlc.narg(project_id)::uuid)
   AND turn.agent_id = sqlc.arg(agent_id)
   AND turn.id = sqlc.arg(turn_id);
 
 -- name: ListTurnTraceModelCalls :many
+-- Newest first, so a turn with more calls than the limit keeps its latest.
 SELECT context.id, context.operation_kind, context.attempt_number, context.state, context.api_format,
        coalesce(context.provider_response_id, '')::text AS provider_response_id,
        coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
        context.error_kind, context.error_message,
        coalesce(context.input_tokens_total, 0)::bigint AS input_tokens_total,
-       coalesce(context.cache_read_input_tokens, 0)::bigint AS cache_read_input_tokens,
-       coalesce(context.cache_write_input_tokens, 0)::bigint AS cache_write_input_tokens,
+       context.cache_read_input_tokens, context.cache_write_input_tokens,
        coalesce(context.output_tokens_total, 0)::bigint AS output_tokens_total,
-       coalesce(context.reasoning_output_tokens, 0)::bigint AS reasoning_output_tokens,
+       context.reasoning_output_tokens,
        context.created_at, context.completed_at,
        revision.provider_model_slug,
        coalesce(output.served_provider_model_slug, '')::text AS served_provider_model_slug,
@@ -189,16 +170,19 @@ LEFT JOIN model_outputs output ON output.agent_id = context.agent_id
 WHERE context.agent_id = sqlc.arg(agent_id)
   AND context.turn_id = sqlc.arg(turn_id)
   AND context.completed_at IS NOT NULL
-ORDER BY context.created_at, context.id;
+ORDER BY context.created_at DESC, context.id DESC
+LIMIT sqlc.arg(row_limit);
 
 -- name: ListTurnTraceToolCalls :many
+-- Newest first, so a turn with more calls than the limit keeps its latest.
 SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
        result.outcome, result.completed_at
 FROM tool_call_read_projection call
 JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
 WHERE call.agent_id = sqlc.arg(agent_id)
   AND call.turn_id = sqlc.arg(turn_id)
-ORDER BY call.created_at, call.id;
+ORDER BY call.created_at DESC, call.id DESC
+LIMIT sqlc.arg(row_limit);
 
 -- name: ListTurnTraceInputSources :many
 -- An input another agent sent carries, in its idempotency key, the tool call
