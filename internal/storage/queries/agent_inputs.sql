@@ -97,3 +97,13 @@ WHERE agent.state <> 'archived'
   AND NOT EXISTS (
     SELECT 1 FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = wake.agent_id
   );
+
+-- name: ListScheduledAgentInputsByActor :many
+SELECT input.id, input.queued_at, input.scheduled_for
+FROM agent_inputs input
+WHERE input.project_id = sqlc.arg(project_id)
+  AND input.agent_id = sqlc.arg(agent_id)
+  AND input.state = 'scheduled'
+  AND input.actor_id = sqlc.arg(actor_id)::uuid
+ORDER BY input.scheduled_for ASC, input.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;

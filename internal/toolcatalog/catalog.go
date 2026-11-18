@@ -453,6 +453,18 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameToolSearch], err = toolSearchTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameGetCurrentTime], err = getCurrentTimeTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameGetScheduledMessages], err = getScheduledMessagesTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameCreateScheduledMessage], err = createScheduledMessageTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameDeleteScheduledMessage], err = deleteScheduledMessageTool(); err != nil {
+		return Catalog{}, err
+	}
 	interactionTools, err := interactionHandlerTools()
 	if err != nil {
 		return Catalog{}, err

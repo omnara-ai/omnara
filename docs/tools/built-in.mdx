@@ -14,6 +14,7 @@ The tools are grouped by what they do:
 | --- | --- |
 | Web | `web_search`, `web_fetch` |
 | Questions | `ask_question` |
+| Scheduling | `get_current_time`, `create_scheduled_message`, `get_scheduled_messages`, `delete_scheduled_message` |
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `watch_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
@@ -57,6 +58,38 @@ Asks a person one or more multiple-choice questions. The agent pauses until the 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `questions`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | array | Min 1. Each item requires `prompt` and `options`; each option requires `label`. `multiple` defaults to false. |
+
+## Scheduling
+
+These tools let an agent schedule a message to itself, for example to check on a deploy in an hour. They are not included by default; add each one you want under `tools:`. A scheduled message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it appears in the waiting list and counts toward the agent's pending-message limit. The agent can only list and delete messages it scheduled itself, not ones scheduled through the API.
+
+### `get_current_time`
+
+Returns the current UTC time as `current_time` (RFC 3339), `unix_seconds`, and `weekday`. It takes no inputs.
+
+### `create_scheduled_message`
+
+Schedules a message to the agent itself. When the time comes, the message joins the agent's queue and starts a new turn once the agent is free. The delivered text starts with a note that the agent scheduled it, and when, followed by `message`. Returns the scheduled message's `id` and `scheduled_for`.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `message`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Up to 20,000 characters |
+| `timestamp` | string | RFC 3339 with a UTC offset; in the future, at most 366 days away |
+| `delay_seconds` | integer | 1–31,622,400 |
+
+Provide exactly one of `timestamp` or `delay_seconds`.
+
+### `get_scheduled_messages`
+
+Lists the agent's own undelivered scheduled messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It takes no inputs.
+
+### `delete_scheduled_message`
+
+Deletes one of the agent's own undelivered scheduled messages.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Scheduled message ID (`ain_…`) |
 
 ## Commands
 

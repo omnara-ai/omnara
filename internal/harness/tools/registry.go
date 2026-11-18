@@ -326,6 +326,30 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameGetCurrentTime,
+			semanticInputValidator: validateGetCurrentTimeInput,
+			handler:                toolHandler{Transactional: getCurrentTime},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameGetScheduledMessages,
+			semanticInputValidator: validateGetScheduledMessagesInput,
+			handler:                toolHandler{Transactional: getScheduledMessages},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameCreateScheduledMessage,
+			semanticInputValidator: validateCreateScheduledMessageInput,
+			handler:                toolHandler{Transactional: createScheduledMessage},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameDeleteScheduledMessage,
+			semanticInputValidator: validateDeleteScheduledMessageInput,
+			handler:                toolHandler{Transactional: deleteScheduledMessage},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameToolSearch,
 			semanticInputValidator: validateToolSearchInput,
 			handler:                toolHandler{Transactional: runToolSearch},

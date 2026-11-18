@@ -221,6 +221,55 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 	return items, nil
 }
 
+const listScheduledAgentInputsByActor = `-- name: ListScheduledAgentInputsByActor :many
+SELECT input.id, input.queued_at, input.scheduled_for
+FROM agent_inputs input
+WHERE input.project_id = $1
+  AND input.agent_id = $2
+  AND input.state = 'scheduled'
+  AND input.actor_id = $3::uuid
+ORDER BY input.scheduled_for ASC, input.id ASC
+LIMIT $4::bigint
+`
+
+type ListScheduledAgentInputsByActorParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ActorID   uuid.UUID
+	RowLimit  int64
+}
+
+type ListScheduledAgentInputsByActorRow struct {
+	ID           uuid.UUID
+	QueuedAt     time.Time
+	ScheduledFor *time.Time
+}
+
+func (q *Queries) ListScheduledAgentInputsByActor(ctx context.Context, arg ListScheduledAgentInputsByActorParams) ([]ListScheduledAgentInputsByActorRow, error) {
+	rows, err := q.db.Query(ctx, listScheduledAgentInputsByActor,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ActorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListScheduledAgentInputsByActorRow{}
+	for rows.Next() {
+		var i ListScheduledAgentInputsByActorRow
+		if err := rows.Scan(&i.ID, &i.QueuedAt, &i.ScheduledFor); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockClaimableAgentWakeup = `-- name: LockClaimableAgentWakeup :one
 SELECT wake.agent_id
 FROM agent_wakeups wake JOIN agents agent ON agent.id=wake.agent_id

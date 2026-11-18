@@ -112,6 +112,17 @@ const toolDefs = {
 
   // People, skills, and other agents
   ask_question: { verbs: ['ask', 'Asking', 'Asked'], target: () => 'you a question' },
+  get_current_time: { verbs: check, target: () => 'the current time' },
+  create_scheduled_message: {
+    verbs: ['schedule', 'Scheduling', 'Scheduled'],
+    target: () => 'a message to itself',
+    noun: ['scheduled message', 'scheduled messages'],
+  },
+  get_scheduled_messages: { verbs: list, target: () => 'its scheduled messages' },
+  delete_scheduled_message: {
+    verbs: ['delete', 'Deleting', 'Deleted'],
+    target: () => 'a scheduled message',
+  },
   skill: {
     verbs: ['load', 'Loading', 'Loaded'],
     target: (i) => (str(i.name) ? `the ${str(i.name)} skill` : 'a skill'),
