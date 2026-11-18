@@ -22,29 +22,25 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
 const (
 	MaxInFlight = 16
 	PerOrgLimit = 4
-	BatchLimit  = 25
 
-	attemptTimeout = 30 * time.Second
-	buildTimeout   = 30 * time.Second
-	// isolateTimeout bounds resending a refused batch one trace at a time, so
-	// a whole attempt still fits inside the store's claim duration.
-	isolateTimeout    = 45 * time.Second
+	// attemptTimeout bounds loading, building and posting one turn; it stays
+	// inside the store's claim duration.
+	attemptTimeout    = 30 * time.Second
 	storeTimeout      = 5 * time.Second
 	idleInterval      = time.Second
 	responseReadLimit = 64 * 1024
 )
 
 type Store interface {
-	ClaimOtelExportDeliveries(ctx context.Context, perOrgLimit, batchLimit int) (executionstore.OtelExportBatch, error)
-	CompleteOtelExportDeliveries(ctx context.Context, claimToken uuid.UUID) error
-	RetryOtelExportDeliveries(
-		ctx context.Context, claimToken uuid.UUID, delay time.Duration, deliveryIDs []uuid.UUID,
-	) error
+	ClaimOtelExportDelivery(ctx context.Context, perOrgLimit int) (executionstore.OtelExportDelivery, error)
+	CompleteOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID) error
+	RetryOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID, delay time.Duration) error
 	GetOtelExportDestination(
 		ctx context.Context, orgID, exporterID uuid.UUID,
 	) (executionstore.OtelExportDestination, error)
@@ -80,17 +76,17 @@ func (s *Sender) Run(ctx context.Context) {
 	defer s.client.CloseIdleConnections()
 	inFlight := 0
 	completed := make(chan struct{}, MaxInFlight)
-	var batches sync.WaitGroup
-	defer batches.Wait()
+	var deliveries sync.WaitGroup
+	defer deliveries.Wait()
 	for ctx.Err() == nil {
 		if inFlight < MaxInFlight {
 			claimCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-			batch, err := s.store.ClaimOtelExportDeliveries(claimCtx, PerOrgLimit, BatchLimit)
+			delivery, err := s.store.ClaimOtelExportDelivery(claimCtx, PerOrgLimit)
 			cancel()
 			if err == nil {
 				inFlight++
-				batches.Go(func() {
-					s.deliver(ctx, batch)
+				deliveries.Go(func() {
+					s.deliver(ctx, delivery)
 					completed <- struct{}{}
 				})
 				continue
@@ -112,68 +108,40 @@ func (s *Sender) Run(ctx context.Context) {
 	}
 }
 
-// trace is the spans of one delivery's turn.
-type trace struct {
-	deliveryID uuid.UUID
-	spans      []oteltrace.Span
-}
-
-// sendResult accounts for every delivery of a batch: those in retry are
-// attempted again, all others are finished.
-type sendResult struct {
-	delivered, dropped int
-	rejectedSpans      int64
-	retry              []uuid.UUID
-	err                error
-}
-
-func (s *Sender) deliver(ctx context.Context, batch executionstore.OtelExportBatch) {
-	ctx, event := logent.OtelExportBatchAttempt(logpkg.WithLogger(ctx, s.log), batch)
+func (s *Sender) deliver(ctx context.Context, delivery executionstore.OtelExportDelivery) {
+	ctx, event := logent.OtelExportDeliveryAttempt(logpkg.WithLogger(ctx, s.log), delivery)
 	defer event.Done(ctx)
-	result := s.send(ctx, batch)
+	attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+	outcome, err := s.send(attemptCtx, delivery)
+	cancel()
 	if ctx.Err() != nil {
-		logent.OtelExportBatchResult(ctx, "canceled", "none", ctx.Err())
+		logent.OtelExportDeliveryResult(ctx, "canceled", "none", ctx.Err())
 		return
 	}
-	logent.OtelExportBatchCounts(ctx, result.delivered, result.dropped, len(result.retry), result.rejectedSpans)
 	updateCtx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
-	if len(result.retry) > 0 {
-		if retryErr := s.store.RetryOtelExportDeliveries(
-			updateCtx, batch.ClaimToken, retryDelay(batch.MaxAttempt()), result.retry); retryErr != nil {
+	if outcome == outcomeRetry {
+		if retryErr := s.store.RetryOtelExportDelivery(
+			updateCtx, delivery.ID, delivery.ClaimToken, retryDelay(delivery.AttemptCount)); retryErr != nil {
 			logent.OtelExportStoreFailed(ctx, "retry", retryErr)
-			logent.OtelExportBatchResult(ctx, "retry_failed", "local", result.err)
+			logent.OtelExportDeliveryResult(ctx, "retry_failed", "local", err)
 			return
 		}
-		if len(result.retry) == len(batch.Deliveries) {
-			logent.OtelExportBatchResult(ctx, "retry_scheduled", failureCause(result.err), result.err)
-			return
-		}
-	}
-	// Retried deliveries no longer carry the claim, so this finishes the rest.
-	if completeErr := s.store.CompleteOtelExportDeliveries(updateCtx, batch.ClaimToken); completeErr != nil {
+	} else if completeErr := s.store.CompleteOtelExportDelivery(
+		updateCtx, delivery.ID, delivery.ClaimToken); completeErr != nil {
 		logent.OtelExportStoreFailed(ctx, "complete", completeErr)
-		logent.OtelExportBatchResult(ctx, "complete_failed", "local", result.err)
+		logent.OtelExportDeliveryResult(ctx, "complete_failed", "local", err)
 		return
 	}
-	switch {
-	case len(result.retry) > 0:
-		logent.OtelExportBatchResult(ctx, "partially_retried", failureCause(result.err), result.err)
-	case result.dropped > 0:
-		logent.OtelExportBatchResult(ctx, "dropped", failureCause(result.err), result.err)
-	case result.rejectedSpans > 0:
-		logent.OtelExportBatchResult(ctx, "partially_rejected", "recipient", result.err)
-	case result.delivered > 0:
-		logent.OtelExportBatchResult(ctx, "completed", "none", nil)
-	default:
-		logent.OtelExportBatchResult(ctx, "skipped", "none", nil)
-	}
+	logent.OtelExportDeliveryResult(ctx, outcome, failureCause(err), err)
 }
 
 func failureCause(err error) string {
 	var recipient recipientError
 	var rejected rejectedError
 	switch {
+	case err == nil:
+		return "none"
 	case errors.As(err, &recipient), errors.As(err, &rejected):
 		return "recipient"
 	case errors.Is(err, executionstore.ErrOtelExporterMisconfigured):
@@ -191,92 +159,61 @@ func retryDelay(attempt int32) time.Duration {
 	return ceiling/2 + time.Duration(rand.Int64N(int64(ceiling/2)))
 }
 
-func (s *Sender) send(ctx context.Context, batch executionstore.OtelExportBatch) sendResult {
-	retryAll := func(err error) sendResult {
-		result := sendResult{retry: make([]uuid.UUID, len(batch.Deliveries)), err: err}
-		for i, delivery := range batch.Deliveries {
-			result.retry[i] = delivery.ID
-		}
-		return result
-	}
-	buildCtx, cancel := context.WithTimeout(ctx, buildTimeout)
-	defer cancel()
-	destination, err := s.store.GetOtelExportDestination(buildCtx, batch.OrgID, batch.ExporterID)
+// A delivery's outcome is also its log label. Only outcomeRetry keeps the
+// delivery queued.
+const (
+	outcomeCompleted         = "completed"
+	outcomeSkipped           = "skipped"
+	outcomeDropped           = "dropped"
+	outcomePartiallyRejected = "partially_rejected"
+	outcomeRetry             = "retry_scheduled"
+)
+
+func (s *Sender) send(ctx context.Context, delivery executionstore.OtelExportDelivery) (string, error) {
+	destination, err := s.store.GetOtelExportDestination(ctx, delivery.OrgID, delivery.ExporterID)
 	if errors.Is(err, storeerr.ErrNotFound) {
-		return sendResult{}
+		return outcomeSkipped, nil
 	}
 	if err != nil {
-		return retryAll(err)
+		return outcomeRetry, err
 	}
 	logent.OtelExportDestination(ctx, destination)
-	traces, err := s.collect(buildCtx, batch.Deliveries, destination.Variant)
-	if err != nil {
-		return retryAll(err)
+	turn, err := s.store.LoadTurnTraceForExport(ctx, delivery.AgentID, delivery.TurnID)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return outcomeSkipped, nil
 	}
-	if len(traces) == 0 {
-		return sendResult{}
+	if err != nil {
+		return outcomeRetry, err
+	}
+	traces := oteltrace.Build(turn, destination.Variant)
+	if traces.SpanCount() == 0 {
+		return outcomeSkipped, nil
 	}
 	rejectedSpans, err := s.post(ctx, destination, traces)
 	var rejected rejectedError
 	switch {
-	case err == nil:
-		return sendResult{delivered: len(traces), rejectedSpans: rejectedSpans, err: partialError(rejectedSpans)}
-	case !errors.As(err, &rejected):
-		return retryAll(err)
-	case len(traces) == 1:
-		return sendResult{dropped: 1, err: err}
+	case errors.As(err, &rejected):
+		return outcomeDropped, err
+	case err != nil:
+		return outcomeRetry, err
+	case rejectedSpans > 0:
+		// The endpoint kept the other spans, so the turn is not sent again.
+		return outcomePartiallyRejected, rejectedError{fmt.Errorf("otel endpoint rejected %d spans", rejectedSpans)}
 	}
-	// The endpoint refused the request as a whole. Resend each trace alone so
-	// one oversized or malformed trace is dropped without the others.
-	result := sendResult{}
-	isolateCtx, cancelIsolate := context.WithTimeout(ctx, isolateTimeout)
-	defer cancelIsolate()
-	for i, single := range traces {
-		rejectedSpans, err := s.post(isolateCtx, destination, traces[i:i+1])
-		switch {
-		case err == nil:
-			result.delivered++
-			result.rejectedSpans += rejectedSpans
-		case errors.As(err, &rejected):
-			result.dropped++
-			result.err = err
-		default:
-			result.retry = append(result.retry, single.deliveryID)
-			if result.err == nil {
-				result.err = err
-			}
-		}
-	}
-	if result.err == nil {
-		result.err = partialError(result.rejectedSpans)
-	}
-	return result
+	return outcomeCompleted, nil
 }
 
-func partialError(rejectedSpans int64) error {
-	if rejectedSpans == 0 {
-		return nil
-	}
-	return rejectedError{fmt.Errorf("otel endpoint rejected %d spans", rejectedSpans)}
-}
-
-// post sends the traces in one request and reports how many spans a
-// successful response says the endpoint rejected.
+// post sends the trace and reports how many spans a successful response says
+// the endpoint rejected.
 func (s *Sender) post(
-	ctx context.Context, destination executionstore.OtelExportDestination, traces []trace,
+	ctx context.Context, destination executionstore.OtelExportDestination, traces ptrace.Traces,
 ) (int64, error) {
-	var spans []oteltrace.Span
-	for _, trace := range traces {
-		spans = append(spans, trace.spans...)
-	}
-	body, contentType, err := oteltrace.NewExport(spans).Encode(destination.Encoding)
+	body, contentType, err := oteltrace.Encode(traces, destination.Encoding)
 	if err != nil {
 		return 0, fmt.Errorf("encode otel export: %w", err)
 	}
-	logent.OtelExportPayload(ctx, len(spans), len(body))
-	attemptCtx, cancelAttempt := context.WithTimeout(ctx, attemptTimeout)
-	defer cancelAttempt()
-	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, destination.Endpoint, bytes.NewReader(body))
+	logent.OtelExportPayload(ctx, traces.SpanCount(), len(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, destination.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, errors.New("create otel export request failed")
 	}
@@ -299,7 +236,7 @@ func (s *Sender) post(
 	case status >= http.StatusOK && status < http.StatusMultipleChoices:
 		rejectedSpans, message := oteltrace.ParsePartialSuccess(response.Header.Get("Content-Type"), responseBody)
 		if rejectedSpans > 0 {
-			logent.OtelExportPartialSuccess(ctx, message)
+			logent.OtelExportPartialSuccess(ctx, rejectedSpans, message)
 		}
 		return rejectedSpans, nil
 	case retryableStatus(status):
@@ -318,23 +255,4 @@ func retryableStatus(status int) bool {
 		return true
 	}
 	return status >= http.StatusInternalServerError
-}
-
-func (s *Sender) collect(
-	ctx context.Context, deliveries []executionstore.OtelExportDelivery, variant oteltrace.Variant,
-) ([]trace, error) {
-	var traces []trace
-	for _, delivery := range deliveries {
-		turn, err := s.store.LoadTurnTraceForExport(ctx, delivery.AgentID, delivery.TurnID)
-		if errors.Is(err, storeerr.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if spans := oteltrace.Build(turn, variant); len(spans) > 0 {
-			traces = append(traces, trace{deliveryID: delivery.ID, spans: spans})
-		}
-	}
-	return traces, nil
 }

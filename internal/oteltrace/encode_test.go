@@ -1,74 +1,75 @@
 package oteltrace
 
 import (
-	"encoding/hex"
-	"google.golang.org/protobuf/encoding/protowire"
+	"slices"
+	"strings"
 	"testing"
 
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/proto"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
-func TestEncodeProtobufCarriesTheSameSpansAsJSON(t *testing.T) {
-	turn := testTurn()
-	spans := Build(turn, VariantOTel)
-	body, contentType, err := NewExport(spans).Encode(EncodingProtobuf)
-	if err != nil || contentType != "application/x-protobuf" {
-		t.Fatalf("encode protobuf: %v, content type %q", err, contentType)
-	}
-	var decoded tracepb.TracesData
-	if err := proto.Unmarshal(body, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	resource := decoded.GetResourceSpans()[0]
-	if got := resource.GetResource().GetAttributes()[0]; got.GetKey() != "service.name" ||
-		got.GetValue().GetStringValue() != "omnara" {
-		t.Fatalf("unexpected resource attribute: %v", got)
-	}
-	got := resource.GetScopeSpans()[0].GetSpans()
-	if len(got) != len(spans) {
-		t.Fatalf("expected %d spans, got %d", len(spans), len(got))
-	}
-	for i, span := range spans {
-		if hex.EncodeToString(got[i].GetTraceId()) != span.TraceID || hex.EncodeToString(got[i].GetSpanId()) != span.SpanID ||
-			hex.EncodeToString(got[i].GetParentSpanId()) != span.ParentSpanID || got[i].GetName() != span.Name ||
-			int(got[i].GetKind()) != span.Kind || len(got[i].GetAttributes()) != len(span.Attributes) {
-			t.Fatalf("span %d differs: %v", i, got[i])
+func TestParseEncodingDefaultsToProtobuf(t *testing.T) {
+	for value, want := range map[string]Encoding{
+		"": EncodingProtobuf, "protobuf": EncodingProtobuf, "json": EncodingJSON,
+	} {
+		if got, ok := ParseEncoding(value); !ok || got != want {
+			t.Errorf("ParseEncoding(%q) = %q, %v; want %q", value, got, ok, want)
 		}
 	}
-	root, failed, chat := got[0], got[1], got[2]
-	if len(root.GetTraceId()) != 16 || len(root.GetSpanId()) != 8 || len(root.GetParentSpanId()) != 0 {
-		t.Fatalf("unexpected root identity sizes: %v", root)
-	}
-	if root.GetStartTimeUnixNano() != 1794830400000000000 || root.GetEndTimeUnixNano() != 1794830408000000000 {
-		t.Fatalf("unexpected root times: %d to %d", root.GetStartTimeUnixNano(), root.GetEndTimeUnixNano())
-	}
-	if status := failed.GetStatus(); status.GetCode() != tracepb.Status_STATUS_CODE_ERROR ||
-		status.GetMessage() != "overloaded" {
-		t.Fatalf("unexpected failed status: %v", failed.GetStatus())
-	}
-	var inputTokens int64
-	var finishReasons []string
-	for _, attribute := range chat.GetAttributes() {
-		switch attribute.GetKey() {
-		case "gen_ai.usage.input_tokens":
-			inputTokens = attribute.GetValue().GetIntValue()
-		case "gen_ai.response.finish_reasons":
-			for _, value := range attribute.GetValue().GetArrayValue().GetValues() {
-				finishReasons = append(finishReasons, value.GetStringValue())
-			}
-		}
-	}
-	if inputTokens != 100 || len(finishReasons) != 1 || finishReasons[0] != "tool_use" {
-		t.Fatalf("unexpected typed attributes: %d %v", inputTokens, finishReasons)
+	if _, ok := ParseEncoding("grpc"); ok {
+		t.Error("grpc is not an OTLP/HTTP encoding")
 	}
 }
 
+func TestEncodingsCarryTheSameSpans(t *testing.T) {
+	traces := Build(testTurn(), VariantOTel)
+	for encoding, test := range map[Encoding]struct {
+		contentType string
+		unmarshaler ptrace.Unmarshaler
+	}{
+		EncodingProtobuf: {"application/x-protobuf", &ptrace.ProtoUnmarshaler{}},
+		EncodingJSON:     {"application/json", &ptrace.JSONUnmarshaler{}},
+	} {
+		body, contentType, err := Encode(traces, encoding)
+		if err != nil || contentType != test.contentType {
+			t.Fatalf("encode %s: %v, content type %q", encoding, err, contentType)
+		}
+		decoded, err := test.unmarshaler.UnmarshalTraces(body)
+		if err != nil {
+			t.Fatalf("decode %s: %v", encoding, err)
+		}
+		if got, want := mustProto(t, decoded), mustProto(t, traces); string(got) != string(want) {
+			t.Errorf("%s did not round-trip the trace", encoding)
+		}
+	}
+	body, _, err := Encode(traces, EncodingJSON)
+	if err != nil || !strings.Contains(string(body), `"traceId":"01938a5c00007000800000000000abcd"`) ||
+		!strings.Contains(string(body), `{"key":"gen_ai.usage.input_tokens","value":{"intValue":"100"}}`) {
+		t.Errorf("OTLP/JSON writes IDs as hex and 64-bit integers as strings, got %s", body)
+	}
+	if _, _, err := Encode(traces, "grpc"); err == nil {
+		t.Error("an unknown encoding must fail")
+	}
+}
+
+func mustProto(t *testing.T, traces ptrace.Traces) []byte {
+	t.Helper()
+	body, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(traces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
 func TestParsePartialSuccess(t *testing.T) {
-	// partial_success{rejected_spans: 3, error_message: "too big"}
-	inner := protowire.AppendVarint(protowire.AppendTag(nil, 1, protowire.VarintType), 3)
-	inner = protowire.AppendString(protowire.AppendTag(inner, 2, protowire.BytesType), "too big")
-	encoded := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), inner)
+	partial := ptraceotlp.NewExportResponse()
+	partial.PartialSuccess().SetRejectedSpans(3)
+	partial.PartialSuccess().SetErrorMessage("too big")
+	encoded, err := partial.MarshalProto()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name, contentType string
 		body              []byte
@@ -88,6 +89,19 @@ func TestParsePartialSuccess(t *testing.T) {
 		rejected, message := ParsePartialSuccess(test.contentType, test.body)
 		if rejected != test.rejected || message != test.message {
 			t.Errorf("%s: got %d %q, want %d %q", test.name, rejected, message, test.rejected, test.message)
+		}
+	}
+}
+
+func TestVariantsListTheirEncodingsDefaultFirst(t *testing.T) {
+	for variant, want := range map[Variant][]Encoding{
+		VariantOTel:       {EncodingProtobuf, EncodingJSON},
+		VariantLangfuse:   {EncodingProtobuf, EncodingJSON},
+		VariantBraintrust: {EncodingProtobuf},
+		VariantLangSmith:  {EncodingProtobuf},
+	} {
+		if got := variant.Encodings(); !slices.Equal(got, want) {
+			t.Errorf("%s encodings = %v, want %v", variant, got, want)
 		}
 	}
 }

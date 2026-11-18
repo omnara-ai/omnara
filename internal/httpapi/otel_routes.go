@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"net/http"
 
@@ -37,7 +36,7 @@ func (s strictOpenAPIServer) GetTurnTrace(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	encoded, err := json.Marshal(oteltrace.NewExport(oteltrace.Build(turn, variant)))
+	encoded, _, err := oteltrace.Encode(oteltrace.Build(turn, variant), oteltrace.EncodingJSON)
 	if err != nil {
 		return nil, err
 	}
