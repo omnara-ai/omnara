@@ -575,6 +575,15 @@ func TestWorkerFileToolsUnavailable(t *testing.T) {
 	require.Equal(t, "sandbox launcher unavailable", record["error.message"])
 }
 
+func TestAPIFileToolsUnavailable(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	APIFileToolsUnavailable(ctx, errors.New("sandbox launcher unavailable"))
+	record := oneRecord(t, &buf)
+	require.Equal(t, "api.file_tools_unavailable", record["event.name"])
+	require.Equal(t, "warn", record["level"])
+}
+
 func testLogger(buf *bytes.Buffer) *slog.Logger {
 	return testLoggerAtLevel(buf, slog.LevelInfo)
 }

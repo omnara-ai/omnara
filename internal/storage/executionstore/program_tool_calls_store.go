@@ -71,7 +71,7 @@ type CreateProgramToolCallInput struct {
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
 	ProcessID uuid.UUID
-	Key       uuid.UUID
+	Key       string
 	Name      string
 	Type      string
 	Input     json.RawMessage
@@ -151,6 +151,32 @@ func (s *Store) CreateProgramToolCall(
 			}
 			return programToolCallRecordTx(ctx, unit.DB(), input.ProjectID, input.AgentID, tool)
 		})
+}
+
+// ResumeProgramToolCall returns the call the key already names for this agent, in any of its
+// commands. It reports false when a new call should be started. The record's ProcessID is the
+// process that made the call, which may not be input.ProcessID.
+func (s *Store) ResumeProgramToolCall(
+	ctx context.Context, input CreateProgramToolCallInput,
+) (ProgramToolCallRecord, bool, error) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ProcessID == uuid.Nil {
+		return ProgramToolCallRecord{}, false, errors.New("project, agent, and process are required")
+	}
+	type resumed struct {
+		record ProgramToolCallRecord
+		found  bool
+	}
+	result, err := programUnit(ctx, s, "resume_program_tool_call", input.ProjectID, input.AgentID,
+		func(unit *agentexecution.Unit, h *agentexecution.Handle) (resumed, error) {
+			tool, found, err := h.ResumeProgramTool(ctx, agentexecution.CreateProgramToolInput{
+				ProcessID: input.ProcessID, Key: input.Key, Name: input.Name, Input: input.Input})
+			if err != nil || !found {
+				return resumed{}, err
+			}
+			record, err := programToolCallRecordTx(ctx, unit.DB(), input.ProjectID, input.AgentID, tool)
+			return resumed{record: record, found: true}, err
+		})
+	return result.record, result.found, err
 }
 
 func (s *Store) AuthorizeProgramToolCall(

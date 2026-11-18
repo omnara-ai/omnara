@@ -195,7 +195,7 @@ func TestProgramToolSchema(t *testing.T) {
 	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p2", "program", nil, nil)))
 	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p3", "model", f.parent, output)))
 	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p4", "program", uuid.New(), nil)))
-	require.Equal(t, "23505", sqlState(t, u, stmt(insert, f.parent, programKey("k1").String(), "program", f.parent, nil)))
+	require.Equal(t, "23505", sqlState(t, u, stmt(insert, f.parent, programKey("k1"), "program", f.parent, nil)))
 	require.Empty(t, sqlState(t, u, stmt(insert, f.parent, "k2", "program", f.parent, nil)))
 	require.Equal(t, "25006", sqlState(t, u, stmt(`UPDATE tool_calls SET caller='model' WHERE id=$1`, child.ID)))
 	require.Equal(t, "25006", sqlState(t, u, stmt(`UPDATE tool_calls SET provider_call_id='other' WHERE id=$1`, child.ID)))
@@ -236,7 +236,7 @@ func TestProgramToolCreateIsIdempotent(t *testing.T) {
 	var provider, caller string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT provider_call_id,caller FROM tool_calls WHERE id=$1`,
 		created.ID).Scan(&provider, &caller))
-	require.Equal(t, programKey("key").String(), provider)
+	require.Equal(t, programKey("key"), provider)
 	require.Equal(t, "program", caller)
 	require.Equal(t, before, f.fingerprint(t))
 }
@@ -529,7 +529,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	var code string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
  JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, mcp.ID).Scan(&code))
-	require.Equal(t, "server_lost", code)
+	require.Equal(t, "outcome_unknown", code, "an external call that had started may have taken effect")
 }
 
 func TestProgramToolCreateLimitsOpenCallsPerCommand(t *testing.T) {
@@ -598,4 +598,63 @@ func TestProgramToolsIgnoredByTurnControl(t *testing.T) {
 	}
 }
 
-func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }
+func programKey(label string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)).String() }
+
+func TestProgramToolKeyResumesAcrossCommands(t *testing.T) {
+	f := newProgramFixture(t)
+	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
+	resume := func(h *agentexecution.Handle, path string) (agentexecution.ProgramTool, bool, error) {
+		return h.ResumeProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: second.process, Key: programKey("job"), Name: "storage_read",
+			Input: json.RawMessage(`{"path":"` + path + `"}`)})
+	}
+	second.try(t, func(h *agentexecution.Handle) {
+		_, found, err := resume(h, "a")
+		require.NoError(t, err)
+		require.False(t, found, "an unused key names no call")
+	})
+	first := f.create(t, "job")
+	second.try(t, func(h *agentexecution.Handle) {
+		tool, found, err := resume(h, "a")
+		require.NoError(t, err)
+		require.True(t, found, "another running command attaches to the open call")
+		require.Equal(t, []uuid.UUID{first.ID, f.process}, []uuid.UUID{tool.ID, tool.ProcessID})
+		_, _, err = resume(h, "b")
+		require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict, "a key cannot be reused for a different input")
+	})
+
+	_, err := f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
+ exit_code=0 WHERE id=$1`, f.process)
+	require.NoError(t, err)
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, found, err := resume(h, "a")
+		require.NoError(t, err)
+		require.False(t, found, "a call canceled before it ran can be started again")
+	})
+	state, outcome := programState(t, f, first.ID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+
+	retry := second.create(t, "job")
+	require.True(t, retry.Created)
+	require.NotEqual(t, first.ID, retry.ID)
+	claim := uuid.New()
+	_, found := second.claim(t, retry.ID, claim)
+	require.True(t, found)
+	ref := agentexecution.ProgramToolRef{ID: retry.ID, ProcessID: second.process, ClaimID: claim}
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
+		require.NoError(t, err)
+		_, err = h.CompleteProgramTool(t.Context(), ref, "succeeded",
+			[]agentexecution.Content{{Kind: "text", Text: "done"}})
+		require.NoError(t, err)
+	})
+	second.try(t, func(h *agentexecution.Handle) {
+		tool, found, err := resume(h, "a")
+		require.NoError(t, err)
+		require.True(t, found, "a finished call keeps returning its result")
+		require.Equal(t, []any{retry.ID, "completed"}, []any{tool.ID, tool.State})
+	})
+	replay := second.create(t, "job")
+	require.False(t, replay.Created)
+	require.Equal(t, retry.ID, replay.ID)
+}

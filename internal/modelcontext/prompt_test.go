@@ -92,7 +92,7 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 				contract.GitCredentials = &agentconfig.GitCredentialsCompiled{}
 			}
 			if test.programmaticToolCalls {
-				contract.DeferredTools = &agentconfig.DeferredToolsCompiled{Mode: agentconfig.DeferredToolsModeCodeMode}
+				contract.CodeMode = &agentconfig.CodeModeCompiled{Enabled: true}
 			}
 			prompt := capabilityGuidance(test.specs, contract)
 			for _, want := range test.want {

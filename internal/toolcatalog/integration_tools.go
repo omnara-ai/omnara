@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/programoutput"
 )
 
 const (
@@ -37,8 +38,11 @@ type IntegrationToolDefinition struct {
 	IntegrationKind integrationdefinition.Kind
 	Scope           IntegrationToolScope
 	Description     string
-	required        []string
-	properties      map[string]any
+	// CodeMode marks a tool commands can call with `omnarad call`; it requires outputSchema.
+	CodeMode     bool
+	required     []string
+	properties   map[string]any
+	outputSchema func() (json.RawMessage, error)
 }
 
 var integrationToolDefinitions = buildIntegrationToolDefinitions()
@@ -90,14 +94,27 @@ func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
 		dependentRequired["start_line"], dependentRequired["start_side"] = []string{"start_side"}, []string{"start_line"}
 	}
 	entry, err := toolEntry(name, d.Description, d.required, properties)
-	if err != nil || len(dependentRequired) == 0 {
-		return entry, err
+	if err != nil {
+		return Entry{}, err
 	}
-	var schema map[string]any
-	_ = json.Unmarshal(entry.InputSchema, &schema)
-	schema["dependentRequired"] = dependentRequired
-	entry.InputSchema, err = json.Marshal(schema)
-	return entry, err
+	if len(dependentRequired) > 0 {
+		var schema map[string]any
+		_ = json.Unmarshal(entry.InputSchema, &schema)
+		schema["dependentRequired"] = dependentRequired
+		if entry.InputSchema, err = json.Marshal(schema); err != nil {
+			return Entry{}, err
+		}
+	}
+	if d.CodeMode && d.outputSchema == nil {
+		return Entry{}, fmt.Errorf("code-mode integration tool %q requires an output schema", name)
+	}
+	if d.outputSchema != nil {
+		if entry.OutputSchema, err = d.outputSchema(); err != nil {
+			return Entry{}, fmt.Errorf("%s output schema: %w", name, err)
+		}
+	}
+	entry.CodeMode = d.CodeMode
+	return entry, nil
 }
 
 func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
@@ -116,6 +133,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.SlackThread,
+			CodeMode:        true,
+			outputSchema:    programoutput.SlackReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Read one bounded page from this agent's assigned Slack conversation (default limit 15). " +
 				"Thread replies are oldest-first, starting at the root; channel history is newest-first. " +
@@ -138,6 +157,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			CodeMode:        true,
+			outputSchema:    programoutput.GitHubReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Read the selected GitHub pull request. section defaults to pull_request; " +
 				"reviews returns submitted review bodies and states. pending_review returns this bot's pending review or null; " +
@@ -284,6 +305,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.DiscordThread,
+			CodeMode:        true,
+			outputSchema:    programoutput.DiscordReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Read messages from this agent's assigned Discord thread.",
 			properties:      map[string]any{"before": text(), "limit": limit()},

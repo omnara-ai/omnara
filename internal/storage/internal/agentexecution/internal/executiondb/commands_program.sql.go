@@ -35,7 +35,7 @@ INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,s
 SELECT $1,c.project_id,c.agent_id,$2,$3,$4::jsonb,$5,
  'awaiting_authorization','program',c.id,statement_timestamp()
 FROM tool_calls c WHERE c.agent_id=$6 AND c.id=$7 AND c.caller='model'
-ON CONFLICT (agent_id,parent_tool_call_id,provider_call_id) WHERE caller='program' DO NOTHING
+ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
 RETURNING id
 `
 
@@ -141,16 +141,13 @@ SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-WHERE c.agent_id=$1 AND c.caller='program' AND (c.id=$2
- OR (c.parent_tool_call_id=$3 AND c.provider_call_id=$4))
+WHERE c.agent_id=$1 AND c.caller='program' AND c.id=$2
 FOR UPDATE OF c
 `
 
 type ReadProgramToolParams struct {
-	AgentID  uuid.UUID
-	ID       *uuid.UUID
-	ParentID *uuid.UUID
-	Key      *string
+	AgentID uuid.UUID
+	ID      uuid.UUID
 }
 
 type ReadProgramToolRow struct {
@@ -172,13 +169,65 @@ type ReadProgramToolRow struct {
 }
 
 func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramToolParams) (ReadProgramToolRow, error) {
-	row := db.QueryRow(ctx, readProgramTool,
-		arg.AgentID,
-		arg.ID,
-		arg.ParentID,
-		arg.Key,
-	)
+	row := db.QueryRow(ctx, readProgramTool, arg.AgentID, arg.ID)
 	var i ReadProgramToolRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Input,
+		&i.Type,
+		&i.State,
+		&i.ParentToolCallID,
+		&i.ProviderCallID,
+		&i.ProgramClaimID,
+		&i.ProgramClaimExpiresAt,
+		&i.ClaimExpired,
+		&i.CreatedAt,
+		&i.ProcessID,
+		&i.ResultID,
+		&i.Outcome,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const readProgramToolByKey = `-- name: ReadProgramToolByKey :one
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
+ c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
+FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+WHERE c.agent_id=$1 AND c.caller='program' AND c.provider_call_id=$2
+ORDER BY c.created_at DESC,c.id DESC LIMIT 1
+FOR UPDATE OF c
+`
+
+type ReadProgramToolByKeyParams struct {
+	AgentID uuid.UUID
+	Key     string
+}
+
+type ReadProgramToolByKeyRow struct {
+	ID                    uuid.UUID
+	Name                  string
+	Input                 json.RawMessage
+	Type                  string
+	State                 string
+	ParentToolCallID      *uuid.UUID
+	ProviderCallID        string
+	ProgramClaimID        *uuid.UUID
+	ProgramClaimExpiresAt *time.Time
+	ClaimExpired          bool
+	CreatedAt             time.Time
+	ProcessID             uuid.UUID
+	ResultID              *uuid.UUID
+	Outcome               *string
+	CompletedAt           *time.Time
+}
+
+func (q *Queries) ReadProgramToolByKey(ctx context.Context, db DBTX, arg ReadProgramToolByKeyParams) (ReadProgramToolByKeyRow, error) {
+	row := db.QueryRow(ctx, readProgramToolByKey, arg.AgentID, arg.Key)
+	var i ReadProgramToolByKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,

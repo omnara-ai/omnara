@@ -6,7 +6,7 @@ import {
 } from '@omnara/sdk/config-source'
 import {
   zAgentConfigDefinition,
-  zAgentConfigDefinitionDeferredTools,
+  zAgentConfigDefinitionCodeMode,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
   zAgentConfigDefinitionMachineSource,
@@ -176,7 +176,7 @@ const basicDocument = z.looseObject({
   tools: configRecord(toolEntry).nullish(),
   interaction_handlers: configRecord(interactionHandler).nullish(),
   git_credentials: z.strictObject(zAgentConfigDefinitionGitCredentials.shape).nullish(),
-  deferred_tools: z.strictObject(zAgentConfigDefinitionDeferredTools.shape).nullish(),
+  code_mode: z.strictObject(zAgentConfigDefinitionCodeMode.shape).nullish(),
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
   mcp: configRecord(mcpEntry).nullish(),
@@ -350,7 +350,7 @@ function extractBasicConfig(
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     interactionHandlers: doc.interaction_handlers ?? {},
     gitCredentials: doc.git_credentials ?? undefined,
-    deferredTools: doc.deferred_tools ?? undefined,
+    codeMode: doc.code_mode ?? undefined,
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     memoryStores: doc.memory_stores ?? [],

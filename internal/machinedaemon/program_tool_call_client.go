@@ -40,10 +40,12 @@ const (
 )
 
 type ProgramToolCallOptions struct {
-	Tool    string
-	Input   string
-	Output  ProgramToolCallOutput
-	Timeout time.Duration
+	Tool   string
+	Input  string
+	Output ProgramToolCallOutput
+	// IdempotencyKey names the call so a later run can pick it up. Empty generates one for this run.
+	IdempotencyKey string
+	Timeout        time.Duration
 }
 
 func RunProgramToolCall(
@@ -82,12 +84,20 @@ func RunProgramToolCall(
 	if err != nil {
 		return fail(ProgramToolCallExitUnavailable, "%v", err)
 	}
+	key, resumable := options.IdempotencyKey, options.IdempotencyKey != ""
+	if !resumable {
+		key = uuid.NewString()
+	} else if !daemonprotocol.ValidProgramToolCallKey(key) {
+		return fail(ProgramToolCallExitUnavailable,
+			"--idempotency-key must be 1 to %d printable characters with no spaces",
+			daemonprotocol.ProgramToolCallMaxKeyBytes)
+	}
 	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
 	caller := newProgramToolCaller(endpoint, processID)
 	defer caller.client.CloseIdleConnections()
 	request, err := json.Marshal(daemonprotocol.ProgramToolCallRequest{
-		Key: uuid.NewString(), Name: options.Tool, Input: input,
+		Key: key, Name: options.Tool, Input: input, KeepOnDisconnect: resumable,
 	})
 	if err != nil {
 		return fail(ProgramToolCallExitUnavailable, "cannot encode tool call request")
@@ -96,7 +106,7 @@ func RunProgramToolCall(
 		_, _ = fmt.Fprintf(stderr, "omnarad: waiting for approval of %s in Omnara...\n", options.Tool)
 	})
 	if err != nil {
-		return reportProgramToolCallError(ctx, options.Tool, result, err, stderr)
+		return reportProgramToolCallError(ctx, options.Tool, resumable, result, err, stderr)
 	}
 	return writeProgramToolCallResult(result, options.Output, stdout, stderr)
 }
@@ -243,6 +253,7 @@ func programToolCallErrorMessage(response *http.Response, body []byte) string {
 func reportProgramToolCallError(
 	ctx context.Context,
 	tool string,
+	resumable bool,
 	last daemonprotocol.ProgramToolCallResult,
 	err error,
 	stderr io.Writer,
@@ -257,6 +268,9 @@ func reportProgramToolCallError(
 			return ProgramToolCallExitUnavailable
 		}
 		return ProgramToolCallExitTransport
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) && resumable:
+		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: timed out; the call is still open, so run it again with "+
+			"the same --idempotency-key to pick it up\n", tool)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		if last.ToolCallID != "" {
 			_, _ = fmt.Fprintf(stderr, "omnarad call: %s: timed out; tool call %s may still complete\n",

@@ -22,6 +22,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/email"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -161,6 +162,10 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
+	// Tool calls from commands run here, so storage_search needs the same file tools as the worker.
+	if err := tools.CheckFileToolSupport(context.Background()); err != nil {
+		logent.APIFileToolsUnavailable(logpkg.WithLogger(context.Background(), log), err)
+	}
 	store := storage.NewStore(db, storeOpts...)
 	if err := bootstrapAuthConnectors(context.Background(), store, cfg); err != nil {
 		log.Error("bootstrap auth connectors", "error", err)
@@ -210,12 +215,23 @@ func main() {
 		)
 		apiOpts = append(apiOpts, httpapi.WithMCPRegistry(mcpRegistry))
 	}
-	programTools, err := programToolExecutor(cfg, store, httpRecorder, log)
+	// Outlives the shutdown signal so queued interaction prompts are still sent while the API drains.
+	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
+	defer cancelBackground()
+	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
+		backgroundCtx, log, cfg.WorkerBackgroundToolCapacity, metricSet,
+	)
+	if err != nil {
+		log.Error("configure background tool runner", "error", err)
+		os.Exit(1)
+	}
+	programTools, err := programToolExecutor(cfg, store, httpRecorder, backgroundRunner, log)
 	if err != nil {
 		log.Error("configure program tool executor", "error", err)
 		os.Exit(1)
 	}
-	apiOpts = append(apiOpts, httpapi.WithProgramToolExecutor(programTools))
+	apiOpts = append(apiOpts, httpapi.WithProgramToolExecutor(programTools),
+		httpapi.WithProgramToolCapacity(cfg.APIProgramToolCapacity))
 	apiServer, err := httpapi.New(log, store, apiOpts...)
 	if err != nil {
 		log.Error("create api server", "error", err)
@@ -268,6 +284,7 @@ func main() {
 		log.Error("api shutdown failed", "error", err)
 		exitCode = 1
 	}
+	backgroundRunner.Shutdown()
 	if !metricsDrained {
 		<-metricsErr
 	}
@@ -407,26 +424,28 @@ func requireWebIndex(assets fs.FS, label string) error {
 }
 
 func programToolExecutor(
-	cfg config.Config, store *storage.Store, httpRecorder *metrics.HTTPClientRecorder, log *slog.Logger,
+	cfg config.Config,
+	store *storage.Store,
+	httpRecorder *metrics.HTTPClientRecorder,
+	backgroundRunner tools.BackgroundRunner,
+	log *slog.Logger,
 ) (tools.Executor, error) {
 	sigV4CredentialCache, err := sigv4.NewCredentialCache()
 	if err != nil {
 		return tools.Executor{}, fmt.Errorf("configure SigV4 credential cache: %w", err)
 	}
-	mcpHTTPClient := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev},
-	)
+	mcpAuth := mcp.NewAuthOptions(cfg.AllowInsecureDev, cfg.EndpointAllowlist)
 	return tools.Executor{
 		Store:  store,
 		Skills: store.Skills(),
-		MCP:    mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
+		MCP:    mcp.New(mcp.Options{HTTPClient: mcpAuth.EndpointHTTPClient}),
 		IntegrationHTTPClient: metrics.NewObservedHTTPClient(
 			outboundhttp.NewPublicClient(
 				outboundhttp.PublicClientOptions{Timeout: programToolIntegrationHTTPTimeout},
 			),
 			httpRecorder,
 		),
-		MCPAuthHTTPClient:    mcpHTTPClient,
+		MCPAuthHTTPClient:    mcpAuth.HTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		WebSearch: webaccess.ExaProvider{
 			APIKey: cfg.ExaAPIKey,
@@ -436,9 +455,11 @@ func programToolExecutor(
 				metrics.WithHTTPClientPathLabel("/search"),
 			),
 		},
-		WebFetcher:         webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev}),
-		AgentConfigOptions: agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
-		Log:                log,
+		WebFetcher: webaccess.NewFetcher(
+			webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.WebFetchAllowlist},
+		),
+		BackgroundRunner: backgroundRunner,
+		Log:              log,
 	}, nil
 }
 

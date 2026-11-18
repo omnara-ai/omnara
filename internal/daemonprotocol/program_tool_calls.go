@@ -14,12 +14,32 @@ const (
 
 	ProgramToolCallMaxInputBytes  = MaxMessageBytes - 16*1024
 	ProgramToolCallMaxResultBytes = MaxMessageBytes - 16*1024
+	// ProgramToolCallMaxKeyBytes bounds a call's idempotency key.
+	ProgramToolCallMaxKeyBytes = 128
 )
 
+// ValidProgramToolCallKey reports whether key can identify a call: 1 to 128 printable ASCII
+// characters with no spaces.
+func ValidProgramToolCallKey(key string) bool {
+	if key == "" || len(key) > ProgramToolCallMaxKeyBytes {
+		return false
+	}
+	for i := range len(key) {
+		if key[i] < '!' || key[i] > '~' {
+			return false
+		}
+	}
+	return true
+}
+
 type ProgramToolCallRequest struct {
+	// Key identifies the call for its agent. Offering it again returns the same call.
 	Key   string          `json:"key"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
+	// KeepOnDisconnect leaves the call open when its command stops waiting, so the command can
+	// offer the key again to pick it up. Set when the command chose the key.
+	KeepOnDisconnect bool `json:"keep_on_disconnect,omitempty"`
 }
 
 type ProgramToolCallResult struct {

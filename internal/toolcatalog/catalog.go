@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -131,6 +132,24 @@ type Entry struct {
 	DefaultPermission toolpermission.Selection
 	PermissionModes   []toolpermission.ModeDescriptor
 	InputSchema       json.RawMessage
+	// OutputSchema describes the tool's structured result. Code-mode tools must define one.
+	OutputSchema json.RawMessage
+	// CodeMode marks a tool commands can call with `omnarad call` when the agent defers it in code mode.
+	CodeMode bool
+}
+
+// codeModeEntry marks a tool as callable from commands and attaches its output schema.
+func codeModeEntry(outputSchema func() (json.RawMessage, error)) func(Entry, error) (Entry, error) {
+	return func(entry Entry, err error) (Entry, error) {
+		if err != nil {
+			return Entry{}, err
+		}
+		if entry.OutputSchema, err = outputSchema(); err != nil {
+			return Entry{}, fmt.Errorf("%s output schema: %w", entry.Name, err)
+		}
+		entry.CodeMode = true
+		return entry, nil
+	}
 }
 
 var defaultCatalog = sync.OnceValues(buildDefaultCatalog)
@@ -328,7 +347,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageList], err = toolEntry(
+	if entries[ToolNameStorageList], err = codeModeEntry(programoutput.StorageListSchema)(toolEntry(
 		ToolNameStorageList,
 		storageListToolDescription,
 		[]string{"pattern"},
@@ -356,7 +375,7 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", StorageListDefaultLimit),
 			},
 		},
-	); err != nil {
+	)); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameListMachines], err = toolEntry(
@@ -411,19 +430,21 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameAskQuestion], err = askQuestionTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
+	if entries[ToolNameWebSearch], err = codeModeEntry(programoutput.WebSearchSchema)(webSearchTool()); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+	if entries[ToolNameWebFetch], err = codeModeEntry(programoutput.WebFetchSchema)(webFetchTool()); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
+	if entries[ToolNameStorageRead], err = codeModeEntry(programoutput.StorageReadSchema)(storageReadTool()); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageWrite], err = storageWriteTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageSearch], err = storageSearchTool(); err != nil {
+	if entries[ToolNameStorageSearch], err = codeModeEntry(programoutput.StorageSearchSchema)(
+		storageSearchTool(),
+	); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageUpload], err = storageUploadTool(machineID); err != nil {
@@ -869,6 +890,14 @@ func (entry Entry) validate() error {
 	}
 	if err := jsonschema.ValidateSchema(entry.InputSchema); err != nil {
 		return fmt.Errorf("tool %q input schema: %w", entry.Name, err)
+	}
+	if entry.CodeMode && len(entry.OutputSchema) == 0 {
+		return fmt.Errorf("code-mode tool %q output schema is required", entry.Name)
+	}
+	if len(entry.OutputSchema) > 0 {
+		if err := jsonschema.ValidateSchema(entry.OutputSchema); err != nil {
+			return fmt.Errorf("tool %q output schema: %w", entry.Name, err)
+		}
 	}
 	return nil
 }

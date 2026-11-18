@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -30,7 +29,7 @@ type RuntimeContract struct {
 	Subagents           map[string]SubagentCompiled
 	MaxSubagents        *int
 	MaxDepth            *int
-	DeferredTools       *DeferredToolsCompiled
+	CodeMode            *CodeModeCompiled
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -51,13 +50,15 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	Name            string
-	Type            string
-	Permission      toolpermission.Selection
-	Deferred        bool
-	Description     string
-	InputSchema     json.RawMessage
-	IntegrationKind integrationdefinition.Kind
+	Name         string
+	Type         string
+	Permission   toolpermission.Selection
+	Deferred     bool
+	Description  string
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
+	// CodeMode is set from the tool's definition: commands can call it when the agent has code mode on.
+	CodeMode bool
 }
 
 type RuntimeMachine struct {
@@ -116,7 +117,7 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledIntegrations(compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
-	if err := validateCompiledDeferredTools(compiled.DeferredTools); err != nil {
+	if err := validateCompiledCodeMode(compiled.CodeMode); err != nil {
 		return RuntimeContract{}, err
 	}
 	tools, err := runtimeTools(compiled.Tools)
@@ -140,7 +141,7 @@ func RuntimeContractFromCompiled(
 		Subagents:           compiled.Subagents,
 		MaxSubagents:        compiled.MaxSubagents,
 		MaxDepth:            compiled.MaxDepth,
-		DeferredTools:       compiled.DeferredTools,
+		CodeMode:            compiled.CodeMode,
 	}
 	return contract, nil
 }
@@ -227,11 +228,13 @@ func runtimeBuiltInTool(
 	permission toolpermission.Selection,
 ) RuntimeTool {
 	return RuntimeTool{
-		Name:        entry.Name,
-		Type:        toolcatalog.ToolTypeBuiltIn,
-		Permission:  permission,
-		Description: entry.Description,
-		InputSchema: entry.InputSchema,
+		Name:         entry.Name,
+		Type:         toolcatalog.ToolTypeBuiltIn,
+		Permission:   permission,
+		Description:  entry.Description,
+		InputSchema:  entry.InputSchema,
+		OutputSchema: entry.OutputSchema,
+		CodeMode:     entry.CodeMode,
 	}
 }
 

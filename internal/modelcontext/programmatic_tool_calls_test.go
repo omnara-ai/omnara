@@ -52,7 +52,7 @@ func TestRuntimeContractToolSpecsDescribeProgrammaticToolCallsOnlyWhenEnabled(t 
 
 	deferring := func(names ...string) agentconfig.RuntimeContract {
 		contract := webToolsContract(t)
-		contract.DeferredTools = &agentconfig.DeferredToolsCompiled{Mode: agentconfig.DeferredToolsModeCodeMode}
+		contract.CodeMode = &agentconfig.CodeModeCompiled{Enabled: true}
 		for i := range contract.Tools {
 			for _, name := range names {
 				if contract.Tools[i].Name == name {
@@ -63,38 +63,30 @@ func TestRuntimeContractToolSpecsDescribeProgrammaticToolCallsOnlyWhenEnabled(t 
 		return contract
 	}
 
-	none := descriptions(deferring())
-	want := entry.Description + programmaticToolCallsRunCommandDescription + programmaticToolCallsSearchDescription
-	if got := none[toolcatalog.ToolNameRunCommand]; got != want {
-		t.Fatalf("run_command description with nothing deferred = %q, want %q", got, want)
-	}
-
-	enabled := descriptions(deferring(toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch))
-	want = entry.Description + programmaticToolCallsRunCommandDescription +
+	want := entry.Description + programmaticToolCallsRunCommandDescription +
 		programmaticToolCallsTypesHeading + programmaticWebSearchType + programmaticWebFetchType + "```" +
 		programmaticToolCallsSearchDescription
-	if got := enabled[toolcatalog.ToolNameRunCommand]; got != want {
-		t.Fatalf("run_command description = %q, want %q", got, want)
-	}
-	for _, name := range []string{toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch} {
-		if strings.Contains(enabled[name], "omnarad call") {
-			t.Fatalf("%s description mentions programmatic tool calls: %q", name, enabled[name])
+	for name, enabled := range map[string]map[string]string{
+		"nothing deferred": descriptions(deferring()),
+		"one deferred":     descriptions(deferring(toolcatalog.ToolNameWebSearch)),
+		"both deferred":    descriptions(deferring(toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch)),
+	} {
+		if got := enabled[toolcatalog.ToolNameRunCommand]; got != want {
+			t.Fatalf("run_command description with %s = %q, want %q", name, got, want)
 		}
-	}
-
-	one := descriptions(deferring(toolcatalog.ToolNameWebSearch))
-	want = entry.Description + programmaticToolCallsRunCommandDescription +
-		programmaticToolCallsTypesHeading + programmaticWebSearchType + "```" +
-		programmaticToolCallsSearchDescription
-	if got := one[toolcatalog.ToolNameRunCommand]; got != want {
-		t.Fatalf("run_command description with only web_search deferred = %q, want %q", got, want)
+		for _, tool := range []string{toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch} {
+			if strings.Contains(enabled[tool], "omnarad call") {
+				t.Fatalf("%s description mentions programmatic tool calls: %q", tool, enabled[tool])
+			}
+		}
 	}
 }
 
-func TestRuntimeContractToolSpecsMarkOnlyDeferredCallableToolsForCodeMode(t *testing.T) {
+func TestRuntimeContractToolSpecsMarkCallableToolsForCodeMode(t *testing.T) {
 	contract := webToolsContract(t)
 	for i := range contract.Tools {
-		contract.Tools[i].Deferred = true
+		// Deferring a tool does not decide whether commands can call it.
+		contract.Tools[i].Deferred = contract.Tools[i].Name == toolcatalog.ToolNameWebSearch
 	}
 	marked := func(contract agentconfig.RuntimeContract) []string {
 		t.Helper()
@@ -114,14 +106,14 @@ func TestRuntimeContractToolSpecsMarkOnlyDeferredCallableToolsForCodeMode(t *tes
 		return names
 	}
 	if got := marked(contract); len(got) != 0 {
-		t.Fatalf("tool_add mode marked %v for code mode", got)
+		t.Fatalf("marked %v for code mode while it is off", got)
 	}
-	contract.DeferredTools = &agentconfig.DeferredToolsCompiled{Mode: agentconfig.DeferredToolsModeCodeMode}
+	contract.CodeMode = &agentconfig.CodeModeCompiled{Enabled: true}
 	names := marked(contract)
 	sort.Strings(names)
 	got := strings.Join(names, ",")
 	if got != toolcatalog.ToolNameWebFetch+","+toolcatalog.ToolNameWebSearch {
-		t.Fatalf("code mode marked %q, want the deferred web tools only", got)
+		t.Fatalf("code mode marked %q, want the web tools, deferred or not", got)
 	}
 }
 

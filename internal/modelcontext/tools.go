@@ -109,16 +109,16 @@ func runtimeContractToolSpecs(
 				return nil, err
 			}
 		}
-		spec := ToolSpec{
-			Name:            tool.Name,
-			Description:     description,
-			InputSchema:     inputSchema,
-			Deferred:        tool.Deferred,
-			Type:            tool.Type,
-			Permission:      tool.Permission,
-			IntegrationKind: tool.IntegrationKind,
-		}
-		out = append(out, spec)
+		out = append(out, ToolSpec{
+			Name:         tool.Name,
+			Description:  description,
+			InputSchema:  inputSchema,
+			OutputSchema: tool.OutputSchema,
+			Deferred:     tool.Deferred,
+			Type:         tool.Type,
+			Permission:   tool.Permission,
+			CodeMode:     tool.CodeMode && contract.CodeModeEnabled(),
+		})
 	}
 	if only == "" || toolcatalog.IsMCPRuntimeToolName(only) {
 		mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract, only)
@@ -127,19 +127,7 @@ func runtimeContractToolSpecs(
 		}
 		out = append(out, mcpSpecs...)
 	}
-	if contract.CodeMode() {
-		for i := range out {
-			if !out[i].Deferred || !programResultKnown(out[i]) {
-				continue
-			}
-			schema, err := ProgramOutputSchema(out[i])
-			if err != nil {
-				return nil, err
-			}
-			out[i].CodeMode, out[i].OutputSchema = true, schema
-		}
-	}
-	if only == "" && contract.CodeMode() {
+	if only == "" && contract.CodeModeEnabled() {
 		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
 			return spec.Name == toolcatalog.ToolNameRunCommand
 		}); index >= 0 {
@@ -221,8 +209,8 @@ func runtimeMCPToolSpecs(
 				continue
 			}
 			outputSchema := tool.OutputSchema
-			if string(outputSchema) == "null" {
-				outputSchema = nil
+			if len(outputSchema) == 0 || string(outputSchema) == "null" {
+				outputSchema = json.RawMessage(unknownMCPOutputSchema)
 			}
 			description := fmt.Sprintf("MCP tool %q from server %q.", tool.Name, server.ServerKey)
 			if tool.Description != "" {
@@ -238,6 +226,8 @@ func runtimeMCPToolSpecs(
 					Deferred:     resolution.Deferred,
 					Type:         toolcatalog.ToolTypeMCP,
 					Permission:   resolution.Permission,
+					// Every MCP tool can be called from commands.
+					CodeMode: contract.CodeModeEnabled(),
 				},
 			)
 		}

@@ -6,19 +6,21 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const unknownProgramOutputSchema = `{"description":"The server declares no output schema. Commands get the ` +
+const unknownMCPOutputSchema = `{"description":"The server declares no output schema. Commands get the ` +
 	`tool's structured result when it returns one, otherwise its text as a JSON string."}`
 
-const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this agent's deferred tools with " +
+const programmaticToolCallsRunCommandDescription = "\n\nCommands can call some of this agent's tools with " +
 	"`omnarad call <tool> '<json input>'`; pass `-` as the input to read it from stdin. On success it " +
 	"prints one JSON value to stdout: the tool's structured result, or its text as a JSON string when it has " +
 	"none. `--output=text` prints a text result as plain text instead, and `--output=envelope` prints the full result " +
 	"envelope. It exits 1 if the tool fails or is denied, 2 if the tool cannot be called from commands, and 3 " +
-	"if the call could not be made, with the error on stderr. Results go only to the command, not to you, so " +
+	"if the call could not be made, with the error on stderr. `--idempotency-key <key>` names a call: running " +
+	"it again with the same key, tool and input, from any of your commands, returns that call's result or waits " +
+	"for it instead of calling the tool again, so a rerun script can pick up where it stopped. A call that " +
+	"fails with error_code `outcome_unknown` may have taken effect and is not run again. Results go only to the command, not to you, so " +
 	"chain calls with pipes, jq, loops or scripts and print only what you need. In PowerShell and cmd.exe, " +
 	"pass the input on stdin with `-` instead of quoting it."
 
@@ -28,7 +30,7 @@ const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeSc
 const programmaticToolCallsSearchDescription = "\n\nFind the tools commands can call, with " +
 	"their input and output schemas: `omnarad call tool_search '{\"pattern\":\"<regex>\"}'`."
 
-const programmaticToolCallsGuidance = "Commands you start with `run_command` can call your deferred tools with " +
+const programmaticToolCallsGuidance = "Commands you start with `run_command` can call some of your tools with " +
 	"`omnarad call`; the `run_command` description explains what it prints and its exit codes. Use it " +
 	"instead of calling tools one at a time when a task needs many calls, or results you would only filter, " +
 	"join, count or reshape: results reach only the command and stay out of your context, so print only what " +
@@ -88,37 +90,6 @@ func ProgramCallable(spec ToolSpec) bool {
 	return spec.CodeMode
 }
 
-func programResultKnown(spec ToolSpec) bool {
-	switch spec.Type {
-	case toolcatalog.ToolTypeMCP:
-		return toolcatalog.IsMCPRuntimeToolName(spec.Name)
-	case toolcatalog.ToolTypeBuiltIn:
-		if _, operation, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
-			return operation == toolcatalog.IntegrationOperationRead &&
-				programoutput.HasIntegrationRead(spec.IntegrationKind)
-		}
-		return programoutput.HasBuiltIn(spec.Name)
-	default:
-		return false
-	}
-}
-
-func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
-	if !programResultKnown(spec) {
-		return nil, nil
-	}
-	if spec.Type == toolcatalog.ToolTypeMCP {
-		if len(spec.OutputSchema) > 0 {
-			return spec.OutputSchema, nil
-		}
-		return json.RawMessage(unknownProgramOutputSchema), nil
-	}
-	if _, _, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
-		return programoutput.IntegrationRead(spec.IntegrationKind)
-	}
-	return programoutput.BuiltIn(spec.Name)
-}
-
 func ProgramCallableTools(specs []ToolSpec) []ToolSpec {
 	callable := make([]ToolSpec, 0, len(specs))
 	for _, spec := range specs {
@@ -129,8 +100,14 @@ func ProgramCallableTools(specs []ToolSpec) []ToolSpec {
 	return callable
 }
 
+// CommandOnly reports whether only commands reach the tool: it is deferred, and in code mode a
+// deferred tool commands can call is never added to the model's tools.
+func CommandOnly(spec ToolSpec) bool {
+	return spec.Deferred && spec.CodeMode
+}
+
 func ModelToolSpecs(specs []ToolSpec) []ToolSpec {
-	return slices.DeleteFunc(slices.Clone(specs), func(spec ToolSpec) bool { return spec.CodeMode })
+	return slices.DeleteFunc(slices.Clone(specs), CommandOnly)
 }
 
 func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
@@ -142,11 +119,7 @@ func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
 		if _, _, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
 			continue
 		}
-		schema, err := programoutput.BuiltIn(spec.Name)
-		if err != nil {
-			return "", err
-		}
-		rendered, err := renderSchemaTypeScript(schema)
+		rendered, err := renderSchemaTypeScript(spec.OutputSchema)
 		if err != nil {
 			return "", err
 		}

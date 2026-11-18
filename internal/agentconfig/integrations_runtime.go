@@ -121,7 +121,6 @@ func PrepareIntegrationTools(
 		}
 		runtime := runtimeBuiltInTool(entry, tool.Permission)
 		runtime.Deferred = tool.Deferred
-		runtime.IntegrationKind = definition.IntegrationKind
 		result = append(result, runtime)
 	}
 	return result, nil

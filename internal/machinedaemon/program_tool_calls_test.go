@@ -335,7 +335,8 @@ func TestProgramToolCallPrepare(t *testing.T) {
 }
 
 func TestProgramToolCallEnvironmentReplacesUserValues(t *testing.T) {
-	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock"}
+	helper := &processServiceHelper{
+		Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock", BinDir: "/run/tool-bin"}
 	base := workloadProcessEnv(
 		[]string{"PATH=/bin", "OMNARA_TOOL_ENDPOINT=/ambient.sock", "OMNARA_HOME=/home/omnara"},
 		"/bin",
@@ -356,9 +357,12 @@ func TestProgramToolCallEnvironmentReplacesUserValues(t *testing.T) {
 	require.Equal(t, []string{"/run/tool-calls.sock"}, values["OMNARA_TOOL_ENDPOINT"])
 	require.NotContains(t, values, "OMNARA_TOOL_CAPABILITY")
 	require.Equal(t, []string{"/opt/omnara/omnarad"}, values["OMNARA_BIN"])
-	require.Equal(t, []string{"/opt/omnara" + string(os.PathListSeparator) + "/bin"}, values["PATH"])
+	require.Equal(t, []string{"/run/tool-bin" + string(os.PathListSeparator) + "/bin"}, values["PATH"])
 	again := programToolCallEnvironment(env, "prc_real", helper)
-	require.Contains(t, again, "PATH=/opt/omnara"+string(os.PathListSeparator)+"/bin")
+	require.Contains(t, again, "PATH=/run/tool-bin"+string(os.PathListSeparator)+"/bin")
+	withoutBin := &processServiceHelper{Executable: helper.Executable, Endpoint: helper.Endpoint}
+	require.Contains(t, programToolCallEnvironment([]string{"PATH=/bin"}, "prc_real", withoutBin), "PATH=/bin",
+		"without a private bin directory the command lookup order is left alone")
 	require.Equal(t, []string{"1"}, values["KEEP"])
 	require.Equal(t, []string{"/home/omnara"}, values["OMNARA_HOME"])
 }
@@ -393,7 +397,8 @@ func TestProgramToolCallOfferReachesAssignment(t *testing.T) {
 
 func TestProgramToolCallEnvironmentReachesPreparedCommand(t *testing.T) {
 	bootstrap, _, _ := acceptedRunnerServerState(t)
-	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock"}
+	helper := &processServiceHelper{
+		Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock", BinDir: "/run/tool-bin"}
 	for _, withHelper := range []bool{false, true} {
 		assignment := ProcessAssignment{
 			ID: bootstrap.ProcessID,
@@ -446,6 +451,10 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 	}
 	client.prepareProgramToolCalls(&assignment)
 	require.NotNil(t, assignment.ProgramToolHelper)
+	entries, err := os.ReadDir(assignment.ProgramToolHelper.BinDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the directory added to PATH exposes only omnarad")
+	require.Equal(t, "omnarad", strings.TrimSuffix(entries[0].Name(), filepath.Ext(entries[0].Name())))
 	for _, entry := range programToolCallEnvironment(nil, processID, assignment.ProgramToolHelper) {
 		name, value, _ := strings.Cut(entry, "=")
 		t.Setenv(name, value)

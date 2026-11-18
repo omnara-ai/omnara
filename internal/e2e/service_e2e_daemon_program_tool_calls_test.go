@@ -28,7 +28,7 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 	machine := project.bootstrapDockerMachine(t, ctx, seed+"-machine")
 	project.updateAgentProfileConfigWithMachine(
 		t, ctx, seed+"-config", "openai-prod", "service-e2e-local", machine.machineName, "/work",
-		[]string{"deferred_tools:", "  mode: code_mode", "tools:", "  run_command: {}",
+		[]string{"code_mode:", "  enabled: true", "tools:", "  run_command: {}",
 			"  storage_list: {deferred: true}"}, nil,
 	)
 	agentID := project.createAgent(t, ctx)

@@ -9,6 +9,10 @@ export type ClientOptions = {
  */
 export type AgentConfigDefinition = {
     /**
+     * Lets commands the agent runs call its tools with `omnarad call`. Off by default.
+     */
+    code_mode?: AgentConfigDefinitionCodeMode;
+    /**
      * GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents.
      */
     git_credentials?: AgentConfigDefinitionGitCredentials;
@@ -32,7 +36,6 @@ export type AgentConfigDefinition = {
      * Maximum active subagents across all keys. Unset means no overall limit.
      */
     max_subagents?: number;
-    deferred_tools?: AgentConfigDefinitionDeferredTools;
     /**
      * MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
      */
@@ -79,6 +82,16 @@ export type AgentConfigToolsDefinition = {
 };
 
 /**
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. Commands can call MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools, whether or not they are `deferred`. A deferred tool that commands can call is not added to the model's tools: `tool_search` returns its input and output schemas instead. A subagent keeps the setting of the config it is built from.
+ */
+export type AgentConfigDefinitionCodeMode = {
+    /**
+     * Whether commands the agent runs can call its tools with `omnarad call`.
+     */
+    enabled: boolean;
+};
+
+/**
  * Integration whose git credentials the agent's machines use.
  */
 export type AgentConfigDefinitionGitCredentials = {
@@ -94,13 +107,6 @@ export type AgentConfigDefinitionGitCredentials = {
      * Prevents pushing and opening or approving pull requests, even if the integration allows it.
      */
     read_only?: boolean;
-};
-
-/**
- * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead, and those tools are not sent to the model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this setting.
- */
-export type AgentConfigDefinitionDeferredTools = {
-    mode: 'tool_add' | 'code_mode';
 };
 
 /**
@@ -2102,7 +2108,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
-    deferred_tools?: CompiledDeferredTools;
+    code_mode?: CompiledCodeMode;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -2172,10 +2178,10 @@ export type CompiledGitCredentials = {
 };
 
 /**
- * Present when commands started by run_command call the agent's deferred tools.
+ * Present when commands started by run_command can call the agent's tools.
  */
-export type CompiledDeferredTools = {
-    mode: 'code_mode';
+export type CompiledCodeMode = {
+    enabled: boolean;
 };
 
 export type CompiledMcpServer = {
