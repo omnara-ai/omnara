@@ -365,6 +365,76 @@ export const zEventWebhookEventType = z.enum([
     'tool_call_update'
 ]);
 
+export const zOtelExporterId = z.string().regex(/^otx_[a-z2-7]{26}$/);
+
+/**
+ * Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+ */
+export const zOtelTraceVariant = z.enum([
+    'otel',
+    'langfuse',
+    'braintrust',
+    'langsmith'
+]);
+
+/**
+ * OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
+ */
+export const zOtelExporterEncoding = z.enum(['protobuf', 'json']);
+
+/**
+ * An OTLP ExportTraceServiceRequest in its JSON encoding. Field names follow the OTLP specification.
+ */
+export const zOtelTrace = z.object({
+    resourceSpans: z.array(z.record(z.string(), z.unknown()))
+});
+
+export const zOtelExporterScopeType = z.enum([
+    'org',
+    'project',
+    'agent'
+]);
+
+/**
+ * Exports every agent in the organization.
+ */
+export const zOrgOtelExporterScope = z.object({
+    type: z.enum(['org'])
+});
+
+/**
+ * Exports every agent in one project.
+ */
+export const zProjectOtelExporterScope = z.object({
+    type: z.enum(['project']),
+    project_id: zProjectId
+});
+
+/**
+ * Exports only this agent, not its descendants.
+ */
+export const zAgentOtelExporterScope = z.object({
+    type: z.enum(['agent']),
+    project_id: zProjectId,
+    agent_id: zAgentId
+});
+
+export const zOtelExporterScope = z.discriminatedUnion('type', [
+    zOrgOtelExporterScope.extend({ type: z.literal('org') }),
+    zProjectOtelExporterScope.extend({ type: z.literal('project') }),
+    zAgentOtelExporterScope.extend({ type: z.literal('agent') })
+]);
+
+/**
+ * Plain request headers sent with every export, by header name.
+ */
+export const zOtelExporterHeaders = z.record(z.string(), z.string().min(1).max(8192));
+
+/**
+ * Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
+ */
+export const zOtelExporterSamplePercent = z.number().gte(0).lte(100);
+
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
 export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
@@ -604,6 +674,49 @@ export const zEventWebhook = z.object({
 
 export const zListEventWebhooksResponse = z.object({
     data: z.array(zEventWebhook),
+    next_cursor: z.string().nullable()
+});
+
+/**
+ * Request headers whose values come from organization-owned generic secrets, by header name. Use these for credentials such as Authorization.
+ */
+export const zOtelExporterSecretHeaders = z.record(z.string(), zSecretId);
+
+export const zCreateOtelExporterRequest = z.object({
+    endpoint: z.string().min(1).max(2048),
+    scope: zOtelExporterScope,
+    variant: zOtelTraceVariant.optional(),
+    encoding: zOtelExporterEncoding.optional().default('protobuf'),
+    headers: zOtelExporterHeaders.optional(),
+    secret_headers: zOtelExporterSecretHeaders.optional(),
+    sample_percent: zOtelExporterSamplePercent.optional().default(100)
+});
+
+export const zUpdateOtelExporterRequest = z.object({
+    endpoint: z.string().min(1).max(2048).optional(),
+    variant: zOtelTraceVariant.optional(),
+    encoding: zOtelExporterEncoding.optional(),
+    headers: zOtelExporterHeaders.optional(),
+    secret_headers: zOtelExporterSecretHeaders.optional(),
+    sample_percent: zOtelExporterSamplePercent.optional()
+});
+
+export const zOtelExporter = z.object({
+    id: zOtelExporterId,
+    org_id: zOrganizationId,
+    endpoint: z.string().min(1).max(2048),
+    scope: zOtelExporterScope,
+    variant: zOtelTraceVariant,
+    encoding: zOtelExporterEncoding,
+    headers: zOtelExporterHeaders,
+    secret_headers: zOtelExporterSecretHeaders,
+    sample_percent: zOtelExporterSamplePercent,
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zListOtelExportersResponse = z.object({
+    data: z.array(zOtelExporter),
     next_cursor: z.string().nullable()
 });
 
@@ -3929,6 +4042,66 @@ export const zUpdateEventWebhookPath = z.object({
  */
 export const zUpdateEventWebhookResponse = zEventWebhook;
 
+export const zListOtelExportersPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+export const zListOtelExportersQuery = z.object({
+    scope_type: zOtelExporterScopeType.optional(),
+    project_id: zProjectId.optional(),
+    agent_id: zAgentId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Exporters matching the requested scope.
+ */
+export const zListOtelExportersResponse2 = zListOtelExportersResponse;
+
+export const zCreateOtelExporterBody = zCreateOtelExporterRequest;
+
+export const zCreateOtelExporterPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+/**
+ * Exporter created.
+ */
+export const zCreateOtelExporterResponse = zOtelExporter;
+
+export const zDeleteOtelExporterPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    exporterID: zOtelExporterId
+});
+
+/**
+ * Exporter deleted.
+ */
+export const zDeleteOtelExporterResponse = z.void();
+
+export const zGetOtelExporterPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    exporterID: zOtelExporterId
+});
+
+/**
+ * The exporter.
+ */
+export const zGetOtelExporterResponse = zOtelExporter;
+
+export const zUpdateOtelExporterBody = zUpdateOtelExporterRequest;
+
+export const zUpdateOtelExporterPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    exporterID: zOtelExporterId
+});
+
+/**
+ * Exporter updated.
+ */
+export const zUpdateOtelExporterResponse = zOtelExporter;
+
 export const zListPersonalAccessTokensQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -5351,6 +5524,22 @@ export const zListTurnEventsQuery = z.object({
  * Turn events.
  */
 export const zListTurnEventsResponse2 = zListTurnEventsResponse;
+
+export const zGetTurnTracePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/),
+    turnID: z.string().regex(/^trn_[a-z2-7]{26}$/)
+});
+
+export const zGetTurnTraceQuery = z.object({
+    variant: zOtelTraceVariant.optional()
+});
+
+/**
+ * The turn's trace.
+ */
+export const zGetTurnTraceResponse = zOtelTrace;
 
 export const zListEventsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

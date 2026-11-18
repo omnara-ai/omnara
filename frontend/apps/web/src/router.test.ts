@@ -4,7 +4,7 @@ import { createOmnaraClient } from '@omnara/sdk'
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 
-import { redirectSignedInStaleCallback } from '@/router'
+import { redirectSignedInStaleCallback } from '@/lib/router-auth'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { currentUser } from '@/test/fixtures'
 
