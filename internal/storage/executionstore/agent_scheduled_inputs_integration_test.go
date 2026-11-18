@@ -177,6 +177,74 @@ func TestReleaseDueScheduledAgentInputsWalksEveryPage(t *testing.T) {
 	}
 }
 
+func TestReleaseDueScheduledAgentInputsSkipsLockedAgent(t *testing.T) {
+	t.Parallel()
+	f := newScheduledInputFixture(t, "scheduled-locked@example.com")
+	past := time.Now().Add(-time.Minute)
+	due := f.mustCreate("due", executionstore.DeliveryModeQueued, &past)
+
+	tx, err := f.pool.Begin(f.t.Context())
+	if err != nil {
+		t.Fatalf("begin lock holder: %v", err)
+	}
+	if _, err := tx.Exec(f.t.Context(), `SELECT 1 FROM agents WHERE id = $1 FOR UPDATE`, f.agentID); err != nil {
+		t.Fatalf("lock agent: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(f.t.Context(), 10*time.Second)
+	defer cancel()
+	result, err := f.store.Execution().ReleaseDueScheduledAgentInputs(ctx, 100)
+	if err != nil || result.Due != 1 || result.Released != 0 {
+		t.Fatalf("release with agent locked = %+v, %v; want one due, none released, no error", result, err)
+	}
+	if err := tx.Rollback(f.t.Context()); err != nil {
+		t.Fatalf("release agent lock: %v", err)
+	}
+
+	result, err = f.store.Execution().ReleaseDueScheduledAgentInputs(f.t.Context(), 100)
+	if err != nil || result.Released != 1 {
+		t.Fatalf("release after unlock = %+v, %v; want one released", result, err)
+	}
+	if got := f.state(due.ID); got != "received" {
+		t.Fatalf("due input state = %q, want received", got)
+	}
+}
+
+func TestScheduledAgentInputWindowAppliesOnlyToNewInputs(t *testing.T) {
+	t.Parallel()
+	f := newScheduledInputFixture(t, "scheduled-window@example.com")
+	create := func(label string, scheduledFor time.Time) (executionstore.AgentInputRecord, error) {
+		input, _, _, err := f.store.Execution().CreateAgentContentInput(f.t.Context(),
+			executionstore.CreateAgentContentInputInput{
+				ProjectID:          testProjectID,
+				AgentID:            f.agentID,
+				Actor:              mustOmnaraActorParams(f.t, f.userID),
+				ContentBlocks:      json.RawMessage(`[{"type":"text","text":"` + label + `"}]`),
+				DeliveryMode:       executionstore.DeliveryModeQueued,
+				IdempotencyKey:     "idem-window-" + label,
+				SourceScheduledFor: &scheduledFor,
+				MaxScheduledDelay:  time.Hour,
+			})
+		return input, err
+	}
+
+	if _, err := create("past", time.Now().Add(-time.Minute)); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("past schedule error = %v, want invalid request", err)
+	}
+	if _, err := create("far", time.Now().Add(2*time.Hour)); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("far schedule error = %v, want invalid request", err)
+	}
+	soon := time.Now().Add(time.Second)
+	created, err := create("soon", soon)
+	if err != nil {
+		t.Fatalf("create soon input: %v", err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	replay, err := create("soon", soon)
+	if err != nil || replay.ID != created.ID {
+		t.Fatalf("replay after scheduled time = %+v, %v; want input %s", replay, err, created.ID)
+	}
+}
+
 func TestScheduledAgentInputsListAfterWaitingInputsByDueTime(t *testing.T) {
 	t.Parallel()
 	f := newScheduledInputFixture(t, "scheduled-list@example.com")

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 type ReleaseDueScheduledAgentInputsResult struct {
@@ -19,8 +20,8 @@ type ReleaseDueScheduledAgentInputsResult struct {
 // ReleaseDueScheduledAgentInputs moves every scheduled content input whose
 // time has come into its agent's backlog, reading them in pages of pageSize.
 // Each release commits on its own and the pass keeps going after a failure, so
-// one failing agent does not hold back the rest; failures are joined into the
-// error and retried on the next call.
+// one failing or busy agent does not hold back the rest; failures are joined
+// into the error, and failed or skipped inputs are retried on the next call.
 func (s *Store) ReleaseDueScheduledAgentInputs(
 	ctx context.Context,
 	pageSize int,
@@ -58,15 +59,30 @@ func (s *Store) ReleaseDueScheduledAgentInputs(
 	}
 }
 
+// releaseScheduledAgentInput reports false without waiting when another
+// transaction holds the agent, so one busy agent cannot stall the pass; the
+// input stays scheduled for the next call.
 func (s *Store) releaseScheduledAgentInput(ctx context.Context, projectID, agentID, inputID uuid.UUID) (bool, error) {
 	return agentexecution.Retry(ctx,
 		"release_scheduled_agent_input",
 		func(ctx context.Context) (bool, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
+			unit, err := s.cell.Begin(ctx)
 			if err != nil {
 				return false, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
+			plan, err := unit.PlanAgents(ctx, []lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}}, nil)
+			if err != nil {
+				return false, err
+			}
+			locked, err := unit.TryLockAgents(ctx, plan)
+			if err != nil || !locked {
+				return false, err
+			}
+			h, err := unit.Handle(projectID, agentID)
+			if err != nil {
+				return false, err
+			}
 			released, err := h.ReleaseScheduledContent(ctx, inputID)
 			if err != nil || !released {
 				return false, err

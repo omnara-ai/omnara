@@ -174,6 +174,22 @@ func admitAgentContentInputTx(
 			}, nil
 		}
 	}
+	// Checked only for a new input, so an idempotent replay still returns the
+	// stored input after its scheduled time has passed.
+	if input.SourceScheduledFor != nil && input.MaxScheduledDelay > 0 {
+		now, err := qtx.DBNow(ctx)
+		if err != nil {
+			return createAgentContentInputTxResult{}, fmt.Errorf("read database time: %w", err)
+		}
+		if !input.SourceScheduledFor.After(now) {
+			return createAgentContentInputTxResult{}, storeerr.InvalidRequest(
+				errors.New("scheduled_for must be in the future"))
+		}
+		if input.SourceScheduledFor.After(now.Add(input.MaxScheduledDelay)) {
+			return createAgentContentInputTxResult{}, storeerr.InvalidRequest(fmt.Errorf(
+				"scheduled_for must be at most %d hours in the future", int(input.MaxScheduledDelay.Hours())))
+		}
+	}
 	snapshot, err := h.LoadExecution(ctx)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -313,4 +329,7 @@ type CreateAgentContentInputInput struct {
 	// SourceScheduledFor is the caller's requested delivery time; the input stays
 	// scheduled until the schedule loop releases it.
 	SourceScheduledFor *time.Time `json:"scheduled_for,omitempty"`
+	// MaxScheduledDelay, when positive, requires a new input's SourceScheduledFor
+	// to be in the future and at most this far ahead of the database clock.
+	MaxScheduledDelay time.Duration `json:"-"`
 }
