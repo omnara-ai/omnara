@@ -67,6 +67,7 @@ type Server struct {
 	agentStreamRecorder                 *metrics.AgentStreamRecorder
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
+	dockerPoolsEnabled                  bool
 	endpointAllowlist                   *ssrf.Allowlist
 	modelDiscoverer                     modelprovider.DiscoverFunc
 	modelLimitsCatalog                  *modelprovider.LimitsCatalog
@@ -355,6 +356,12 @@ func WithAgentConfigOptions(opts agentconfig.CompileOptions) Option {
 func WithAllowInsecureModelProviderEndpoints() Option {
 	return func(s *Server) {
 		s.allowInsecureModelProviderEndpoints = true
+	}
+}
+
+func WithDockerPoolsEnabled() Option {
+	return func(s *Server) {
+		s.dockerPoolsEnabled = true
 	}
 }
 

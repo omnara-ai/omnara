@@ -24,6 +24,7 @@ export interface WebConfig {
   billingURL?: string
   apiURL?: string
   publicURL?: string
+  dockerPoolsEnabled?: boolean
 }
 
 type AuthRequestBody = Record<string, string | undefined>
@@ -43,6 +44,7 @@ const zWebConfigResponse = z.object({
   billing_url: z.string().optional(),
   api_url: z.string().optional(),
   public_url: z.string().optional(),
+  docker_pools_enabled: z.boolean().optional(),
 })
 
 const zDeviceAuthPendingResponse = z.object({
@@ -114,7 +116,12 @@ export async function listAuthConnectors(): Promise<AuthConnector[]> {
 
 export async function fetchWebConfig(): Promise<WebConfig> {
   const data = await readBrowserJSON('/api/web-config', zWebConfigResponse)
-  return { billingURL: data.billing_url, apiURL: data.api_url, publicURL: data.public_url }
+  return {
+    billingURL: data.billing_url,
+    apiURL: data.api_url,
+    publicURL: data.public_url,
+    dockerPoolsEnabled: data.docker_pools_enabled,
+  }
 }
 
 export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPending> {

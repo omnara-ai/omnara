@@ -450,6 +450,9 @@ func apiOptions(
 	if serveWeb {
 		opts = append(opts, httpapi.WithWebAssets(assets))
 	}
+	if cfg.DockerPoolsEnabled {
+		opts = append(opts, httpapi.WithDockerPoolsEnabled())
+	}
 	if cfg.AllowInsecureDev {
 		opts = append(opts,
 			httpapi.WithAgentConfigOptions(agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: true}),

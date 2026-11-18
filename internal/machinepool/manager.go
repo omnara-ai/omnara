@@ -2,6 +2,7 @@ package machinepool
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,7 @@ type Manager struct {
 	PublicAPIURL               string
 	HTTPRecorder               *metrics.HTTPClientRecorder
 	ProviderHTTPClient         *http.Client
+	EndpointAllowlist          *ssrf.Allowlist
 	runtimeReconciliationState *runtimeReconciliationState
 }
 
@@ -70,6 +72,7 @@ func NewManager(
 		PublicAPIURL:               publicAPIURL,
 		HTTPRecorder:               httpRecorder,
 		ProviderHTTPClient:         providers.NewSharedHTTPClient(endpointAllowlist),
+		EndpointAllowlist:          endpointAllowlist,
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
@@ -731,6 +734,7 @@ func (m Manager) providerForMachine(
 		ProviderAuthToken: providerAuthToken,
 		HTTPRecorder:      m.HTTPRecorder,
 		HTTPClient:        m.ProviderHTTPClient,
+		EndpointAllowlist: m.EndpointAllowlist,
 	}
 	provider, err := definition.NewProvider(pool.ProviderConfig, runtimeConfig)
 	if err != nil {
@@ -778,6 +782,7 @@ func (m Manager) CheckPoolConnection(ctx context.Context, input PoolConnectionCh
 		ProviderAuthToken: providerAuthToken,
 		HTTPRecorder:      m.HTTPRecorder,
 		HTTPClient:        m.ProviderHTTPClient,
+		EndpointAllowlist: m.EndpointAllowlist,
 	})
 	if err != nil {
 		return err
@@ -829,9 +834,13 @@ func connectionCheckFailure(err error) (message string, upstream bool) {
 	}
 	var dnsErr *net.DNSError
 	var urlErr *url.Error
+	var certErr *tls.CertificateVerificationError
+	var opErr *net.OpError
 	switch {
 	case errors.Is(err, ssrf.ErrBlockedAddress):
 		return "This API address isn't allowed.", false
+	case errors.As(err, &certErr), errors.As(err, &opErr) && opErr.Op == "remote error":
+		return "The TLS handshake failed. Check that the certificates match and haven't expired.", false
 	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		return "Couldn't find the provider's API. Check the region or API URL.", false
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &urlErr):

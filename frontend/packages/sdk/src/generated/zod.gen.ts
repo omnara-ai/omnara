@@ -2566,6 +2566,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
         provider: z.enum([
             'agent37',
             'arker',
+            'docker',
             'freestyle',
             'modal',
             'tenki',

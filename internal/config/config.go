@@ -101,6 +101,7 @@ type Config struct {
 	APIRateLimitWritesPerHour         int
 	APIRateLimitBurst                 int
 	DaemonReleaseURL                  string
+	DockerPoolsEnabled                bool
 	WebServing                        WebServingMode
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
@@ -218,6 +219,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	dockerPoolsEnabled, err := getenvBool("OMNARA_DOCKER_POOLS_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	authConnectors, err := getenvAuthConnectors("OMNARA_AUTH_CONNECTORS_JSON")
 	if err != nil {
 		return Config{}, err
@@ -328,6 +333,7 @@ func Load() (Config, error) {
 		APIRateLimitWritesPerHour:         apiRateLimitWritesPerHour,
 		APIRateLimitBurst:                 apiRateLimitBurst,
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
+		DockerPoolsEnabled:                dockerPoolsEnabled,
 		WebServing:                        WebServingMode(getenv("OMNARA_WEB_SERVING", string(WebServingDisabled))),
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),

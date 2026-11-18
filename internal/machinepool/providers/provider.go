@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
@@ -22,6 +23,7 @@ const (
 	Boxd       = "boxd"
 	CreateOS   = "createos"
 	Daytona    = "daytona"
+	Docker     = "docker"
 	E2B        = "e2b"
 	Freestyle  = "freestyle"
 	Modal      = "modal"
@@ -35,6 +37,7 @@ type RuntimeConfig struct {
 	ProviderAuthToken string
 	HTTPRecorder      *metrics.HTTPClientRecorder
 	HTTPClient        *http.Client
+	EndpointAllowlist *ssrf.Allowlist
 }
 
 type ProvisionMachineResult struct {

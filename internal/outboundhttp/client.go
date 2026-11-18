@@ -3,6 +3,7 @@
 package outboundhttp
 
 import (
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"time"
@@ -18,6 +19,7 @@ type PublicClientOptions struct {
 	PlainHTTP                    ssrf.PlainHTTPPolicy
 	DisableResponseHeaderTimeout bool
 	Timeout                      time.Duration
+	TLSClientConfig              *tls.Config
 }
 
 func NewPublicClient(opts PublicClientOptions) *http.Client {
@@ -27,6 +29,7 @@ func NewPublicClient(opts PublicClientOptions) *http.Client {
 			Allowlist:                    opts.Allowlist,
 			PlainHTTP:                    opts.PlainHTTP,
 			DisableResponseHeaderTimeout: opts.DisableResponseHeaderTimeout,
+			TLSClientConfig:              opts.TLSClientConfig,
 		}),
 		Timeout: opts.Timeout,
 	})

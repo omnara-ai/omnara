@@ -316,10 +316,37 @@ const agent37: MachinePoolProviderDefinition = {
   },
 }
 
+const docker: MachinePoolProviderDefinition = {
+  label: 'Docker',
+  resource: {
+    key: 'image',
+    label: 'Image',
+    placeholder: 'omnara/agent-sandbox',
+    description: 'A public registry image, or any image already on the Docker host.',
+    descriptionHref: 'https://docs.omnara.com/self-hosting/docker-machines',
+  },
+  scope: {
+    key: 'api_base_url',
+    label: 'Docker API URL',
+    placeholder: 'https://docker-host:2376',
+    required: true,
+    description: "The Docker host's HTTPS address. Docker pools are for demos and testing only.",
+  },
+  credential: {
+    label: 'Docker TLS certificates',
+    placeholder: 'Search secrets for your Docker TLS certificates…',
+    emptyDescription: 'No secrets yet — use New secret to store your Docker TLS certificates.',
+    defaultSecretName: 'docker-tls-certificates',
+    secretValuePlaceholder: '{"ca":"-----BEGIN CERTIFICATE-----...","cert":"...","key":"..."}',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
   daytona,
+  docker,
   modal,
   freestyle,
   tenki,
