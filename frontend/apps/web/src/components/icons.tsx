@@ -79,6 +79,7 @@ export {
   PaperAirplaneIcon as SendHorizontal,
   ServerIcon as Server,
   Cog6ToothIcon as SettingsIcon,
+  SignalIcon as Signal,
   SparklesIcon as Sparkles,
   StopIcon as Square,
   SunIcon as Sun,

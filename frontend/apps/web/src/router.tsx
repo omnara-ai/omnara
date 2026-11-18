@@ -1,6 +1,3 @@
-import { ApiError, type CurrentUser, type OmnaraClient } from '@omnara/sdk'
-import { getCurrentUserOptions } from '@omnara/sdk/tanstack'
-import type { QueryClient } from '@tanstack/react-query'
 import {
   createRootRouteWithContext,
   createRoute,
@@ -16,48 +13,10 @@ import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
 import { queryClient } from '@/lib/query'
 import { requireOrganization } from '@/lib/require-organization'
+import { ensureMe, redirectSignedInStaleCallback, type RouterContext } from '@/lib/router-auth'
 import { claimStaleChunkReload } from '@/lib/stale-chunk'
 import { RootError } from '@/routes/RootError'
 import { omnaraClient } from '@/transport'
-
-export interface RouterContext {
-  queryClient: QueryClient
-  omnaraClient: OmnaraClient
-}
-
-async function ensureMe(
-  queryClient: QueryClient,
-  client: OmnaraClient,
-  returnTo: string,
-): Promise<CurrentUser> {
-  try {
-    return await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: `/login?return_to=${encodeURIComponent(returnTo)}` })
-    }
-    throw error
-  }
-}
-
-export async function redirectSignedInStaleCallback({
-  context: { queryClient, omnaraClient: client },
-  location,
-}: {
-  context: RouterContext
-  location: { href: string }
-}) {
-  const authError = new URL(location.href, window.location.origin).searchParams.get('auth_error')
-  if (authError !== 'invalid_state') return
-  try {
-    await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
-  } catch {
-    return
-  }
-  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-  throw redirect({ href: '/' })
-}
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: () => (
@@ -154,6 +113,12 @@ const organizationUsageRoute = createRoute({
     () => import('@/routes/OrganizationUsagePage'),
     'OrganizationUsagePage',
   ),
+})
+
+const otelExportersRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/otel-exporters',
+  component: lazyRouteComponent(() => import('@/routes/OtelExportersPage')),
 })
 
 const secretsRoute = createRoute({
@@ -354,6 +319,12 @@ const projectWebhooksRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectWebhooksPage')),
 })
 
+const projectOtelExportersRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/otel-exporters',
+  component: lazyRouteComponent(() => import('@/routes/ProjectOtelExportersPage')),
+})
+
 const projectUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/usage',
@@ -430,6 +401,11 @@ const agentEventsRoute = createRoute({
 const agentChatRoute = createRoute({
   getParentRoute: () => agentRoute,
   path: '/chat',
+})
+
+const agentTracesRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/traces',
 })
 
 const deviceAuthRoute = createRoute({
@@ -523,6 +499,7 @@ const routeTree = rootRoute.addChildren([
       organizationAgentsRoute,
       organizationIntegrationsRoute,
       organizationUsageRoute,
+      otelExportersRoute,
       secretsRoute,
       skillsRoute,
       skillRoute,
@@ -547,6 +524,7 @@ const routeTree = rootRoute.addChildren([
       memoryStoreRoute,
       projectUsageRoute,
       projectWebhooksRoute,
+      projectOtelExportersRoute,
       agentProfileRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
@@ -555,7 +533,7 @@ const routeTree = rootRoute.addChildren([
         agentProfileUsageRoute,
       ]),
       createAgentRoute,
-      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute]),
+      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute, agentTracesRoute]),
     ]),
   ]),
 ])

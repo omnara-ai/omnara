@@ -22,6 +22,7 @@ import {
   KeyRound,
   SendHorizontal,
   Server,
+  Signal,
   Sparkles,
   Users,
 } from '@/components/icons'
@@ -107,7 +108,11 @@ export function SidebarNav() {
           overview,
           scoped('agents', 'Agents', Bot, true),
           scoped('integrations', 'Integrations', BoltIcon, true),
-          ...(projectId ? [scoped('webhooks', 'Webhooks', SendHorizontal)] : []),
+          ...(projectId ? [scoped('webhooks', 'Webhooks', SendHorizontal, true)] : []),
+          // Exporters belong to the organization, so only its admins can see them.
+          ...(canManageOrg(activeOrg.role)
+            ? [scoped('otel-exporters', 'Traces', Signal, true)]
+            : []),
           scoped('usage', 'Usage', ChartBar, true),
         ]}
       >

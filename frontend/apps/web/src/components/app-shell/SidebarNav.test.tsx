@@ -112,6 +112,7 @@ const adminLabels = [
   'Overview',
   'Agents',
   'Integrations',
+  'Traces',
   'Usage',
   'Credits',
   'Models',
@@ -159,12 +160,12 @@ it.each([
   },
 )
 
-it('hides API tokens and credits from members', async () => {
+it('hides API tokens, credits and exporters from members', async () => {
   await renderAt(projectPath, 'member')
   await waitForUI(() => {
     expect(labels()).toEqual([
       'Back to organization',
-      ...projectLabels.filter((label) => label !== 'API Tokens' && label !== 'Credits'),
+      ...projectLabels.filter((label) => !['API Tokens', 'Credits', 'Traces'].includes(label)),
     ])
   })
 })

@@ -28,6 +28,7 @@ import {
 } from '@/components/agents/AgentSidebar'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
+import { AgentTraces } from '@/components/agents/traces/AgentTraces'
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -43,19 +44,27 @@ import { cn } from '@/lib/utils'
 const agentDetailPollInterval = 5_000
 const agentSidebarStyle: CssVariables = { '--sidebar-width': agentPaneWidth }
 
-type AgentViewMode = 'events' | 'chat'
+type AgentViewMode = 'events' | 'chat' | 'traces'
 
 const viewTabs: { value: AgentViewMode; label: string }[] = [
   { value: 'events', label: 'Event log' },
   { value: 'chat', label: 'Chat' },
+  { value: 'traces', label: 'Traces' },
 ]
+const viewPaths = {
+  events: '/projects/$projectId/agents/$agentId/events',
+  chat: '/projects/$projectId/agents/$agentId/chat',
+  traces: '/projects/$projectId/agents/$agentId/traces',
+} as const
 
 export function AgentView() {
   const navigate = useNavigate()
   const matchRoute = useMatchRoute()
-  const view: AgentViewMode = matchRoute({ to: '/projects/$projectId/agents/$agentId/chat' })
+  const view: AgentViewMode = matchRoute({ to: viewPaths.chat })
     ? 'chat'
-    : 'events'
+    : matchRoute({ to: viewPaths.traces })
+      ? 'traces'
+      : 'events'
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
   const params = useParams({ strict: false })
@@ -82,6 +91,8 @@ export function AgentView() {
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const search = useSearch({ strict: false })
+  // The traces view puts its turn picker here, in line with the view tabs.
+  const [tracesToolbar, setTracesToolbar] = useState<HTMLDivElement | null>(null)
   const [configOpen, setConfigOpen] = useState(
     () => search.config === true || hasPendingMcpBuilderOAuthOutcome(),
   )
@@ -96,10 +107,7 @@ export function AgentView() {
     setConfigOpen(false)
     if (search.config) {
       void navigate({
-        to:
-          view === 'chat'
-            ? '/projects/$projectId/agents/$agentId/chat'
-            : '/projects/$projectId/agents/$agentId/events',
+        to: viewPaths[view],
         params: { projectId, agentId },
         search: {},
         replace: true,
@@ -136,7 +144,11 @@ export function AgentView() {
     <SidebarProvider className="h-full min-h-0 overflow-hidden" style={agentSidebarStyle}>
       <MessageScrollerProvider key={agentId} autoScroll>
         <div
-          className="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-1 flex-col overflow-hidden"
+          className={cn(
+            'mx-auto flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden',
+            // A trace needs the room for its waterfall and attribute values.
+            view === 'traces' && !configOpen ? 'max-w-7xl px-4' : 'max-w-5xl',
+          )}
           style={{ contain: 'paint' }}
         >
           <header className="shrink-0 pb-4">
@@ -178,6 +190,8 @@ export function AgentView() {
                   },
                 ]}
               />
+              {/* Padded so the picker's focus ring is not clipped by the page column. */}
+              <div ref={setTracesToolbar} className="flex min-w-0 items-center gap-3 py-1" />
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 <AgentViewTabs
                   hidden={configOpen}
@@ -222,6 +236,13 @@ export function AgentView() {
                   orgId={activeOrg.id}
                   projectId={projectId}
                   agentId={agentId}
+                />
+              ) : view === 'traces' ? (
+                <AgentTraces
+                  orgID={activeOrg.id}
+                  projectID={projectId}
+                  agentID={agentId}
+                  toolbar={tracesToolbar}
                 />
               ) : (
                 <AgentConversation
@@ -286,10 +307,7 @@ function AgentViewTabs({
       tabs={viewTabs}
       onValueChange={(nextView) => {
         void navigate({
-          to:
-            nextView === 'chat'
-              ? '/projects/$projectId/agents/$agentId/chat'
-              : '/projects/$projectId/agents/$agentId/events',
+          to: viewPaths[nextView],
           params: { projectId, agentId },
         })
       }}

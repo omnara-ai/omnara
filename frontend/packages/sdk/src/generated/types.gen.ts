@@ -637,6 +637,127 @@ export type ListEventWebhooksResponse = {
     next_cursor: string | null;
 };
 
+export type OtelExporterId = string;
+
+/**
+ * Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+ */
+export type OtelTraceVariant = 'otel' | 'langfuse' | 'braintrust' | 'langsmith';
+
+/**
+ * OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
+ */
+export type OtelExporterEncoding = 'protobuf' | 'json';
+
+/**
+ * An OTLP ExportTraceServiceRequest in its JSON encoding. Field names follow the OTLP specification.
+ */
+export type OtelTrace = {
+    resourceSpans: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+export type OtelExporterScopeType = 'org' | 'project' | 'agent';
+
+/**
+ * Exports every agent in the organization.
+ */
+export type OrgOtelExporterScope = {
+    type: 'org';
+};
+
+/**
+ * Exports every agent in one project.
+ */
+export type ProjectOtelExporterScope = {
+    type: 'project';
+    project_id: ProjectId;
+};
+
+/**
+ * Exports only this agent, not its descendants.
+ */
+export type AgentOtelExporterScope = {
+    type: 'agent';
+    project_id: ProjectId;
+    agent_id: AgentId;
+};
+
+export type OtelExporterScope = ({
+    type: 'org';
+} & OrgOtelExporterScope) | ({
+    type: 'project';
+} & ProjectOtelExporterScope) | ({
+    type: 'agent';
+} & AgentOtelExporterScope);
+
+/**
+ * Plain request headers sent with every export, by header name.
+ */
+export type OtelExporterHeaders = {
+    [key: string]: string;
+};
+
+/**
+ * Request headers whose values come from organization-owned generic secrets, by header name. Use these for credentials such as Authorization.
+ */
+export type OtelExporterSecretHeaders = {
+    [key: string]: SecretId;
+};
+
+/**
+ * Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
+ */
+export type OtelExporterSamplePercent = number;
+
+export type CreateOtelExporterRequest = {
+    /**
+     * Full OTLP/HTTP traces URL, used exactly as given (for example a URL ending in /v1/traces).
+     */
+    endpoint: string;
+    scope: OtelExporterScope;
+    variant?: OtelTraceVariant;
+    encoding?: OtelExporterEncoding;
+    headers?: OtelExporterHeaders;
+    secret_headers?: OtelExporterSecretHeaders;
+    sample_percent?: OtelExporterSamplePercent;
+};
+
+export type UpdateOtelExporterRequest = {
+    /**
+     * Full OTLP/HTTP traces URL, used exactly as given.
+     */
+    endpoint?: string;
+    variant?: OtelTraceVariant;
+    encoding?: OtelExporterEncoding;
+    headers?: OtelExporterHeaders;
+    secret_headers?: OtelExporterSecretHeaders;
+    sample_percent?: OtelExporterSamplePercent;
+};
+
+export type OtelExporter = {
+    id: OtelExporterId;
+    org_id: OrganizationId;
+    /**
+     * Full OTLP/HTTP traces URL.
+     */
+    endpoint: string;
+    scope: OtelExporterScope;
+    variant: OtelTraceVariant;
+    encoding: OtelExporterEncoding;
+    headers: OtelExporterHeaders;
+    secret_headers: OtelExporterSecretHeaders;
+    sample_percent: OtelExporterSamplePercent;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ListOtelExportersResponse = {
+    data: Array<OtelExporter>;
+    next_cursor: string | null;
+};
+
 export type CronTriggerId = string;
 
 export type IntegrationTargetId = string;
@@ -6379,6 +6500,371 @@ export type UpdateEventWebhookResponses = {
 };
 
 export type UpdateEventWebhookResponse = UpdateEventWebhookResponses[keyof UpdateEventWebhookResponses];
+
+export type ListOtelExportersData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+    };
+    query?: {
+        scope_type?: OtelExporterScopeType;
+        project_id?: ProjectId;
+        agent_id?: AgentId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/otel-exporters';
+};
+
+export type ListOtelExportersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOtelExportersError = ListOtelExportersErrors[keyof ListOtelExportersErrors];
+
+export type ListOtelExportersResponses = {
+    /**
+     * Exporters matching the requested scope.
+     */
+    200: ListOtelExportersResponse;
+};
+
+export type ListOtelExportersResponse2 = ListOtelExportersResponses[keyof ListOtelExportersResponses];
+
+export type CreateOtelExporterData = {
+    body: CreateOtelExporterRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/otel-exporters';
+};
+
+export type CreateOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateOtelExporterError = CreateOtelExporterErrors[keyof CreateOtelExporterErrors];
+
+export type CreateOtelExporterResponses = {
+    /**
+     * Exporter created.
+     */
+    201: OtelExporter;
+};
+
+export type CreateOtelExporterResponse = CreateOtelExporterResponses[keyof CreateOtelExporterResponses];
+
+export type DeleteOtelExporterData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+};
+
+export type DeleteOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteOtelExporterError = DeleteOtelExporterErrors[keyof DeleteOtelExporterErrors];
+
+export type DeleteOtelExporterResponses = {
+    /**
+     * Exporter deleted.
+     */
+    204: void;
+};
+
+export type DeleteOtelExporterResponse = DeleteOtelExporterResponses[keyof DeleteOtelExporterResponses];
+
+export type GetOtelExporterData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+};
+
+export type GetOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOtelExporterError = GetOtelExporterErrors[keyof GetOtelExporterErrors];
+
+export type GetOtelExporterResponses = {
+    /**
+     * The exporter.
+     */
+    200: OtelExporter;
+};
+
+export type GetOtelExporterResponse = GetOtelExporterResponses[keyof GetOtelExporterResponses];
+
+export type UpdateOtelExporterData = {
+    body: UpdateOtelExporterRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+};
+
+export type UpdateOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateOtelExporterError = UpdateOtelExporterErrors[keyof UpdateOtelExporterErrors];
+
+export type UpdateOtelExporterResponses = {
+    /**
+     * Exporter updated.
+     */
+    200: OtelExporter;
+};
+
+export type UpdateOtelExporterResponse = UpdateOtelExporterResponses[keyof UpdateOtelExporterResponses];
 
 export type ListPersonalAccessTokensData = {
     body?: never;
@@ -15232,6 +15718,89 @@ export type ListTurnEventsResponses = {
 };
 
 export type ListTurnEventsResponse2 = ListTurnEventsResponses[keyof ListTurnEventsResponses];
+
+export type GetTurnTraceData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
+        agentID: string;
+        /**
+         * Turn ID (trn_...).
+         */
+        turnID: string;
+    };
+    query?: {
+        /**
+         * Adds the attributes one tracing backend reads for fields the shared conventions do not cover. Defaults to otel, which adds none.
+         */
+        variant?: OtelTraceVariant;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/trace';
+};
+
+export type GetTurnTraceErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetTurnTraceError = GetTurnTraceErrors[keyof GetTurnTraceErrors];
+
+export type GetTurnTraceResponses = {
+    /**
+     * The turn's trace.
+     */
+    200: OtelTrace;
+};
+
+export type GetTurnTraceResponse = GetTurnTraceResponses[keyof GetTurnTraceResponses];
 
 export type ListEventsData = {
     body?: never;
