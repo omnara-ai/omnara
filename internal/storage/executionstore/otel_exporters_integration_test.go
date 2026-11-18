@@ -48,7 +48,7 @@ func closeTurnForOtelTest(t *testing.T, fixture processDaemonFixture, sequence i
 	require.NoError(t, unit.Commit(ctx, "otel export test"))
 }
 
-func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
+func TestOtelExportersQueueSampledTurnsAndClaimDeliveries(t *testing.T) {
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "otel_export")
 	store := fixture.Store.Execution()
@@ -76,7 +76,7 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 		},
 		otelconfig.Settings{Endpoint: "https://agent.example.com/v1/traces", SamplePercent: 0})
 	require.Equal(t, oteltrace.VariantOTel, project.Settings.Variant)
-	require.Equal(t, oteltrace.EncodingJSON, project.Settings.Encoding)
+	require.Equal(t, oteltrace.EncodingProtobuf, project.Settings.Encoding)
 
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: testOrgID, Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
@@ -123,25 +123,19 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
 	require.Empty(t, otelDeliveryTurns(t, fixture, unsampled.ID))
 
-	_, err = store.ClaimOtelExportDeliveries(ctx, 4, 100)
-	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, err = fixture.Store.pool.Exec(ctx,
-		`UPDATE otel_export_deliveries SET next_attempt_at = statement_timestamp() WHERE org_id = $1`, testOrgID)
+	first, err := store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
-
-	first, err := store.ClaimOtelExportDeliveries(ctx, 4, 100)
+	second, err := store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
-	second, err := store.ClaimOtelExportDeliveries(ctx, 4, 100)
-	require.NoError(t, err)
-	_, err = store.ClaimOtelExportDeliveries(ctx, 4, 100)
+	_, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.ElementsMatch(t, []uuid.UUID{orgWide.ID, project.ID}, []uuid.UUID{first.ExporterID, second.ExporterID})
 	require.NotEqual(t, first.ClaimToken, second.ClaimToken)
-	for _, batch := range []executionstore.OtelExportBatch{first, second} {
-		require.Len(t, batch.Deliveries, 1)
-		require.Equal(t, fixture.AgentID, batch.Deliveries[0].AgentID)
-		require.Equal(t, turnID, batch.Deliveries[0].TurnID)
-		require.EqualValues(t, 1, batch.Deliveries[0].AttemptCount)
+	for _, delivery := range []executionstore.OtelExportDelivery{first, second} {
+		require.Equal(t, testOrgID, delivery.OrgID)
+		require.Equal(t, fixture.AgentID, delivery.AgentID)
+		require.Equal(t, turnID, delivery.TurnID)
+		require.EqualValues(t, 1, delivery.AttemptCount)
 	}
 
 	turn, err := store.LoadTurnTraceForExport(ctx, fixture.AgentID, turnID)
@@ -150,9 +144,10 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Equal(t, toolID, turn.ToolCalls[0].ID)
 	require.NotEmpty(t, turn.ModelCalls)
 	var names []string
-	for _, span := range oteltrace.Build(turn, oteltrace.VariantOTel) {
-		names = append(names, span.Name)
-		require.Equal(t, oteltrace.TraceID(turnID), span.TraceID)
+	spans := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	for _, span := range spans.All() {
+		names = append(names, span.Name())
+		require.Equal(t, oteltrace.TraceID(turnID), span.TraceID())
 	}
 	require.Len(t, names, 2+len(turn.ModelCalls))
 	require.Contains(t, names[0], "invoke_agent")
@@ -162,9 +157,9 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	_, err = store.LoadTurnTrace(ctx, uuid.New(), fixture.AgentID, turnID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	orgBatch, projectBatch := first, second
+	orgDelivery, projectDelivery := first, second
 	if first.ExporterID != orgWide.ID {
-		orgBatch, projectBatch = second, first
+		orgDelivery, projectDelivery = second, first
 	}
 	destination, err := store.GetOtelExportDestination(ctx, testOrgID, orgWide.ID)
 	require.NoError(t, err)
@@ -174,31 +169,28 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 		Headers:  map[string]string{"x-langfuse-ingestion-version": "4", "Authorization": "Bearer test-key"},
 	}, destination)
 
-	require.NoError(t, store.CompleteOtelExportDeliveries(ctx, orgBatch.ClaimToken))
+	require.NoError(t, store.CompleteOtelExportDelivery(ctx, orgDelivery.ID, orgDelivery.ClaimToken))
 	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
 
+	// The turn closing again re-arms the claimed delivery, so the stale claim
+	// can no longer complete it.
 	closeTurnForOtelTest(t, fixture, outputSequence)
-	require.NoError(t, store.CompleteOtelExportDeliveries(ctx, projectBatch.ClaimToken))
+	require.NoError(t, store.CompleteOtelExportDelivery(ctx, projectDelivery.ID, projectDelivery.ClaimToken))
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, orgWide.ID))
 	_, err = fixture.Store.pool.Exec(ctx, `DELETE FROM otel_export_deliveries WHERE exporter_id = $1`, orgWide.ID)
 	require.NoError(t, err)
-	_, err = fixture.Store.pool.Exec(ctx,
-		`UPDATE otel_export_deliveries SET next_attempt_at = statement_timestamp() WHERE org_id = $1`, testOrgID)
+	projectDelivery, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
-	projectBatch, err = store.ClaimOtelExportDeliveries(ctx, 4, 100)
-	require.NoError(t, err)
-	// Naming other deliveries leaves this one claimed; naming it releases it.
-	require.NoError(t, store.RetryOtelExportDeliveries(ctx, projectBatch.ClaimToken, 0, []uuid.UUID{uuid.New()}))
-	_, err = store.ClaimOtelExportDeliveries(ctx, 4, 1)
+	// Only the current claim can release the delivery for another attempt.
+	require.NoError(t, store.RetryOtelExportDelivery(ctx, projectDelivery.ID, uuid.New(), 0))
+	_, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	require.NoError(t, store.RetryOtelExportDeliveries(
-		ctx, projectBatch.ClaimToken, 0, []uuid.UUID{projectBatch.Deliveries[0].ID}))
-	retried, err := store.ClaimOtelExportDeliveries(ctx, 4, 1)
+	require.NoError(t, store.RetryOtelExportDelivery(ctx, projectDelivery.ID, projectDelivery.ClaimToken, 0))
+	retried, err := store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
 	require.Equal(t, project.ID, retried.ExporterID)
-	require.Len(t, retried.Deliveries, 1)
-	require.EqualValues(t, 3, retried.Deliveries[0].AttemptCount)
+	require.EqualValues(t, 3, retried.AttemptCount)
 
 	sampleRate := 12.345
 	updated, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{

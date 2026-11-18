@@ -9,24 +9,19 @@ import (
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-func OtelExportBatchAttempt(
-	ctx context.Context, batch executionstore.OtelExportBatch,
+func OtelExportDeliveryAttempt(
+	ctx context.Context, delivery executionstore.OtelExportDelivery,
 ) (context.Context, *log.Event) {
-	var oldest time.Time
-	for _, delivery := range batch.Deliveries {
-		if oldest.IsZero() || delivery.CreatedAt.Before(oldest) {
-			oldest = delivery.CreatedAt
-		}
-	}
-	event := log.NewEvent(ctx, "otel_export.batch_attempt", log.Fields{
-		"org.id":                  batch.OrgID,
-		"otel_export.exporter_id": batch.ExporterID,
-		"otel_export.turns":       len(batch.Deliveries),
-		"otel_export.attempt":     batch.MaxAttempt(),
+	event := log.NewEvent(ctx, "otel_export.delivery_attempt", log.Fields{
+		"org.id":                  delivery.OrgID,
+		"agent.id":                delivery.AgentID,
+		"otel_export.delivery_id": delivery.ID,
+		"otel_export.exporter_id": delivery.ExporterID,
+		"otel_export.attempt":     delivery.AttemptCount,
 	})
 	ctx = log.WithEvent(ctx, event)
-	if !oldest.IsZero() {
-		log.Attach(ctx, log.Fields{"otel_export.age_seconds": max(time.Since(oldest).Seconds(), 0)})
+	if !delivery.CreatedAt.IsZero() {
+		log.Attach(ctx, log.Fields{"otel_export.age_seconds": max(time.Since(delivery.CreatedAt).Seconds(), 0)})
 	}
 	return ctx, event
 }
@@ -50,25 +45,20 @@ func OtelExportResponse(ctx context.Context, status int) {
 	log.Attach(ctx, log.Fields{"http.status_code": status})
 }
 
-func OtelExportBatchCounts(ctx context.Context, delivered, dropped, retried int, rejectedSpans int64) {
-	log.Attach(ctx, log.Fields{
-		"otel_export.turns_delivered": delivered, "otel_export.turns_dropped": dropped,
-		"otel_export.turns_retried": retried, "otel_export.rejected_spans": rejectedSpans,
-	})
-}
-
-func OtelExportPartialSuccess(ctx context.Context, message string) {
+func OtelExportPartialSuccess(ctx context.Context, rejectedSpans int64, message string) {
 	if len(message) > 512 {
 		message = message[:512]
 	}
-	log.Attach(ctx, log.Fields{"otel_export.partial_success_message": message})
+	log.Attach(ctx, log.Fields{
+		"otel_export.rejected_spans": rejectedSpans, "otel_export.partial_success_message": message,
+	})
 }
 
-func OtelExportBatchResult(ctx context.Context, outcome, cause string, err error) {
+func OtelExportDeliveryResult(ctx context.Context, outcome, cause string, err error) {
 	log.Attach(ctx, log.Fields{"otel_export.outcome": outcome, "otel_export.cause": cause})
 	log.Error(ctx, err)
 	switch outcome {
-	case "dropped", "retry_scheduled", "partially_retried", "partially_rejected":
+	case "dropped", "retry_scheduled", "partially_rejected":
 		log.Level(ctx, log.WarnLevel)
 	case "retry_failed", "complete_failed":
 		log.Level(ctx, log.ErrorLevel)

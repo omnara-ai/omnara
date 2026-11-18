@@ -8,8 +8,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-const otelExportBatchDelaySeconds = 5
-
 func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 	pending := u.notifications
 	if pending == nil || len(pending.AgentEvents()) == 0 {
@@ -27,7 +25,7 @@ func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 			continue
 		}
 		if err := q.EnqueueOtelExportDeliveries(ctx, dbsqlc.EnqueueOtelExportDeliveriesParams{
-			AgentID: agentID, EventSequences: sequences, BatchDelaySeconds: otelExportBatchDelaySeconds,
+			AgentID: agentID, EventSequences: sequences,
 		}); err != nil {
 			return fmt.Errorf("enqueue otel export deliveries: %w", err)
 		}

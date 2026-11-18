@@ -1,6 +1,10 @@
 package oteltrace
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"go.opentelemetry.io/collector/pdata/pcommon"
+)
 
 type Variant string
 
@@ -49,67 +53,61 @@ func (content spanContent) outputText() string {
 	return messagesText(content.output)
 }
 
-func (variant Variant) attributes(role spanRole, turn Turn, content spanContent, costUSD string) []KeyValue {
-	var attributes []KeyValue
+func (variant Variant) putAttributes(
+	attributes pcommon.Map, role spanRole, turn Turn, content spanContent, costUSD string,
+) {
 	if len(content.input) > 0 {
-		attributes = append(attributes, stringAttr("gen_ai.input.messages", messagesJSON(content.input)))
+		attributes.PutStr("gen_ai.input.messages", messagesJSON(content.input))
 	}
 	if len(content.output) > 0 {
-		attributes = append(attributes, stringAttr("gen_ai.output.messages", messagesJSON(content.output)))
+		attributes.PutStr("gen_ai.output.messages", messagesJSON(content.output))
 	}
 	input, output := content.inputText(), content.outputText()
 	switch variant {
 	case VariantOTel:
 	case VariantLangfuse:
 		observationType := [...]string{spanRoleAgent: "agent", spanRoleModel: "generation", spanRoleTool: "tool"}[role]
-		attributes = append(attributes,
-			stringAttr("langfuse.observation.type", observationType),
-			stringAttr("langfuse.session.id", turn.RootAgentID),
-		)
+		attributes.PutStr("langfuse.observation.type", observationType)
+		attributes.PutStr("langfuse.session.id", turn.AgentID)
 		if role == spanRoleAgent {
-			attributes = append(attributes, stringAttr("langfuse.trace.name", turn.AgentName))
+			attributes.PutStr("langfuse.trace.name", turn.AgentName)
 		}
 		if input != "" {
-			attributes = append(attributes, stringAttr("langfuse.observation.input", input))
+			attributes.PutStr("langfuse.observation.input", input)
 		}
 		if output != "" {
-			attributes = append(attributes, stringAttr("langfuse.observation.output", output))
+			attributes.PutStr("langfuse.observation.output", output)
 		}
 		if costUSD != "" {
-			attributes = append(attributes,
-				stringAttr("langfuse.observation.cost_details", jsonObject(map[string]any{"total": json.Number(costUSD)})))
+			attributes.PutStr("langfuse.observation.cost_details",
+				jsonObject(map[string]any{"total": json.Number(costUSD)}))
 		}
 	case VariantBraintrust:
 		spanType := [...]string{spanRoleAgent: "task", spanRoleModel: "llm", spanRoleTool: "tool"}[role]
-		attributes = append(attributes,
-			stringAttr("braintrust.span_attributes", jsonObject(map[string]any{"type": spanType})),
-			stringAttr("braintrust.metadata", jsonObject(map[string]any{
-				"agent_id": turn.AgentID, "root_agent_id": turn.RootAgentID, "turn_id": turn.PublicTurnID,
-			})),
-		)
+		attributes.PutStr("braintrust.span_attributes", jsonObject(map[string]any{"type": spanType}))
+		attributes.PutStr("braintrust.metadata", jsonObject(map[string]any{
+			"agent_id": turn.AgentID, "root_agent_id": turn.RootAgentID, "turn_id": turn.PublicTurnID,
+		}))
 		if input != "" {
-			attributes = append(attributes, stringAttr("braintrust.input_json", jsonValue(input)))
+			attributes.PutStr("braintrust.input_json", jsonValue(input))
 		}
 		if output != "" {
-			attributes = append(attributes, stringAttr("braintrust.output_json", jsonValue(output)))
+			attributes.PutStr("braintrust.output_json", jsonValue(output))
 		}
 	case VariantLangSmith:
 		runType := [...]string{spanRoleAgent: "chain", spanRoleModel: "llm", spanRoleTool: "tool"}[role]
-		attributes = append(attributes,
-			stringAttr("langsmith.span.kind", runType),
-			stringAttr("langsmith.metadata.thread_id", turn.RootAgentID),
-		)
+		attributes.PutStr("langsmith.span.kind", runType)
+		attributes.PutStr("langsmith.metadata.thread_id", turn.AgentID)
 		if role == spanRoleAgent {
-			attributes = append(attributes, stringAttr("langsmith.trace.name", turn.AgentName))
+			attributes.PutStr("langsmith.trace.name", turn.AgentName)
 		}
 		if input != "" {
-			attributes = append(attributes, stringAttr("gen_ai.prompt", input))
+			attributes.PutStr("gen_ai.prompt", input)
 		}
 		if output != "" {
-			attributes = append(attributes, stringAttr("gen_ai.completion", output))
+			attributes.PutStr("gen_ai.completion", output)
 		}
 	}
-	return attributes
 }
 
 func jsonObject(value map[string]any) string {

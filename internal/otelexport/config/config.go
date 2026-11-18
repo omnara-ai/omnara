@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -45,6 +46,9 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 	encoding, ok := oteltrace.ParseEncoding(string(settings.Encoding))
 	if !ok {
 		return Settings{}, errors.New("unsupported exporter encoding")
+	}
+	if !slices.Contains(variant.Encodings(), encoding) {
+		return Settings{}, fmt.Errorf("the %s variant does not accept %s encoding", variant, encoding)
 	}
 	settings.Encoding = encoding
 	if !(settings.SamplePercent >= 0 && settings.SamplePercent <= 100) {

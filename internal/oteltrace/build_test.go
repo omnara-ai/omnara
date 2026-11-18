@@ -7,22 +7,25 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func attribute(t *testing.T, span Span, key string) string {
+func attribute(t *testing.T, span ptrace.Span, key string) string {
 	t.Helper()
-	for _, kv := range span.Attributes {
-		if kv.Key != key {
-			continue
-		}
-		switch {
-		case kv.Value.StringValue != nil:
-			return *kv.Value.StringValue
-		case kv.Value.IntValue != nil:
-			return *kv.Value.IntValue
-		}
+	value, ok := span.Attributes().Get(key)
+	if !ok {
+		return ""
 	}
-	return ""
+	return value.AsString()
+}
+
+func buildSpans(turn Turn, variant Variant) []ptrace.Span {
+	var spans []ptrace.Span
+	for _, span := range Build(turn, variant).ResourceSpans().At(0).ScopeSpans().At(0).Spans().All() {
+		spans = append(spans, span)
+	}
+	return spans
 }
 
 func testTurn() Turn {
@@ -62,39 +65,40 @@ func testTurn() Turn {
 
 func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 	turn := testTurn()
-	spans := Build(turn, VariantOTel)
+	spans := buildSpans(turn, VariantOTel)
 	if len(spans) != 5 {
 		t.Fatalf("expected root, three chat and one tool span, got %d", len(spans))
 	}
 	root := spans[0]
-	if root.TraceID != "01938a5c00007000800000000000abcd" || len(root.SpanID) != 16 || root.ParentSpanID != "" {
-		t.Fatalf("unexpected root identity: %+v", root)
+	if root.TraceID().String() != "01938a5c00007000800000000000abcd" || root.SpanID().IsEmpty() ||
+		!root.ParentSpanID().IsEmpty() {
+		t.Fatalf("unexpected root identity: %s", root.Name())
 	}
-	if root.Name != "invoke_agent researcher" || root.Kind != SpanKindInternal {
-		t.Fatalf("unexpected root span: %s kind %d", root.Name, root.Kind)
+	if root.Name() != "invoke_agent researcher" || root.Kind() != ptrace.SpanKindInternal {
+		t.Fatalf("unexpected root span: %s kind %d", root.Name(), root.Kind())
 	}
 	wantInput := `[{"role":"user","parts":[{"type":"text","content":"find otel docs"}]}]`
 	if got := attribute(t, root, "gen_ai.input.messages"); got != wantInput {
 		t.Fatalf("unexpected root input: %s", got)
 	}
-	seen := map[string]bool{}
+	seen := map[pcommon.SpanID]bool{}
 	for _, span := range spans {
-		if span.TraceID != root.TraceID || seen[span.SpanID] {
-			t.Fatalf("span %s has a wrong trace or duplicate ID", span.Name)
+		if span.TraceID() != root.TraceID() || seen[span.SpanID()] {
+			t.Fatalf("span %s has a wrong trace or duplicate ID", span.Name())
 		}
-		seen[span.SpanID] = true
-		if span.SpanID != root.SpanID && span.ParentSpanID != root.SpanID {
-			t.Fatalf("span %s is not parented to the root", span.Name)
+		seen[span.SpanID()] = true
+		if span.SpanID() != root.SpanID() && span.ParentSpanID() != root.SpanID() {
+			t.Fatalf("span %s is not parented to the root", span.Name())
 		}
 	}
 
 	failed, chat, tool := spans[1], spans[2], spans[4]
-	if failed.Status == nil || failed.Status.Code != StatusCodeError ||
+	if failed.Status().Code() != ptrace.StatusCodeError || failed.Status().Message() != "overloaded" ||
 		attribute(t, failed, "error.type") != "provider_overloaded" {
-		t.Fatalf("unexpected failed attempt span: %+v", failed)
+		t.Fatalf("unexpected failed attempt span: %s", failed.Name())
 	}
-	if chat.Name != "chat claude" || chat.Kind != SpanKindClient {
-		t.Fatalf("unexpected chat span: %+v", chat)
+	if chat.Name() != "chat claude" || chat.Kind() != ptrace.SpanKindClient {
+		t.Fatalf("unexpected chat span: %s", chat.Name())
 	}
 	for key, want := range map[string]string{
 		"gen_ai.provider.name": "anthropic", "gen_ai.response.model": "claude-served",
@@ -106,14 +110,14 @@ func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 			t.Fatalf("chat %s = %q, want %q", key, got, want)
 		}
 	}
-	if tool.Name != "execute_tool search" ||
+	if tool.Name() != "execute_tool search" ||
 		attribute(t, tool, "gen_ai.tool.call.id") != "call_1" ||
 		attribute(t, tool, "gen_ai.tool.call.arguments") != `{"q":"otel"}` ||
 		attribute(t, tool, "gen_ai.tool.call.result") != "3 results" {
-		t.Fatalf("unexpected tool span: %+v", tool)
+		t.Fatalf("unexpected tool span: %s", tool.Name())
 	}
-	if tool.StartTimeUnixNano != "1794830404000000000" || tool.EndTimeUnixNano != "1794830406000000000" {
-		t.Fatalf("unexpected tool times: %s to %s", tool.StartTimeUnixNano, tool.EndTimeUnixNano)
+	if tool.StartTimestamp() != 1794830404000000000 || tool.EndTimestamp() != 1794830406000000000 {
+		t.Fatalf("unexpected tool times: %d to %d", tool.StartTimestamp(), tool.EndTimestamp())
 	}
 }
 
@@ -121,12 +125,12 @@ func TestBuildRendersRunningTurnSoFar(t *testing.T) {
 	turn := testTurn()
 	turn.Events = turn.Events[:3]
 	turn.ModelCalls = turn.ModelCalls[:2]
-	spans := Build(turn, VariantOTel)
+	spans := buildSpans(turn, VariantOTel)
 	if len(spans) != 4 || attribute(t, spans[0], "gen_ai.output.messages") != "" {
-		t.Fatalf("a running turn has no final output on its root yet: %+v", spans[0])
+		t.Fatalf("a running turn has no final output on its root yet: %s", spans[0].Name())
 	}
-	if spans[0].EndTimeUnixNano != spans[3].EndTimeUnixNano {
-		t.Fatalf("root should end with the tool result, got %s", spans[0].EndTimeUnixNano)
+	if spans[0].EndTimestamp() != spans[3].EndTimestamp() {
+		t.Fatalf("root should end with the tool result, got %d", spans[0].EndTimestamp())
 	}
 }
 
@@ -138,7 +142,7 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 		key, value string
 	}{
 		{VariantLangfuse, 0, "langfuse.observation.type", "agent"},
-		{VariantLangfuse, 0, "langfuse.session.id", "agt_root"},
+		{VariantLangfuse, 0, "langfuse.session.id", "agt_1"},
 		{VariantLangfuse, 2, "langfuse.observation.type", "generation"},
 		{VariantLangfuse, 2, "langfuse.observation.cost_details", `{"total":0.0125}`},
 		{VariantLangfuse, 4, "langfuse.observation.output", "3 results"},
@@ -147,10 +151,10 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 		{VariantBraintrust, 0, "braintrust.output_json", `"here they are"`},
 		{VariantLangSmith, 4, "langsmith.span.kind", "tool"},
 		{VariantLangSmith, 0, "gen_ai.prompt", "find otel docs"},
-		{VariantLangSmith, 0, "langsmith.metadata.thread_id", "agt_root"},
+		{VariantLangSmith, 0, "langsmith.metadata.thread_id", "agt_1"},
 	}
 	for _, test := range tests {
-		spans := Build(turn, test.variant)
+		spans := buildSpans(turn, test.variant)
 		if got := attribute(t, spans[test.role], test.key); got != test.value {
 			t.Errorf("%s span %d %s = %q, want %q", test.variant, test.role, test.key, got, test.value)
 		}
@@ -160,8 +164,8 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 func TestBuildSkipsTurnWithNothingToPlace(t *testing.T) {
 	turn := testTurn()
 	turn.Events, turn.ModelCalls, turn.ToolCalls = nil, nil, nil
-	if spans := Build(turn, VariantOTel); len(spans) != 0 {
-		t.Fatalf("a turn with no events or calls has no spans, got %+v", spans)
+	if count := Build(turn, VariantOTel).SpanCount(); count != 0 {
+		t.Fatalf("a turn with no events or calls has no spans, got %d", count)
 	}
 }
 
@@ -169,35 +173,76 @@ func TestBuildKeepsTruncatedTurnConsistent(t *testing.T) {
 	turn := testTurn()
 	// Only the final output survived truncation; the calls are all still loaded.
 	turn.Events, turn.Truncated = turn.Events[3:], true
-	spans := Build(turn, VariantOTel)
+	spans := buildSpans(turn, VariantOTel)
 	if len(spans) != 5 {
 		t.Fatalf("truncation must not drop call spans, got %d", len(spans))
 	}
 	root, tool := spans[0], spans[4]
-	if len(root.Attributes) == 0 || !hasBool(root, "omnara.trace.truncated") {
-		t.Fatalf("root must be marked truncated: %+v", root)
+	if attribute(t, root, "omnara.trace.truncated") != "true" {
+		t.Fatalf("root must be marked truncated: %s", root.Name())
 	}
-	if root.StartTimeUnixNano != spans[1].StartTimeUnixNano || root.EndTimeUnixNano != spans[3].EndTimeUnixNano {
-		t.Fatalf("root must cover its children, got %s to %s", root.StartTimeUnixNano, root.EndTimeUnixNano)
+	if root.StartTimestamp() != spans[1].StartTimestamp() || root.EndTimestamp() != spans[3].EndTimestamp() {
+		t.Fatalf("root must cover its children, got %d to %d", root.StartTimestamp(), root.EndTimestamp())
 	}
-	if tool.Name != "execute_tool search" || attribute(t, tool, "gen_ai.tool.call.result") != "" {
-		t.Fatalf("tool span without its result event keeps its identity only: %+v", tool)
+	if tool.Name() != "execute_tool search" || attribute(t, tool, "gen_ai.tool.call.result") != "" {
+		t.Fatalf("tool span without its result event keeps its identity only: %s", tool.Name())
 	}
-}
-
-func hasBool(span Span, key string) bool {
-	for _, kv := range span.Attributes {
-		if kv.Key == key && kv.Value.BoolValue != nil && *kv.Value.BoolValue {
-			return true
-		}
-	}
-	return false
 }
 
 func TestBuildDoesNotCloseTurnOnTruncatedOutput(t *testing.T) {
 	turn := testTurn()
 	turn.Events[3].StopReason = "max_tokens"
-	if got := attribute(t, Build(turn, VariantOTel)[0], "gen_ai.output.messages"); got != "" {
+	if got := attribute(t, buildSpans(turn, VariantOTel)[0], "gen_ai.output.messages"); got != "" {
 		t.Fatalf("a max_tokens output is continued, not final: %s", got)
+	}
+}
+
+func TestBuildLinksTurnsAcrossAgents(t *testing.T) {
+	turn := testTurn()
+	spawnCall, parentTurn := uuid.MustParse("00000000-0000-7000-8000-0000000000c1"),
+		uuid.MustParse("00000000-0000-7000-8000-0000000000c2")
+	childTurn := uuid.MustParse("00000000-0000-7000-8000-0000000000c3")
+	turn.Links = []Link{{Kind: LinkSpawnedBy, AgentID: "agt_parent", TurnID: parentTurn, ToolCallID: spawnCall}}
+	turn.ToolCalls[0].Links = []Link{{Kind: LinkSpawned, AgentID: "agt_child", TurnID: childTurn}}
+	spans := buildSpans(turn, VariantOTel)
+	root, chat, tool := spans[0], spans[2], spans[4]
+	if root.Links().Len() != 1 || chat.Links().Len() != 0 || tool.Links().Len() != 1 {
+		t.Fatalf("links belong on the root and the sending tool call, got %d %d %d",
+			root.Links().Len(), chat.Links().Len(), tool.Links().Len())
+	}
+	// A received input links to the tool call that sent it, in the sender's trace.
+	received := root.Links().At(0)
+	if received.TraceID() != TraceID(parentTurn) || received.SpanID() != spanID("tool_call", spawnCall) {
+		t.Fatalf("unexpected link target: %s %s", received.TraceID(), received.SpanID())
+	}
+	if kind, _ := received.Attributes().Get("omnara.link.kind"); kind.AsString() != LinkSpawnedBy {
+		t.Fatalf("unexpected link kind: %s", kind.AsString())
+	}
+	if agent, _ := received.Attributes().Get("omnara.link.agent.id"); agent.AsString() != "agt_parent" {
+		t.Fatalf("unexpected linked agent: %s", agent.AsString())
+	}
+	wantSummary := `[{"kind":"spawned_by","agent_id":"agt_parent","trace_id":"` + TraceID(parentTurn).String() +
+		`","span_id":"` + spanID("tool_call", spawnCall).String() + `"}]`
+	if got := attribute(t, root, "omnara.links"); got != wantSummary {
+		t.Fatalf("links are repeated as an attribute for backends that drop them, got %s", got)
+	}
+	if attribute(t, chat, "omnara.links") != "" {
+		t.Fatal("a span without links carries no links attribute")
+	}
+	// A sent input links to the root span of the turn that received it.
+	sent := tool.Links().At(0)
+	if sent.TraceID() != TraceID(childTurn) || sent.SpanID() != spanID("turn", childTurn) {
+		t.Fatalf("unexpected sent link target: %s %s", sent.TraceID(), sent.SpanID())
+	}
+}
+
+func TestVariantSessionsAreTheAgentNotItsRoot(t *testing.T) {
+	turn := testTurn()
+	for variant, key := range map[Variant]string{
+		VariantLangfuse: "langfuse.session.id", VariantLangSmith: "langsmith.metadata.thread_id",
+	} {
+		if got := attribute(t, buildSpans(turn, variant)[0], key); got != "agt_1" {
+			t.Errorf("%s %s = %q, want the agent's own ID", variant, key, got)
+		}
 	}
 }

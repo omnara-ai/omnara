@@ -11106,8 +11106,8 @@ components:
       description: Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
     OtelExporterEncoding:
       type: string
-      enum: [json, protobuf]
-      description: OTLP/HTTP request body encoding. json sends application/json; protobuf sends application/x-protobuf.
+      enum: [protobuf, json]
+      description: OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
     OtelTrace:
       type: object
       required: [resourceSpans]
@@ -11205,7 +11205,7 @@ components:
           $ref: '#/components/schemas/OtelTraceVariant'
         encoding:
           $ref: '#/components/schemas/OtelExporterEncoding'
-          default: json
+          default: protobuf
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:

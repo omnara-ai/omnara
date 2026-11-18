@@ -13,116 +13,80 @@ import (
 	"github.com/google/uuid"
 )
 
-const claimOtelExportDeliveries = `-- name: ClaimOtelExportDeliveries :many
+const claimOtelExportDelivery = `-- name: ClaimOtelExportDelivery :one
 WITH saturated_orgs AS MATERIALIZED (
-    SELECT claims.org_id
-    FROM (
-        SELECT DISTINCT org_id, claim_token
-        FROM otel_export_deliveries
-        WHERE claim_expires_at > statement_timestamp()
-    ) claims
-    GROUP BY claims.org_id
-    HAVING count(*) >= $3::bigint
-), head AS (
-    SELECT delivery.exporter_id
+    SELECT org_id
+    FROM otel_export_deliveries
+    WHERE claim_expires_at > statement_timestamp()
+    GROUP BY org_id
+    HAVING count(*) >= $2::bigint
+), candidate AS (
+    SELECT delivery.id
     FROM otel_export_deliveries delivery
     WHERE delivery.next_attempt_at <= statement_timestamp()
       AND delivery.created_at > statement_timestamp()
-          - $4::double precision * interval '1 second'
+          - $3::double precision * interval '1 second'
       AND (delivery.claim_expires_at IS NULL OR delivery.claim_expires_at <= statement_timestamp())
       AND delivery.org_id NOT IN (SELECT org_id FROM saturated_orgs)
     ORDER BY delivery.next_attempt_at, delivery.id
     LIMIT 1
     FOR UPDATE OF delivery SKIP LOCKED
-), candidates AS (
-    SELECT delivery.id
-    FROM otel_export_deliveries delivery
-    JOIN head ON head.exporter_id = delivery.exporter_id
-    WHERE delivery.next_attempt_at <= statement_timestamp()
-      AND delivery.created_at > statement_timestamp()
-          - $4::double precision * interval '1 second'
-      AND (delivery.claim_expires_at IS NULL OR delivery.claim_expires_at <= statement_timestamp())
-    ORDER BY delivery.next_attempt_at, delivery.id
-    LIMIT $5
-    FOR UPDATE OF delivery SKIP LOCKED
 )
 UPDATE otel_export_deliveries delivery
 SET attempt_count = attempt_count + 1,
-    claim_token = $1::uuid,
-    claim_expires_at = statement_timestamp() + $2::double precision * interval '1 second'
-FROM candidates
-WHERE delivery.id = candidates.id
+    claim_token = uuidv7(),
+    claim_expires_at = statement_timestamp() + $1::double precision * interval '1 second'
+FROM candidate
+WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.turn_id,
-    delivery.attempt_count, delivery.created_at
+    delivery.attempt_count, delivery.claim_token, delivery.created_at
 `
 
-type ClaimOtelExportDeliveriesParams struct {
-	ClaimToken            uuid.UUID
+type ClaimOtelExportDeliveryParams struct {
 	ClaimSeconds          float64
 	PerOrgLimit           int64
 	DeliveryWindowSeconds float64
-	BatchLimit            int32
 }
 
-type ClaimOtelExportDeliveriesRow struct {
+type ClaimOtelExportDeliveryRow struct {
 	ID           uuid.UUID
 	OrgID        uuid.UUID
 	ExporterID   uuid.UUID
 	AgentID      uuid.UUID
 	TurnID       uuid.UUID
 	AttemptCount int32
+	ClaimToken   *uuid.UUID
 	CreatedAt    time.Time
 }
 
-func (q *Queries) ClaimOtelExportDeliveries(ctx context.Context, arg ClaimOtelExportDeliveriesParams) ([]ClaimOtelExportDeliveriesRow, error) {
-	rows, err := q.db.Query(ctx, claimOtelExportDeliveries,
-		arg.ClaimToken,
-		arg.ClaimSeconds,
-		arg.PerOrgLimit,
-		arg.DeliveryWindowSeconds,
-		arg.BatchLimit,
+func (q *Queries) ClaimOtelExportDelivery(ctx context.Context, arg ClaimOtelExportDeliveryParams) (ClaimOtelExportDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, claimOtelExportDelivery, arg.ClaimSeconds, arg.PerOrgLimit, arg.DeliveryWindowSeconds)
+	var i ClaimOtelExportDeliveryRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ExporterID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.AttemptCount,
+		&i.ClaimToken,
+		&i.CreatedAt,
 	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ClaimOtelExportDeliveriesRow{}
-	for rows.Next() {
-		var i ClaimOtelExportDeliveriesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.ExporterID,
-			&i.AgentID,
-			&i.TurnID,
-			&i.AttemptCount,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return i, err
 }
 
-const completeOtelExportDeliveries = `-- name: CompleteOtelExportDeliveries :execrows
-DELETE FROM otel_export_deliveries
-WHERE claim_token = $1::uuid
+const completeOtelExportDelivery = `-- name: CompleteOtelExportDelivery :exec
+DELETE FROM otel_export_deliveries WHERE id = $1 AND claim_token = $2
 `
 
-type CompleteOtelExportDeliveriesParams struct {
-	ClaimToken uuid.UUID
+type CompleteOtelExportDeliveryParams struct {
+	ID         uuid.UUID
+	ClaimToken *uuid.UUID
 }
 
-func (q *Queries) CompleteOtelExportDeliveries(ctx context.Context, arg CompleteOtelExportDeliveriesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, completeOtelExportDeliveries, arg.ClaimToken)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) CompleteOtelExportDelivery(ctx context.Context, arg CompleteOtelExportDeliveryParams) error {
+	_, err := q.db.Exec(ctx, completeOtelExportDelivery, arg.ID, arg.ClaimToken)
+	return err
 }
 
 const countOrgOtelExporters = `-- name: CountOrgOtelExporters :one
@@ -188,39 +152,72 @@ func (q *Queries) DeleteOtelExporter(ctx context.Context, arg DeleteOtelExporter
 }
 
 const enqueueOtelExportDeliveries = `-- name: EnqueueOtelExportDeliveries :exec
-INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id, next_attempt_at)
-SELECT DISTINCT exporter.org_id, exporter.id, event.agent_id, event.turn_id,
-       statement_timestamp() + $1::double precision * interval '1 second'
-FROM agent_events event
-JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
-JOIN agents agent ON agent.id = event.agent_id
+INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id)
+SELECT DISTINCT exporter.org_id, exporter.id, closed.agent_id, closed.turn_id
+FROM (
+    SELECT event.agent_id, event.turn_id
+    FROM agent_events event
+    JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
+    WHERE event.agent_id = $1
+      AND event.sequence = ANY($2::bigint[])
+      AND event.event_kind = 'model_output'
+      AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
+    UNION
+    SELECT previous.agent_id, previous.id
+    FROM agent_events event
+    JOIN agent_turns turn ON turn.agent_id = event.agent_id AND turn.id = event.turn_id
+    JOIN agent_turns previous ON previous.agent_id = turn.agent_id
+        AND previous.turn_sequence = turn.turn_sequence - 1
+    JOIN LATERAL (
+        SELECT last.model_output_id
+        FROM agent_events last
+        WHERE last.agent_id = previous.agent_id
+          AND last.turn_id = previous.id
+          AND last.event_kind = 'model_output'
+        ORDER BY last.sequence DESC
+        LIMIT 1
+    ) final ON true
+    JOIN model_outputs final_output ON final_output.agent_id = previous.agent_id
+        AND final_output.id = final.model_output_id
+    WHERE event.agent_id = $1
+      AND event.sequence = ANY($2::bigint[])
+      AND event.event_kind = 'model_output'
+      AND final_output.stop_reason IN ('tool_use', 'max_tokens')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM agent_events earlier
+          WHERE earlier.agent_id = event.agent_id
+            AND earlier.turn_id = event.turn_id
+            AND earlier.event_kind = 'model_output'
+            AND earlier.sequence < event.sequence
+      )
+) closed
+JOIN agents agent ON agent.id = closed.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND (exporter.project_id IS NULL OR exporter.project_id = agent.project_id)
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
-WHERE event.agent_id = $2
-  AND event.sequence = ANY($3::bigint[])
-  AND event.event_kind = 'model_output'
-  AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
-  AND exporter.deleted_at IS NULL
+WHERE exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(event.turn_id, exporter.sample_percent)
+  AND otel_trace_sampled(closed.turn_id, exporter.sample_percent)
 ON CONFLICT (exporter_id, turn_id) DO UPDATE
-SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL
+SET next_attempt_at = statement_timestamp(), claim_token = NULL, claim_expires_at = NULL
 `
 
 type EnqueueOtelExportDeliveriesParams struct {
-	BatchDelaySeconds float64
-	AgentID           uuid.UUID
-	EventSequences    []int64
+	AgentID        uuid.UUID
+	EventSequences []int64
 }
 
+// A turn is queued when a model output ends it. A turn that instead stopped
+// on a tool call, such as one waiting on a subagent, has no such output, so it
+// is queued when the agent's next turn produces its first output.
 // A turn that closes again while its delivery is claimed is re-armed, so the
 // in-flight claim no longer owns the row.
 func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOtelExportDeliveriesParams) error {
-	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.BatchDelaySeconds, arg.AgentID, arg.EventSequences)
+	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.AgentID, arg.EventSequences)
 	return err
 }
 
@@ -256,6 +253,56 @@ func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams
 		&i.UpdatedAt,
 		&i.DeletedAt,
 	)
+	return i, err
+}
+
+const getTraceLinkModelOutput = `-- name: GetTraceLinkModelOutput :one
+SELECT event.agent_id, event.turn_id
+FROM model_outputs output
+JOIN agents agent ON agent.id = output.agent_id
+JOIN agent_events event ON event.agent_id = output.agent_id AND event.model_output_id = output.id
+WHERE output.id = $1
+  AND agent.project_id = $2
+`
+
+type GetTraceLinkModelOutputParams struct {
+	ModelOutputID uuid.UUID
+	ProjectID     uuid.UUID
+}
+
+type GetTraceLinkModelOutputRow struct {
+	AgentID uuid.UUID
+	TurnID  uuid.UUID
+}
+
+func (q *Queries) GetTraceLinkModelOutput(ctx context.Context, arg GetTraceLinkModelOutputParams) (GetTraceLinkModelOutputRow, error) {
+	row := q.db.QueryRow(ctx, getTraceLinkModelOutput, arg.ModelOutputID, arg.ProjectID)
+	var i GetTraceLinkModelOutputRow
+	err := row.Scan(&i.AgentID, &i.TurnID)
+	return i, err
+}
+
+const getTraceLinkToolCall = `-- name: GetTraceLinkToolCall :one
+SELECT call.agent_id, call.turn_id
+FROM tool_call_read_projection call
+WHERE call.project_id = $1
+  AND call.id = $2
+`
+
+type GetTraceLinkToolCallParams struct {
+	ProjectID  uuid.UUID
+	ToolCallID uuid.UUID
+}
+
+type GetTraceLinkToolCallRow struct {
+	AgentID uuid.UUID
+	TurnID  uuid.UUID
+}
+
+func (q *Queries) GetTraceLinkToolCall(ctx context.Context, arg GetTraceLinkToolCallParams) (GetTraceLinkToolCallRow, error) {
+	row := q.db.QueryRow(ctx, getTraceLinkToolCall, arg.ProjectID, arg.ToolCallID)
+	var i GetTraceLinkToolCallRow
+	err := row.Scan(&i.AgentID, &i.TurnID)
 	return i, err
 }
 
@@ -426,6 +473,52 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 	return items, nil
 }
 
+const listTurnTraceInputSources = `-- name: ListTurnTraceInputSources :many
+SELECT input.idempotency_scope, input.input_idempotency_key
+FROM agent_events event
+JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
+WHERE event.agent_id = $1
+  AND event.turn_id = $2
+  AND event.event_kind = 'agent_input'
+  AND input.idempotency_scope IS NOT NULL
+  AND input.input_idempotency_key IS NOT NULL
+ORDER BY event.sequence
+LIMIT $3
+`
+
+type ListTurnTraceInputSourcesParams struct {
+	AgentID  uuid.UUID
+	TurnID   uuid.UUID
+	RowLimit int32
+}
+
+type ListTurnTraceInputSourcesRow struct {
+	IdempotencyScope    *string
+	InputIdempotencyKey *string
+}
+
+// An input another agent sent carries, in its idempotency key, the tool call
+// or model output it came from.
+func (q *Queries) ListTurnTraceInputSources(ctx context.Context, arg ListTurnTraceInputSourcesParams) ([]ListTurnTraceInputSourcesRow, error) {
+	rows, err := q.db.Query(ctx, listTurnTraceInputSources, arg.AgentID, arg.TurnID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnTraceInputSourcesRow{}
+	for rows.Next() {
+		var i ListTurnTraceInputSourcesRow
+		if err := rows.Scan(&i.IdempotencyScope, &i.InputIdempotencyKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurnTraceModelCalls = `-- name: ListTurnTraceModelCalls :many
 SELECT context.id, context.operation_kind, context.attempt_number, context.state, context.api_format,
        coalesce(context.provider_response_id, '')::text AS provider_response_id,
@@ -518,6 +611,61 @@ func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTrace
 	return items, nil
 }
 
+const listTurnTraceSentInputs = `-- name: ListTurnTraceSentInputs :many
+SELECT call.id AS tool_call_id, call.name AS tool_name, input.agent_id, event.turn_id
+FROM tool_call_read_projection call
+JOIN agents child ON child.parent_agent_id = call.agent_id
+JOIN agent_inputs input ON input.project_id = child.project_id AND input.agent_id = child.id
+    AND ((input.idempotency_scope = 'content_input'
+            AND input.input_idempotency_key = 'launch:spawn:' || call.id::text || ':content-input')
+        OR (input.idempotency_scope = 'subagent_message'
+            AND input.input_idempotency_key = 'tool_call:' || call.id::text))
+JOIN agent_events event ON event.agent_id = input.agent_id AND event.agent_input_id = input.id
+WHERE call.agent_id = $1
+  AND call.turn_id = $2
+  AND call.name IN ('spawn_agent', 'send_agent_message')
+ORDER BY event.sequence
+`
+
+type ListTurnTraceSentInputsParams struct {
+	AgentID uuid.UUID
+	TurnID  uuid.UUID
+}
+
+type ListTurnTraceSentInputsRow struct {
+	ToolCallID uuid.UUID
+	ToolName   string
+	AgentID    uuid.UUID
+	TurnID     uuid.UUID
+}
+
+// The subagent turns that received what this turn's spawn_agent and
+// send_agent_message calls sent.
+func (q *Queries) ListTurnTraceSentInputs(ctx context.Context, arg ListTurnTraceSentInputsParams) ([]ListTurnTraceSentInputsRow, error) {
+	rows, err := q.db.Query(ctx, listTurnTraceSentInputs, arg.AgentID, arg.TurnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnTraceSentInputsRow{}
+	for rows.Next() {
+		var i ListTurnTraceSentInputsRow
+		if err := rows.Scan(
+			&i.ToolCallID,
+			&i.ToolName,
+			&i.AgentID,
+			&i.TurnID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurnTraceToolCalls = `-- name: ListTurnTraceToolCalls :many
 SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
        result.outcome, result.completed_at
@@ -571,26 +719,22 @@ func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceT
 	return items, nil
 }
 
-const retryOtelExportDeliveries = `-- name: RetryOtelExportDeliveries :execrows
+const retryOtelExportDelivery = `-- name: RetryOtelExportDelivery :exec
 UPDATE otel_export_deliveries
 SET next_attempt_at = statement_timestamp() + $1::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
-WHERE claim_token = $2::uuid
-  AND id = ANY($3::uuid[])
+WHERE id = $2 AND claim_token = $3
 `
 
-type RetryOtelExportDeliveriesParams struct {
+type RetryOtelExportDeliveryParams struct {
 	DelaySeconds float64
-	ClaimToken   uuid.UUID
-	DeliveryIds  []uuid.UUID
+	ID           uuid.UUID
+	ClaimToken   *uuid.UUID
 }
 
-func (q *Queries) RetryOtelExportDeliveries(ctx context.Context, arg RetryOtelExportDeliveriesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retryOtelExportDeliveries, arg.DelaySeconds, arg.ClaimToken, arg.DeliveryIds)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) RetryOtelExportDelivery(ctx context.Context, arg RetryOtelExportDeliveryParams) error {
+	_, err := q.db.Exec(ctx, retryOtelExportDelivery, arg.DelaySeconds, arg.ID, arg.ClaimToken)
+	return err
 }
 
 const updateOtelExporter = `-- name: UpdateOtelExporter :one

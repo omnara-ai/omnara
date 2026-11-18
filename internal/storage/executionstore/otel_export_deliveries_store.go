@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	otelconfig "github.com/omnara-ai/omnara/internal/otelexport/config"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -16,31 +17,19 @@ import (
 
 const (
 	otelExportDeliveryWindow = time.Hour
-	otelExportClaimDuration  = 2 * time.Minute
+	otelExportClaimDuration  = time.Minute
 )
 
+// OtelExportDelivery is one turn queued for one exporter.
 type OtelExportDelivery struct {
 	ID           uuid.UUID
+	OrgID        uuid.UUID
+	ExporterID   uuid.UUID
 	AgentID      uuid.UUID
 	TurnID       uuid.UUID
 	AttemptCount int32
+	ClaimToken   uuid.UUID
 	CreatedAt    time.Time
-}
-
-type OtelExportBatch struct {
-	ClaimToken uuid.UUID
-	OrgID      uuid.UUID
-	ExporterID uuid.UUID
-	Deliveries []OtelExportDelivery
-}
-
-// MaxAttempt is the highest attempt count among the batch's deliveries.
-func (b OtelExportBatch) MaxAttempt() int32 {
-	var attempt int32
-	for _, delivery := range b.Deliveries {
-		attempt = max(attempt, delivery.AttemptCount)
-	}
-	return attempt
 }
 
 type OtelExportDestination struct {
@@ -50,44 +39,33 @@ type OtelExportDestination struct {
 	Headers  map[string]string
 }
 
-func (s *Store) ClaimOtelExportDeliveries(ctx context.Context, perOrgLimit, batchLimit int) (OtelExportBatch, error) {
-	batch := OtelExportBatch{ClaimToken: uuid.New()}
-	rows, err := s.q.ClaimOtelExportDeliveries(ctx, dbsqlc.ClaimOtelExportDeliveriesParams{
-		ClaimToken: batch.ClaimToken, ClaimSeconds: otelExportClaimDuration.Seconds(),
+func (s *Store) ClaimOtelExportDelivery(ctx context.Context, perOrgLimit int) (OtelExportDelivery, error) {
+	row, err := s.q.ClaimOtelExportDelivery(ctx, dbsqlc.ClaimOtelExportDeliveryParams{
 		PerOrgLimit: int64(perOrgLimit), DeliveryWindowSeconds: otelExportDeliveryWindow.Seconds(),
-		BatchLimit: int32(batchLimit),
+		ClaimSeconds: otelExportClaimDuration.Seconds(),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OtelExportDelivery{}, storeerr.ErrNotFound
+	}
 	if err != nil {
-		return OtelExportBatch{}, fmt.Errorf("claim otel export deliveries: %w", err)
+		return OtelExportDelivery{}, fmt.Errorf("claim otel export delivery: %w", err)
 	}
-	if len(rows) == 0 {
-		return OtelExportBatch{}, storeerr.ErrNotFound
-	}
-	batch.OrgID, batch.ExporterID = rows[0].OrgID, rows[0].ExporterID
-	batch.Deliveries = make([]OtelExportDelivery, 0, len(rows))
-	for _, row := range rows {
-		batch.Deliveries = append(batch.Deliveries, OtelExportDelivery{
-			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID,
-			AttemptCount: row.AttemptCount, CreatedAt: row.CreatedAt,
-		})
-	}
-	return batch, nil
+	return OtelExportDelivery{
+		ID: row.ID, OrgID: row.OrgID, ExporterID: row.ExporterID, AgentID: row.AgentID, TurnID: row.TurnID,
+		AttemptCount: row.AttemptCount, ClaimToken: *row.ClaimToken, CreatedAt: row.CreatedAt,
+	}, nil
 }
 
-// CompleteOtelExportDeliveries removes the deliveries the claim still holds.
-func (s *Store) CompleteOtelExportDeliveries(ctx context.Context, claimToken uuid.UUID) error {
-	_, err := s.q.CompleteOtelExportDeliveries(ctx, dbsqlc.CompleteOtelExportDeliveriesParams{ClaimToken: claimToken})
-	return err
-}
-
-// RetryOtelExportDeliveries releases deliveryIDs from the claim for another attempt.
-func (s *Store) RetryOtelExportDeliveries(
-	ctx context.Context, claimToken uuid.UUID, delay time.Duration, deliveryIDs []uuid.UUID,
-) error {
-	_, err := s.q.RetryOtelExportDeliveries(ctx, dbsqlc.RetryOtelExportDeliveriesParams{
-		ClaimToken: claimToken, DelaySeconds: delay.Seconds(), DeliveryIds: deliveryIDs,
+func (s *Store) CompleteOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID) error {
+	return s.q.CompleteOtelExportDelivery(ctx, dbsqlc.CompleteOtelExportDeliveryParams{
+		ID: id, ClaimToken: &claimToken,
 	})
-	return err
+}
+
+func (s *Store) RetryOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID, delay time.Duration) error {
+	return s.q.RetryOtelExportDelivery(ctx, dbsqlc.RetryOtelExportDeliveryParams{
+		ID: id, ClaimToken: &claimToken, DelaySeconds: delay.Seconds(),
+	})
 }
 
 func (s *Store) DeleteExpiredOtelExportDeliveries(ctx context.Context, limit int32) (int64, error) {

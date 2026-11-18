@@ -7,7 +7,7 @@ CREATE TABLE otel_exporters (
     agent_id uuid,
     endpoint text NOT NULL CHECK (octet_length(endpoint) BETWEEN 1 AND 2048),
     variant text NOT NULL DEFAULT 'otel' CHECK (variant IN ('otel', 'langfuse', 'braintrust', 'langsmith')),
-    encoding text NOT NULL DEFAULT 'json' CHECK (encoding IN ('json', 'protobuf')),
+    encoding text NOT NULL DEFAULT 'protobuf' CHECK (encoding IN ('json', 'protobuf')),
     headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(headers) = 'object'),
     secret_headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(secret_headers) = 'object'),
     sample_percent numeric NOT NULL DEFAULT 100 CHECK (sample_percent BETWEEN 0 AND 100),
@@ -55,9 +55,7 @@ CREATE TABLE otel_export_deliveries (
 );
 
 CREATE INDEX otel_export_deliveries_due_idx ON otel_export_deliveries(next_attempt_at, id);
-CREATE INDEX otel_export_deliveries_exporter_due_idx ON otel_export_deliveries(exporter_id, next_attempt_at, id);
 CREATE INDEX otel_export_deliveries_agent_idx ON otel_export_deliveries(agent_id);
 CREATE INDEX otel_export_deliveries_created_idx ON otel_export_deliveries(created_at);
-CREATE INDEX otel_export_deliveries_claim_idx ON otel_export_deliveries(claim_token) WHERE claim_token IS NOT NULL;
 CREATE INDEX otel_export_deliveries_claimed_idx ON otel_export_deliveries(claim_expires_at, org_id)
     WHERE claim_expires_at IS NOT NULL;

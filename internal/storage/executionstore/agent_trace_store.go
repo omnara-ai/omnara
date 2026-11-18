@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const maxTurnTraceEvents = 5000
+const (
+	maxTurnTraceEvents = 5000
+	// maxTurnTraceInputLinks bounds the links on a turn's root span.
+	maxTurnTraceInputLinks = 50
+)
 
 func (s *Store) LoadTurnTrace(ctx context.Context, projectID, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
 	if projectID == uuid.Nil {
@@ -92,6 +97,10 @@ func (s *Store) loadTurnTrace(
 		})
 	}
 
+	if err := s.loadTurnTraceLinks(ctx, &turn, projectID, agentID, turnID); err != nil {
+		return oteltrace.Turn{}, err
+	}
+
 	var pages [][]AgentEventReadRecord
 	var beforeSequence int64
 	for count := 0; count < maxTurnTraceEvents; {
@@ -128,4 +137,91 @@ func (s *Store) loadTurnTrace(
 		}
 	}
 	return turn, nil
+}
+
+// traceLinkSource reads where an input came from out of its idempotency key.
+// Inputs a person or integration sent have no source in another trace.
+func traceLinkSource(scope, key string) (kind string, id uuid.UUID, fromToolCall, ok bool) {
+	var raw string
+	switch {
+	case scope == "content_input" && strings.HasPrefix(key, "launch:spawn:") && strings.HasSuffix(key, ":content-input"):
+		kind, fromToolCall = oteltrace.LinkSpawnedBy, true
+		raw = strings.TrimSuffix(strings.TrimPrefix(key, "launch:spawn:"), ":content-input")
+	case scope == subagentMessageIdempotencyScope && strings.HasPrefix(key, "tool_call:"):
+		kind, fromToolCall = oteltrace.LinkMessageFrom, true
+		raw = strings.TrimPrefix(key, "tool_call:")
+	case scope == subagentMessageIdempotencyScope && strings.HasPrefix(key, "model_output:"):
+		kind = oteltrace.LinkResultFrom
+		raw = strings.TrimPrefix(key, "model_output:")
+	default:
+		return "", uuid.Nil, false, false
+	}
+	id, err := uuid.Parse(raw)
+	return kind, id, fromToolCall, err == nil
+}
+
+// loadTurnTraceLinks connects the turn to the other agents' turns it exchanged
+// input with: on the turn for input it received, on its tool calls for input
+// they sent. A source or recipient that no longer exists is left unlinked.
+func (s *Store) loadTurnTraceLinks(
+	ctx context.Context, turn *oteltrace.Turn, projectID, agentID, turnID uuid.UUID,
+) error {
+	sources, err := s.q.ListTurnTraceInputSources(ctx, dbsqlc.ListTurnTraceInputSourcesParams{
+		AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceInputLinks,
+	})
+	if err != nil {
+		return fmt.Errorf("list turn trace input sources: %w", err)
+	}
+	for _, source := range sources {
+		kind, id, fromToolCall, ok := traceLinkSource(
+			storeutil.TextOrEmpty(source.IdempotencyScope), storeutil.TextOrEmpty(source.InputIdempotencyKey))
+		if !ok {
+			continue
+		}
+		link := oteltrace.Link{Kind: kind}
+		var sourceAgentID uuid.UUID
+		if fromToolCall {
+			var row dbsqlc.GetTraceLinkToolCallRow
+			row, err = s.q.GetTraceLinkToolCall(ctx, dbsqlc.GetTraceLinkToolCallParams{
+				ProjectID: projectID, ToolCallID: id,
+			})
+			sourceAgentID, link.TurnID, link.ToolCallID = row.AgentID, row.TurnID, id
+		} else {
+			var row dbsqlc.GetTraceLinkModelOutputRow
+			row, err = s.q.GetTraceLinkModelOutput(ctx, dbsqlc.GetTraceLinkModelOutputParams{
+				ProjectID: projectID, ModelOutputID: id,
+			})
+			sourceAgentID, link.TurnID = row.AgentID, row.TurnID
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("load turn trace link source: %w", err)
+		}
+		if link.AgentID, err = publicid.Encode(publicid.KindAgent, sourceAgentID); err != nil {
+			return err
+		}
+		turn.Links = append(turn.Links, link)
+	}
+
+	sent, err := s.q.ListTurnTraceSentInputs(ctx, dbsqlc.ListTurnTraceSentInputsParams{AgentID: agentID, TurnID: turnID})
+	if err != nil {
+		return fmt.Errorf("list turn trace sent inputs: %w", err)
+	}
+	for _, row := range sent {
+		link := oteltrace.Link{Kind: oteltrace.LinkMessageTo, TurnID: row.TurnID}
+		if row.ToolName == "spawn_agent" {
+			link.Kind = oteltrace.LinkSpawned
+		}
+		if link.AgentID, err = publicid.Encode(publicid.KindAgent, row.AgentID); err != nil {
+			return err
+		}
+		for i := range turn.ToolCalls {
+			if turn.ToolCalls[i].ID == row.ToolCallID {
+				turn.ToolCalls[i].Links = append(turn.ToolCalls[i].Links, link)
+			}
+		}
+	}
+	return nil
 }
