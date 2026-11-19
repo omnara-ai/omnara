@@ -132,6 +132,32 @@ model:
 
 When you create the config, Omnara checks the provider, model, and project grant. If something is missing, the validation error tells you what to fix.
 
+## OpenRouter batch providers
+
+A provider with `api_variant: "openrouter-batch"` sends agent model calls through the [OpenRouter Batch API](https://openrouter.ai/docs/guides/features/batch-api) instead of calling the model directly. Batch pricing is typically half the synchronous price, and responses usually arrive within 24 hours, so use it for agents that do not need an immediate reply.
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/model-provider-configs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "openrouter-batch",
+    "api_format": "openai-chat-completions",
+    "api_variant": "openrouter-batch",
+    "base_url": "https://openrouter.ai/api/v1",
+    "endpoint_path": "/chat/completions",
+    "auth_kind": "bearer_token",
+    "credential_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je"
+  }'
+```
+
+- It works with all three API formats (`openai-chat-completions`, `openai-responses`, `anthropic-messages`). Requests are built and responses parsed exactly as for a synchronous OpenRouter provider. The model must have a batch variant on OpenRouter.
+- While a batch runs, the agent stays busy: nothing else starts for it, but no worker is tied up waiting. When OpenRouter calls back, a worker picks the agent up where it left off. Model output is not streamed.
+- Context compaction and other internal calls still run synchronously against the same provider.
+- Callbacks need a public HTTPS `OMNARA_PUBLIC_URL`. Without one, or if a callback is lost, Omnara polls the batch every couple of minutes.
+- To require signed callbacks, generate a webhook signing secret in your OpenRouter workspace settings and set `OMNARA_OPENROUTER_BATCH_WEBHOOK_SECRET` on the API service.
+- Canceling the agent releases it right away. OpenRouter has no cancel endpoint, so the submitted batch still runs and is billed.
+
 <Info>
 Full schema and playground: [Create model provider config](/api-reference/endpoints/models/create-model-provider-config) · [Create configured model](/api-reference/endpoints/models/create-configured-model) · [Project model grants](/api-reference/endpoints/models/create-project-model-grant).
 </Info>

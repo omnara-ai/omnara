@@ -35,6 +35,12 @@ type Store interface {
 		context.Context,
 		executionstore.ClaimNextAgentWorkInput,
 	) (executionstore.ClaimedAgentWork, bool, error)
+	// ClaimNextParkedModelBatch takes over a runtime lock that was parked on a
+	// provider batch and is ready to be looked at again.
+	ClaimNextParkedModelBatch(
+		context.Context,
+		executionstore.ClaimNextAgentWorkInput,
+	) (executionstore.ClaimedAgentWork, bool, error)
 	ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 	RenewAgentRuntimeLock(
 		context.Context,
@@ -259,13 +265,19 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 			claim, handled, err = executionstore.ClaimedAgentWork{}, false, panicError("worker claim", recovered)
 		}
 	}()
-	claim, handled, err = w.store.ClaimNextAgentWork(
-		ctx,
-		executionstore.ClaimNextAgentWorkInput{
-			WorkerProcessID: w.workerProcessID,
-			LeaseDuration:   w.runtimeLockLeaseDuration,
-		},
-	)
+	claimInput := executionstore.ClaimNextAgentWorkInput{
+		WorkerProcessID: w.workerProcessID,
+		LeaseDuration:   w.runtimeLockLeaseDuration,
+	}
+	// Parked batches already hold their runtime lock, so resuming one never
+	// competes with new work for the same agent.
+	parked, found, parkedErr := w.store.ClaimNextParkedModelBatch(ctx, claimInput)
+	if parkedErr != nil {
+		w.log.ErrorContext(ctx, "claim parked model batch failed", "error", parkedErr)
+	} else if found {
+		return parked, true, nil
+	}
+	claim, handled, err = w.store.ClaimNextAgentWork(ctx, claimInput)
 	var deferred *executionstore.ClaimDeferredError
 	if errors.As(err, &deferred) {
 		w.metrics.RecordClaimDeferral()
@@ -335,6 +347,13 @@ func (w *Worker) executeClaimedWork(
 	asyncScope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
 	err = w.executeWork(tools.WithAsyncExecutionScope(turnCtx, asyncScope), claim, now)
 	asyncScope.Seal()
+	if errors.Is(err, kernel.ErrModelWorkParked) {
+		// The model call now waits on a provider batch. Keep the runtime lock,
+		// which was parked in the store, but stop renewing it and free this
+		// goroutine; a worker claims the lock again when the batch calls back.
+		stopRenewal()
+		return nil
+	}
 	if asyncScope.Started() {
 		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal)
 		return runtimeExecutionError(err, active)
@@ -408,6 +427,7 @@ func (w *Worker) executeWork(
 			ModelCallContextID:       claim.Model.ModelCallContextID,
 			SourceModelCallContextID: claim.Model.SourceModelCallContextID,
 			SourceModelOutputID:      claim.Model.SourceModelOutputID,
+			BatchRequestID:           claim.Model.BatchRequestID,
 			TurnID:                   claim.Model.TurnID,
 			InputIDs:                 claim.Model.InputIDs,
 			OpeningEventSequence:     claim.Model.OpeningEventSequence,

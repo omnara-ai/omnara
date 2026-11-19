@@ -602,7 +602,7 @@ func validateTenantModelOnClusterProvider(
 	apiVariantOptions json.RawMessage,
 ) error {
 	if modelKind != management.Tenant || providerKind != management.Cluster ||
-		apiVariant != modelprotocol.APIVariantOpenRouter {
+		(apiVariant != modelprotocol.APIVariantOpenRouter && apiVariant != modelprotocol.APIVariantOpenRouterBatch) {
 		return nil
 	}
 	if reachesSharedOpenRouterPool(providerModelSlug) {
@@ -675,7 +675,7 @@ func validateModelProviderAPIVariant(
 			return nil
 		}
 		return fmt.Errorf("api_variant %q requires api_format %q", value, modelprotocol.APIFormatOpenAIChatCompletions)
-	case modelprotocol.APIVariantBedrock:
+	case modelprotocol.APIVariantBedrock, modelprotocol.APIVariantOpenRouterBatch:
 		return nil
 	default:
 		return fmt.Errorf("unsupported api_variant %q", value)

@@ -53,6 +53,7 @@ type Server struct {
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
 	publicAPIURL                        string
+	openRouterBatchWebhookSecret        string
 	publicOrigins                       []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string

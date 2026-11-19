@@ -6,6 +6,11 @@ name: Live Tests
 # PR does not retrigger a run. Only users with triage access or higher can add
 # labels. Pull requests from forks never receive repository secrets, so the
 # jobs fail early with a clear message instead of silently skipping.
+#
+# The OpenRouter Batch API agent turn is slow and is not part of the runs above.
+# It runs only when someone with write access adds the `live-batch-test` label
+# to a PR, or on manual dispatch. It does not rerun on new commits or on pushes
+# to main: remove and re-add the label to run it again.
 
 on:
   pull_request:
@@ -55,6 +60,89 @@ jobs:
       - run: make test-live-web || { echo "::warning::make test-live-web failed, retrying once"; make test-live-web; }
         env:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+
+  live-openrouter-batch:
+    name: Live OpenRouter Batch Test
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' &&
+       github.event.label.name == 'live-batch-test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    concurrency:
+      group: ${{ github.workflow }}-live-openrouter-batch-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Fail on fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "::error::Live tests cannot run on pull requests from forks because GitHub withholds repository secrets. Push the branch to this repository to run them."
+          exit 1
+
+      # Triage access is enough to add a label, but this run spends provider
+      # credits, so the person who added the label must be able to push.
+      - name: Require write access from whoever added the label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABELER: ${{ github.event.sender.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          permission="$(gh api "repos/$REPO/collaborators/$LABELER/permission" --jq .permission)"
+          case "$permission" in
+            admin|write) echo "$LABELER has $permission access." ;;
+            *)
+              echo "::error::$LABELER has '$permission' access; write access is required to run the live batch test."
+              exit 1
+              ;;
+          esac
+
+      - name: Check OpenRouter secret
+        id: secrets
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY is not configured; the live batch test cannot run."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/ci/go.sum
+            tools/goose/go.sum
+            tools/omnaralint/go.sum
+
+      - uses: ./.github/actions/setup-test-db
+
+      # OpenRouter reaches the API's batch callback route through a quick tunnel.
+      - name: Install cloudflared
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/cloudflared" \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-linux-amd64
+          echo "053b80b0a23031a038fdbf3c073f59f82b8f1f152aa67971d7383ffafc0dbab0  $RUNNER_TEMP/cloudflared" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
+
+      # No retry: a failed run may already have submitted a billed batch.
+      - run: make test-live-openrouter-batch
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Per model call; the batch turn makes two, and is allowed up to four.
+          OMNARA_LIVE_OPENROUTER_BATCH_WAIT: 15m
+
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always()
+        run: docker compose down -v
 
   live:
     name: Live Provider Tests

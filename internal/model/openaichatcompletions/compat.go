@@ -38,7 +38,7 @@ type compat struct {
 
 func compatFor(route model.ProviderRoute) compat {
 	switch route.APIVariant {
-	case modelprotocol.APIVariantOpenRouter:
+	case modelprotocol.APIVariantOpenRouter, modelprotocol.APIVariantOpenRouterBatch:
 		return compat{
 			sendsStrictFalse:             true,
 			reasoningFormat:              reasoningFormatOpenRouter,

@@ -241,6 +241,12 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	resolved := model.ResolvedClient{
 		ConfiguredModelRevisionID: revision.ID.String(),
 	}
+	if providerConfig.APIVariant == modelprotocol.APIVariantOpenRouterBatch {
+		return r.resolveOpenRouterBatchClient(
+			resolved, providerConfig, revision, capabilities, auth, httpClient,
+			batchAuth(providerConfig, credential.Payload[secrets.KeyValue], auth),
+		)
+	}
 	switch providerConfig.APIFormat {
 	case modelprotocol.APIFormatOpenAIResponses:
 		resolved.Client = openairesponses.Client{
@@ -342,7 +348,8 @@ func ProviderHeaders(
 func (r Resolver) routeHeadersForProviderConfig(
 	providerConfig modelstore.ModelProviderConfigRecord,
 ) map[string]string {
-	if providerConfig.APIVariant != modelprotocol.APIVariantOpenRouter {
+	if providerConfig.APIVariant != modelprotocol.APIVariantOpenRouter &&
+		providerConfig.APIVariant != modelprotocol.APIVariantOpenRouterBatch {
 		return map[string]string{}
 	}
 	return r.OpenRouterAttribution.headers()

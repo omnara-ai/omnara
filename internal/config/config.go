@@ -119,9 +119,13 @@ type Config struct {
 	OpenRouterSiteURL                 string
 	OpenRouterAppTitle                string
 	OpenRouterAppCategories           []string
-	HostedAPIURL                      string
-	HostedAPIToken                    string
-	MCPRegistrySnapshotPath           string
+	OpenRouterBatchWebhookSecret      string
+	// ModelBatchPollInterval is how often a parked batch model call is checked
+	// when no callback arrives. Zero uses the kernel default.
+	ModelBatchPollInterval  time.Duration
+	HostedAPIURL            string
+	HostedAPIToken          string
+	MCPRegistrySnapshotPath string
 }
 
 type AuthConnectorConfig struct {
@@ -349,6 +353,7 @@ func Load() (Config, error) {
 		OpenRouterSiteURL:                 openRouterSiteURL,
 		OpenRouterAppTitle:                openRouterAppTitle,
 		OpenRouterAppCategories:           openRouterAppCategories,
+		OpenRouterBatchWebhookSecret:      strings.TrimSpace(getenv("OMNARA_OPENROUTER_BATCH_WEBHOOK_SECRET", "")),
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
@@ -413,6 +418,16 @@ func Load() (Config, error) {
 		cfg.SkillDownloadSigningKey = base64.StdEncoding.EncodeToString(
 			[]byte("omnara-insecure-dev-skill-key!!!"),
 		)
+	}
+	if raw := os.Getenv("OMNARA_MODEL_BATCH_POLL_INTERVAL"); raw != "" {
+		duration, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_MODEL_BATCH_POLL_INTERVAL: %w", err)
+		}
+		if duration <= 0 {
+			return Config{}, fmt.Errorf("OMNARA_MODEL_BATCH_POLL_INTERVAL must be positive")
+		}
+		cfg.ModelBatchPollInterval = duration
 	}
 	if raw := os.Getenv("OMNARA_WORKER_DRAIN_TIMEOUT"); raw != "" {
 		duration, err := time.ParseDuration(raw)

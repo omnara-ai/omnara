@@ -416,12 +416,13 @@ export const zModelProviderAuthKind = z.enum([
 export const zModelProviderAuthKindResponse = z.string();
 
 /**
- * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock.
+ * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock. openrouter-batch sends agent model calls through the OpenRouter Batch API with any api_format: responses arrive asynchronously, typically within 24 hours.
  */
 export const zModelProviderApiVariant = z.enum([
     'default',
     'openrouter',
-    'bedrock'
+    'bedrock',
+    'openrouter-batch'
 ]);
 
 export const zModelProviderApiVariantResponse = z.string();

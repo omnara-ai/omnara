@@ -16,6 +16,9 @@ const (
 	APIVariantDefault    APIVariant = "default"
 	APIVariantOpenRouter APIVariant = "openrouter"
 	APIVariantBedrock    APIVariant = "bedrock"
+	// APIVariantOpenRouterBatch sends agent-turn model calls through the
+	// OpenRouter Batch API. It wraps any of the three API formats.
+	APIVariantOpenRouterBatch APIVariant = "openrouter-batch"
 
 	RoleUser      MessageRole = "user"
 	RoleAssistant MessageRole = "assistant"

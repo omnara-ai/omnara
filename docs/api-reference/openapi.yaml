@@ -10684,12 +10684,13 @@ components:
     ModelProviderAPIVariant:
       description: >-
         Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or
-        Bedrock.
+        Bedrock. openrouter-batch sends agent model calls through the OpenRouter Batch API with any
+        api_format: responses arrive asynchronously, typically within 24 hours.
       type: string
-      enum: [default, openrouter, bedrock]
+      enum: [default, openrouter, bedrock, openrouter-batch]
     ModelProviderAPIVariantResponse:
       type: string
-      x-extensible-enum: [default, openrouter, bedrock]
+      x-extensible-enum: [default, openrouter, bedrock, openrouter-batch]
     ModelAPIVariantOptions:
       type: object
       x-go-type: json.RawMessage

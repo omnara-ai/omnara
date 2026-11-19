@@ -76,6 +76,14 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 				result.RuntimeID = runtime.ID
 				h.unit.Notifications().AddWorkerControlCancel(runtime.WorkerProcessID, h.route.AgentID, runtime.ID)
 			}
+			if result.RuntimeID != uuid.Nil {
+				// A parked runtime has no worker listening for the control message;
+				// waking its batch lets a worker pick the lock up and release it.
+				if err := q.WakeExecutionRuntimeBatchRequests(ctx, h.unit.DB(),
+					executiondb.WakeExecutionRuntimeBatchRequestsParams{RuntimeID: result.RuntimeID}); err != nil {
+					return result, err
+				}
+			}
 		}
 		for _, c := range live {
 			if runtime.ID == uuid.Nil || c.RuntimeLockID != runtime.ID {

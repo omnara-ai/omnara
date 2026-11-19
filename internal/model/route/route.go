@@ -600,6 +600,22 @@ func providerErrorBodyReadError(
 	}
 }
 
+// ParseBufferedResponse parses a complete, non-streamed provider response that
+// was obtained outside this client's transport, such as a batch result.
+func (c Client) ParseBufferedResponse(ctx context.Context, response Response) (model.Response, error) {
+	if c.Protocol == nil {
+		return model.Response{}, SetupError{Err: errors.New("model route protocol is required")}
+	}
+	if c.Endpoint == nil {
+		return model.Response{}, SetupError{Err: errors.New("model route endpoint is required")}
+	}
+	endpoint, err := c.Endpoint.URL()
+	if err != nil {
+		return model.Response{}, SetupError{Err: err}
+	}
+	return c.parseResponse(ctx, endpoint, response)
+}
+
 func (c Client) parseResponse(ctx context.Context, source string, response Response) (model.Response, error) {
 	out, err := c.Protocol.ParseResponse(ctx, response)
 	out.ProviderRequestID = model.RequestIDFromHeader(response.Header)
