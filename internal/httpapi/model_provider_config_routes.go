@@ -1334,6 +1334,13 @@ func applyModelProviderPreset(
 		*endpointPath = modelstore.DefaultModelProviderEndpointPath(*apiFormat)
 		*authKind = modelstore.DefaultModelProviderAuthKind(*apiFormat)
 		*authOptions = modelstore.DefaultModelProviderAuthOptions(*apiFormat, *authKind)
+	case "openlake":
+		*apiFormat = modelprotocol.APIFormatOpenAIChatCompletions
+		*apiVariant = modelprotocol.APIVariantDefault
+		*baseURL = "https://api.theopenlake.com/v1"
+		*endpointPath = modelstore.DefaultModelProviderEndpointPath(*apiFormat)
+		*authKind = modelstore.DefaultModelProviderAuthKind(*apiFormat)
+		*authOptions = modelstore.DefaultModelProviderAuthOptions(*apiFormat, *authKind)
 	default:
 		return errors.New("unsupported model provider preset")
 	}

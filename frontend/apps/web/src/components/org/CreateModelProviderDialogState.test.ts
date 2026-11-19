@@ -73,6 +73,9 @@ describe('modelProviderKind', () => {
     expect(modelProviderKind({ ...config, base_url: 'https://openrouter.ai/api/v1' })).toBe(
       'openrouter',
     )
+    expect(modelProviderKind({ ...config, base_url: 'https://api.theopenlake.com/v1' })).toBe(
+      'openlake',
+    )
     expect(
       modelProviderKind({ ...config, base_url: 'https://bedrock-mantle.us-east-1.api.aws/v1' }),
     ).toBe('bedrock')

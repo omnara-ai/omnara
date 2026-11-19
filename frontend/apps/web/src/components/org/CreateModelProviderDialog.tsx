@@ -184,7 +184,8 @@ export function CreateModelProviderDialog({
             <DialogHeader>
               <DialogTitle>Add model provider</DialogTitle>
               <DialogDescription className="sr-only">
-                Connect OpenAI, OpenRouter, Anthropic, Amazon Bedrock, or a custom endpoint.
+                Connect OpenAI, OpenRouter, Anthropic, Amazon Bedrock, OpenLake, or a custom
+                endpoint.
               </DialogDescription>
             </DialogHeader>
             <form

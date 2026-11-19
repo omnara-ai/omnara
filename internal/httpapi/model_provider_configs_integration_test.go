@@ -85,6 +85,25 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		openRouterConfig["auth_kind"] != "bearer_token" {
 		t.Fatalf("preset did not materialize OpenRouter provider config: %+v", openRouterConfig)
 	}
+	openLakeConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"openlake-secondary","preset":"openlake","credential_secret_id":"`+secretID+`"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	))
+	if openLakeConfig["api_format"] != "openai-chat-completions" ||
+		openLakeConfig["api_variant"] != "default" ||
+		openLakeConfig["base_url"] != "https://api.theopenlake.com/v1" ||
+		openLakeConfig["endpoint_path"] != "/chat/completions" ||
+		openLakeConfig["auth_kind"] != "bearer_token" ||
+		len(testutil.RequireType[map[string]any](t, openLakeConfig["auth_options"])) != 0 ||
+		openLakeConfig["credential_secret_id"] != secretID {
+		t.Fatalf("preset did not materialize OpenLake provider config: %+v", openLakeConfig)
+	}
 	gatewaySecretID := testutil.RequireType[string](t, requestJSONWithHeaders(
 		t,
 		handler,

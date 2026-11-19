@@ -615,7 +615,8 @@ export const zCreateModelProviderConfigRequest = z.object({
     preset: z.enum([
         'openai',
         'openrouter',
-        'anthropic'
+        'anthropic',
+        'openlake'
     ]).optional(),
     api_format: zModelApiFormat.optional(),
     api_variant: zModelProviderApiVariant.optional(),
