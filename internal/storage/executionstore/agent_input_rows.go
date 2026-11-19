@@ -30,6 +30,7 @@ func agentInputRecordFromIdempotencySQLC(row dbsqlc.GetAgentInputByIdempotencyRo
 		row.AgentConfigID,
 		row.ResolvedAt,
 		row.Metadata,
+		row.ScheduledFor,
 	)
 }
 
@@ -55,6 +56,7 @@ func agentInputRecordFromBacklogSQLC(row dbsqlc.ListQueuedBacklogInputsRow) Agen
 		nil,
 		row.ResolvedAt,
 		row.Metadata,
+		row.ScheduledFor,
 	)
 }
 
@@ -77,6 +79,7 @@ func agentInputRecordFromNewFields(
 	agentConfigID *uuid.UUID,
 	resolvedAt *time.Time,
 	metadata []byte,
+	scheduledFor *time.Time,
 ) AgentInputRecord {
 	return AgentInputRecord{
 		ID:                  id,
@@ -99,6 +102,7 @@ func agentInputRecordFromNewFields(
 		AgentConfigID:       storeutil.IDFromPtr(agentConfigID),
 		ResolvedAt:          resolvedAt,
 		Metadata:            metadata,
+		ScheduledFor:        scheduledFor,
 	}
 }
 
@@ -124,5 +128,6 @@ func agentInputRecordFromGetSQLC(row dbsqlc.GetAgentInputRow) AgentInputRecord {
 		row.AgentConfigID,
 		row.ResolvedAt,
 		row.Metadata,
+		row.ScheduledFor,
 	)
 }

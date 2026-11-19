@@ -56,6 +56,10 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
+		toolcatalog.ScheduledMessageToolNames(),
+		expectedTopology{transactional: true},
+	)
+	add(
 		[]string{
 			"web_search", "web_fetch", "skill", "list_github_repositories",
 			"storage_list", "storage_read", "storage_write", "storage_search",

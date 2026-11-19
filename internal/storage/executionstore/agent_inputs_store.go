@@ -184,6 +184,7 @@ func (s *Store) ListQueuedBacklogInputs(
 		params.CursorInputRank = &rank
 		params.CursorQueuedAt = &queuedAt
 		params.CursorID = &id
+		params.CursorScheduledFor = input.After.ScheduledFor
 	}
 	rows, err := s.q.ListQueuedBacklogInputs(ctx, params)
 	if err != nil {

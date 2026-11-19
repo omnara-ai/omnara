@@ -7,6 +7,7 @@ import (
 
 const (
 	MaxPendingAgentContentInputs    = 50
+	MaxScheduledAgentContentInputs  = 25
 	MaxModelCallRetriesPerOperation = 8
 	ClaimFailureDelay               = time.Minute
 	DefaultLeaseDuration            = 90 * time.Second
