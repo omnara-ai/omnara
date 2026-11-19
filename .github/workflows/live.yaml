@@ -119,11 +119,21 @@ jobs:
             tools/goose/go.sum
             tools/omnaralint/go.sum
 
+      # The test receives OpenRouter's batch callback through a quick tunnel.
+      - name: Install cloudflared
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/cloudflared" \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-linux-amd64
+          echo "053b80b0a23031a038fdbf3c073f59f82b8f1f152aa67971d7383ffafc0dbab0  $RUNNER_TEMP/cloudflared" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
+
       # No retry: a failed run may already have submitted a billed batch.
       - run: make test-live-openrouter-batch
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OMNARA_LIVE_OPENROUTER_BATCH_WAIT: 15m
+          # Optional: when set, the callback's signature is verified.
+          OMNARA_OPENROUTER_BATCH_WEBHOOK_SECRET: ${{ secrets.OPENROUTER_BATCH_WEBHOOK_SECRET }}
 
   live:
     name: Live Provider Tests

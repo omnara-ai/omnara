@@ -524,8 +524,9 @@ test-live-openrouter:
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
 
 # Batch inference can take hours, so this single round trip is not part of
-# test-live. It waits OMNARA_LIVE_OPENROUTER_BATCH_WAIT (default 15m) and skips
-# if the batch is still pending. In CI it runs only for the live-batch-test label.
+# test-live. It needs cloudflared on PATH to receive OpenRouter's callback, waits
+# OMNARA_LIVE_OPENROUTER_BATCH_WAIT (default 15m) for it, and skips if the batch
+# is still pending. In CI it runs only for the live-batch-test label.
 test-live-openrouter-batch: ## Run the one slow live OpenRouter Batch API round trip
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for the live OpenRouter batch test}"; \
