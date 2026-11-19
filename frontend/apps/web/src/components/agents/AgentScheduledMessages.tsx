@@ -1,23 +1,46 @@
-import { backlogInputPreview, isScheduledBacklogInput, useAgentInputBacklog } from '@omnara/react'
+import { backlogInputPreview } from '@omnara/react'
+import type { AgentInput } from '@omnara/sdk'
 
+import { type AgentScope, useScheduledMessages } from '@/components/agents/useScheduledMessages'
 import { X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
+type ScheduledInput = AgentInput & { state: 'scheduled' }
+
 export function AgentScheduledMessages({
-  orgId,
-  projectId,
-  agentId,
-  canManage,
+  canOperate,
+  ...scope
+}: AgentScope & { canOperate: boolean }) {
+  const { scheduled, cancel } = useScheduledMessages(scope)
+  return (
+    <ScheduledMessagesList
+      scheduled={scheduled}
+      canOperate={canOperate}
+      cancelPending={cancel.isPending}
+      onCancel={(inputID) => {
+        cancel.mutate(inputID, {
+          onError: (cause) => {
+            window.alert(errorMessage(cause, 'Could not cancel this scheduled message'))
+          },
+        })
+      }}
+    />
+  )
+}
+
+export function ScheduledMessagesList({
+  scheduled,
+  canOperate,
+  cancelPending,
+  onCancel,
 }: {
-  orgId: string
-  projectId: string
-  agentId: string
-  canManage: boolean
+  scheduled: ScheduledInput[]
+  canOperate: boolean
+  cancelPending: boolean
+  onCancel: (inputID: string) => void
 }) {
-  const backlog = useAgentInputBacklog({ orgID: orgId, projectID: projectId, agentID: agentId })
-  const scheduled = (backlog.query.data?.data ?? []).filter(isScheduledBacklogInput)
   if (scheduled.length === 0) return null
 
   return (
@@ -33,19 +56,15 @@ export function AgentScheduledMessages({
               Once · {formatDateTime(input.scheduled_for)}
             </time>
           </div>
-          {canManage && (
+          {canOperate && (
             <Button
               size="icon"
               variant="ghost"
               aria-label="Cancel scheduled message"
               className="text-muted-foreground shrink-0"
-              disabled={backlog.cancel.isPending}
+              disabled={cancelPending}
               onClick={() => {
-                backlog.cancel.mutate(input.id, {
-                  onError: (cause) => {
-                    window.alert(errorMessage(cause, 'Could not cancel this scheduled message'))
-                  },
-                })
+                onCancel(input.id)
               }}
             >
               <X />

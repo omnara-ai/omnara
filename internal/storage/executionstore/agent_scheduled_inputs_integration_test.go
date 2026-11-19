@@ -341,6 +341,26 @@ func TestScheduledAgentInputCancelAndBacklogChanges(t *testing.T) {
 	}
 }
 
+func TestReleasedScheduledAgentInputsCannotGrowTheBacklogWithoutBound(t *testing.T) {
+	t.Parallel()
+	f := newScheduledInputFixture(t, "scheduled-outstanding@example.com")
+	past := time.Now().Add(-time.Minute)
+	outstanding := executionpolicy.MaxPendingAgentContentInputs + executionpolicy.MaxScheduledAgentContentInputs
+	for created := 0; created < outstanding; created += executionpolicy.MaxScheduledAgentContentInputs {
+		for range executionpolicy.MaxScheduledAgentContentInputs {
+			f.mustCreate("outstanding-"+uuid.NewString(), executionstore.DeliveryModeQueued, &past)
+		}
+		result, err := f.store.Execution().ReleaseDueScheduledAgentInputs(f.t.Context(), 100)
+		if err != nil || result.Released != executionpolicy.MaxScheduledAgentContentInputs {
+			t.Fatalf("release after %d created = %+v, %v; want a full batch released", created, result, err)
+		}
+	}
+	_, err := f.create("outstanding-overflow", executionstore.DeliveryModeQueued, &past)
+	if !errors.Is(err, storeerr.ErrAgentBacklogFull) {
+		t.Fatalf("scheduled input with a full released backlog error = %v, want backlog full", err)
+	}
+}
+
 func TestScheduledAgentInputsHaveTheirOwnCapacityAndArchiveCancelsThem(t *testing.T) {
 	t.Parallel()
 	f := newScheduledInputFixture(t, "scheduled-capacity@example.com")

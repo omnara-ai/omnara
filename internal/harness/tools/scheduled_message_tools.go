@@ -220,6 +220,9 @@ func scheduledMessageFailureContent(code string, cause error) (toolResultContent
 	case errors.Is(cause, storeerr.ErrAgentScheduledInputsFull):
 		code = storeerr.AgentBacklogFullCode
 		message = storeerr.ErrAgentScheduledInputsFull.Error()
+	case errors.Is(cause, storeerr.ErrAgentBacklogFull):
+		code = storeerr.AgentBacklogFullCode
+		message = storeerr.AgentBacklogFullMessage
 	case errors.Is(cause, storeerr.ErrNotFound):
 		message = "No scheduled message or schedule of yours has that id. It may already have been delivered or " +
 			"deleted; use list_scheduled_messages to list them."

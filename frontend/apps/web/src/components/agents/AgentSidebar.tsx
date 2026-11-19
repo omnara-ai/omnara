@@ -1,11 +1,4 @@
-import {
-  isScheduledBacklogInput,
-  useAgentInputBacklog,
-  useAgents,
-  useAgentUsage,
-  useMachine,
-  useServerInfo,
-} from '@omnara/react'
+import { useAgents, useAgentUsage, useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile, UsageReport } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
@@ -17,6 +10,7 @@ import {
 import { AgentScheduledMessages } from '@/components/agents/AgentScheduledMessages'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { useScheduledMessages } from '@/components/agents/useScheduledMessages'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ChevronDown, InfoIcon, PlusIcon, UserGroupIcon, UserIcon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
@@ -67,6 +61,7 @@ export function AgentSidebar({
   mcpConnections,
   profile,
   canManage,
+  canOperate,
 }: {
   orgId: string
   projectId: string
@@ -75,6 +70,7 @@ export function AgentSidebar({
   mcpConnections: AgentMcpConnection[]
   profile?: AgentProfile
   canManage: boolean
+  canOperate: boolean
 }) {
   const [addCronOpen, setAddCronOpen] = useState(false)
   return (
@@ -127,6 +123,7 @@ export function AgentSidebar({
             projectId={projectId}
             agentId={agent.id}
             canManage={canManage}
+            canOperate={canOperate}
             onAdd={() => {
               setAddCronOpen(true)
             }}
@@ -395,16 +392,18 @@ function AgentCronGroup({
   projectId,
   agentId,
   canManage,
+  canOperate,
   onAdd,
 }: {
   orgId: string
   projectId: string
   agentId: string
   canManage: boolean
+  canOperate: boolean
   onAdd: () => void
 }) {
-  const backlog = useAgentInputBacklog({ orgID: orgId, projectID: projectId, agentID: agentId })
-  const hasScheduledMessages = (backlog.query.data?.data ?? []).some(isScheduledBacklogInput)
+  const hasScheduledMessages =
+    useScheduledMessages({ orgId, projectId, agentId }).scheduled.length > 0
   return (
     <SidebarGroup>
       <div className="flex items-center justify-between">
@@ -426,7 +425,7 @@ function AgentCronGroup({
           orgId={orgId}
           projectId={projectId}
           agentId={agentId}
-          canManage={canManage}
+          canOperate={canOperate}
         />
         <CronTriggersList
           orgId={orgId}

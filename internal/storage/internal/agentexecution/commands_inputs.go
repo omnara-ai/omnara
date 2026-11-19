@@ -83,6 +83,17 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			if scheduled >= executionpolicy.MaxScheduledAgentContentInputs {
 				return ReceivedContent{}, storeerr.ErrAgentScheduledInputsFull
 			}
+			// Released inputs free their scheduled slot, so bound what they can pile up as pending.
+			outstanding := int64(executionpolicy.MaxPendingAgentContentInputs + executionpolicy.MaxScheduledAgentContentInputs)
+			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
+				AgentID: h.route.AgentID, Capacity: outstanding,
+			})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if pending+scheduled >= outstanding {
+				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
+			}
 		} else if !input.capacityExempt {
 			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
 				AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
