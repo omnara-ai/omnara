@@ -52,16 +52,10 @@ function modelProviderRequest(
     secret_headers: recordFromSecretRows(values.secretHeaderRows),
   }
   if (values.provider !== 'bedrock') {
-    const preset = modelProviderOption(values.provider).endpoint
+    const { endpoint, serverPreset } = modelProviderOption(values.provider)
     const baseUrl = values.baseUrl.trim()
-    // Only server-supported presets use shorthand; OpenLake sends its endpoint explicitly.
-    if (
-      values.provider !== 'custom' &&
-      values.provider !== 'openlake' &&
-      preset?.baseUrl === baseUrl &&
-      preset.apiFormat === values.apiFormat
-    ) {
-      return { ...common, preset: values.provider }
+    if (serverPreset && endpoint?.baseUrl === baseUrl && endpoint.apiFormat === values.apiFormat) {
+      return { ...common, preset: serverPreset }
     }
     const request: CreateModelProviderConfigRequest = {
       ...common,

@@ -684,24 +684,32 @@ function providerApi(modelCatalog: JsonValue = { status: 'ok', models: discovere
   })
 }
 
-it('creates a preset provider and continues straight into the model picker', async () => {
-  const api = providerApi()
-  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+it.each([
+  { label: 'OpenAI', preset: 'openai' },
+  { label: 'OpenRouter', preset: 'openrouter' },
+  { label: 'Anthropic', preset: 'anthropic' },
+])(
+  'creates a $label preset provider and continues straight into the model picker',
+  async ({ label, preset }) => {
+    const api = providerApi()
+    await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
 
-  expect(element('#mp-provider').textContent).toContain('OpenAI')
-  await type('#mp-name', 'production-openai')
-  await selectOption(labeledControl('API key'), 'openai-api-key')
-  await clickButton('Add provider')
+    expect(element('#mp-provider').textContent).toContain('OpenAI')
+    await selectOption(element('#mp-provider'), label)
+    await type('#mp-name', `production-${preset}`)
+    await selectOption(labeledControl('API key'), 'openai-api-key')
+    await clickButton('Add provider')
 
-  expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
-    { name: 'production-openai', credential_secret_id: credentialSecret.id, preset: 'openai' },
-  ])
-  await waitForUI(() => {
-    expect(modelRows()).toContain('model-one100K')
-  })
-  expect(api.requestsTo('GET', catalogPath)).toEqual([])
-  expect(button('Skip for now')).toBeDefined()
-})
+    expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+      { name: `production-${preset}`, credential_secret_id: credentialSecret.id, preset },
+    ])
+    await waitForUI(() => {
+      expect(modelRows()).toContain('model-one100K')
+    })
+    expect(api.requestsTo('GET', catalogPath)).toEqual([])
+    expect(button('Skip for now')).toBeDefined()
+  },
+)
 
 it.each(['https://api.theopenlake.com/v1', 'https://llm-proxy.example.com/v1'])(
   'creates OpenLake with explicit endpoint settings at %s and continues to model selection',

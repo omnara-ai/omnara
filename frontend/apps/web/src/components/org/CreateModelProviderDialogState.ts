@@ -1,4 +1,8 @@
-import type { ModelApiFormat, ModelProviderConfig } from '@omnara/sdk'
+import type {
+  CreateModelProviderConfigRequest,
+  ModelApiFormat,
+  ModelProviderConfig,
+} from '@omnara/sdk'
 
 import {
   type SecretRow,
@@ -13,42 +17,49 @@ export const modelProviderOptions = [
     value: 'openai',
     label: 'OpenAI',
     keyPlaceholder: 'sk-…',
+    serverPreset: 'openai',
     endpoint: { baseUrl: 'https://api.openai.com/v1', apiFormat: 'openai-responses' },
   },
   {
     value: 'openrouter',
     label: 'OpenRouter',
     keyPlaceholder: 'sk-or-v1-…',
+    serverPreset: 'openrouter',
     endpoint: { baseUrl: 'https://openrouter.ai/api/v1', apiFormat: 'openai-chat-completions' },
-  },
-  {
-    value: 'openlake',
-    label: 'OpenLake',
-    keyPlaceholder: 'OpenLake API key',
-    endpoint: { baseUrl: 'https://api.theopenlake.com/v1', apiFormat: 'openai-chat-completions' },
   },
   {
     value: 'anthropic',
     label: 'Anthropic',
     keyPlaceholder: 'sk-ant-…',
+    serverPreset: 'anthropic',
     endpoint: { baseUrl: 'https://api.anthropic.com/v1', apiFormat: 'anthropic-messages' },
   },
   {
     value: 'bedrock',
     label: 'Amazon Bedrock',
     keyPlaceholder: 'Bedrock API key',
+    serverPreset: undefined,
     endpoint: undefined,
+  },
+  {
+    value: 'openlake',
+    label: 'OpenLake',
+    keyPlaceholder: 'OpenLake API key',
+    serverPreset: undefined,
+    endpoint: { baseUrl: 'https://api.theopenlake.com/v1', apiFormat: 'openai-chat-completions' },
   },
   {
     value: 'custom',
     label: 'Custom endpoint',
     keyPlaceholder: 'API key',
+    serverPreset: undefined,
     endpoint: undefined,
   },
 ] as const satisfies readonly {
   value: string
   label: string
   keyPlaceholder: string
+  serverPreset: CreateModelProviderConfigRequest['preset']
   /** The preset endpoint; Bedrock and custom derive theirs from fields. */
   endpoint: { baseUrl: string; apiFormat: ModelApiFormat } | undefined
 }[]
