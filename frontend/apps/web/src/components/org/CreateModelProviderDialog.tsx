@@ -52,10 +52,15 @@ function modelProviderRequest(
     secret_headers: recordFromSecretRows(values.secretHeaderRows),
   }
   if (values.provider !== 'bedrock') {
-    const { endpoint, serverPreset } = modelProviderOption(values.provider)
+    const preset = modelProviderOption(values.provider).endpoint
     const baseUrl = values.baseUrl.trim()
-    if (serverPreset && endpoint.baseUrl === baseUrl && endpoint.apiFormat === values.apiFormat) {
-      return { ...common, preset: serverPreset }
+    // An untouched preset endpoint stays a preset; an edited one is sent explicitly.
+    if (
+      values.provider !== 'custom' &&
+      preset?.baseUrl === baseUrl &&
+      preset.apiFormat === values.apiFormat
+    ) {
+      return { ...common, preset: values.provider }
     }
     const request: CreateModelProviderConfigRequest = {
       ...common,
