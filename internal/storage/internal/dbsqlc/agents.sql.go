@@ -196,6 +196,48 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 	return i, err
 }
 
+const checkAgentConfigEditTargets = `-- name: CheckAgentConfigEditTargets :one
+SELECT
+    (SELECT count(*) FROM agent_profiles profile
+     WHERE profile.project_id = $1
+       AND profile.deleted_at IS NULL
+       AND profile.id = ANY($2::uuid[]))::bigint AS profiles,
+    (SELECT count(*) FROM agents agent
+     WHERE agent.project_id = $1
+       AND agent.id = ANY($3::uuid[]))::bigint AS agents,
+    least(statement_timestamp(), (
+        SELECT min(version.created_at) FROM agent_profile_versions version
+        WHERE version.project_id = $1
+          AND version.profile_id = ANY($2::uuid[])
+          AND version.idempotency_key = ANY($4::text[])
+    ))::timestamptz AS cutoff
+`
+
+type CheckAgentConfigEditTargetsParams struct {
+	ProjectID   uuid.UUID
+	ProfileIds  []uuid.UUID
+	AgentIds    []uuid.UUID
+	ProfileKeys []string
+}
+
+type CheckAgentConfigEditTargetsRow struct {
+	Profiles int64
+	Agents   int64
+	Cutoff   time.Time
+}
+
+func (q *Queries) CheckAgentConfigEditTargets(ctx context.Context, arg CheckAgentConfigEditTargetsParams) (CheckAgentConfigEditTargetsRow, error) {
+	row := q.db.QueryRow(ctx, checkAgentConfigEditTargets,
+		arg.ProjectID,
+		arg.ProfileIds,
+		arg.AgentIds,
+		arg.ProfileKeys,
+	)
+	var i CheckAgentConfigEditTargetsRow
+	err := row.Scan(&i.Profiles, &i.Agents, &i.Cutoff)
+	return i, err
+}
+
 const countActiveAgentsByProfile = `-- name: CountActiveAgentsByProfile :many
 SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
 FROM agents agent
@@ -812,6 +854,60 @@ func (q *Queries) InsertAgentProfile(ctx context.Context, arg InsertAgentProfile
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAgentConfigEditProfileAgents = `-- name: ListAgentConfigEditProfileAgents :many
+SELECT agent.id, agent.created_at
+FROM agents agent
+WHERE agent.project_id = $1
+  AND agent.agent_profile_id = $2
+  AND agent.state = 'active'
+  AND agent.parent_agent_id IS NULL
+  AND agent.created_at <= $3::timestamptz
+  AND (agent.created_at, agent.id) > ($4::timestamptz, $5::uuid)
+ORDER BY agent.created_at, agent.id
+LIMIT $6::bigint
+`
+
+type ListAgentConfigEditProfileAgentsParams struct {
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	CreatedBefore  time.Time
+	AfterCreatedAt time.Time
+	AfterID        uuid.UUID
+	RowLimit       int64
+}
+
+type ListAgentConfigEditProfileAgentsRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) ListAgentConfigEditProfileAgents(ctx context.Context, arg ListAgentConfigEditProfileAgentsParams) ([]ListAgentConfigEditProfileAgentsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentConfigEditProfileAgents,
+		arg.ProjectID,
+		arg.AgentProfileID,
+		arg.CreatedBefore,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentConfigEditProfileAgentsRow{}
+	for rows.Next() {
+		var i ListAgentConfigEditProfileAgentsRow
+		if err := rows.Scan(&i.ID, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAgentProfilesForProjects = `-- name: ListAgentProfilesForProjects :many

@@ -1891,6 +1891,105 @@ export type ResolveAgentConfigToolsRequest = {
     source_format: 'yaml' | 'json';
 };
 
+export type EditAgentConfigsRequest = ({
+    agent_profile_ids: Array<unknown>;
+} | {
+    agent_ids: Array<unknown>;
+}) & {
+    agent_profile_ids?: Array<AgentProfileId>;
+    agent_ids?: Array<AgentId>;
+    /**
+     * Only valid with agent_profile_ids. Defaults to both.
+     */
+    apply_to?: Array<'profile' | 'agent'>;
+    /**
+     * Applied in order.
+     */
+    edits: Array<AgentConfigEdit>;
+};
+
+/**
+ * JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null top-level sections count as empty.
+ */
+export type AgentConfigEditPath = string;
+
+/**
+ * Any JSON value, including null.
+ */
+export type AgentConfigEditValue = unknown | null;
+
+export type AgentConfigEdit = ({
+    type: 'set';
+} & SetAgentConfigEdit) | ({
+    type: 'remove';
+} & RemoveAgentConfigEdit) | ({
+    type: 'add_item';
+} & AddItemAgentConfigEdit) | ({
+    type: 'remove_item';
+} & RemoveItemAgentConfigEdit) | ({
+    type: 'replace_text';
+} & ReplaceTextAgentConfigEdit);
+
+export type SetAgentConfigEdit = {
+    type: 'set';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+export type RemoveAgentConfigEdit = {
+    type: 'remove';
+    path: AgentConfigEditPath;
+};
+
+/**
+ * Appends value to the list at path unless an equal item is already there.
+ */
+export type AddItemAgentConfigEdit = {
+    type: 'add_item';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+/**
+ * Removes every item equal to value from the list at path.
+ */
+export type RemoveItemAgentConfigEdit = {
+    type: 'remove_item';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+/**
+ * Replaces every occurrence of find in the text at path.
+ */
+export type ReplaceTextAgentConfigEdit = {
+    type: 'replace_text';
+    path: AgentConfigEditPath;
+    find: string;
+    replace: string;
+};
+
+export type EditAgentConfigsResponse = {
+    data: Array<AgentConfigEditResult>;
+    next_cursor: string | null;
+};
+
+export type AgentConfigEditResult = {
+    type: 'profile' | 'agent';
+    agent_profile_id?: AgentProfileId;
+    agent_id?: AgentId;
+    status: 'updated' | 'unchanged' | 'failed';
+    previous_config_id?: AgentConfigId;
+    current_config_id?: AgentConfigId;
+    current_generation?: number;
+    /**
+     * One entry per request edit, in order. Omitted for replayed results and for targets that failed before all edits ran.
+     */
+    edits?: Array<'applied' | 'text_not_found' | 'path_not_found' | 'item_not_found' | 'item_exists'>;
+    code?: ErrorCode;
+    error?: string;
+};
+
 export type ResolvedAgentConfigTools = {
     tools: Array<ResolvedAgentConfigTool>;
 };
@@ -12926,6 +13025,91 @@ export type ResolveAgentConfigToolsResponses = {
 };
 
 export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
+
+export type EditAgentConfigsData = {
+    body: EditAgentConfigsRequest;
+    headers?: {
+        /**
+         * Idempotency key for replay-safe mutating requests.
+         */
+        'Idempotency-Key'?: string;
+    };
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/edit';
+};
+
+export type EditAgentConfigsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type EditAgentConfigsError = EditAgentConfigsErrors[keyof EditAgentConfigsErrors];
+
+export type EditAgentConfigsResponses = {
+    /**
+     * Results for this page of targets.
+     */
+    200: EditAgentConfigsResponse;
+};
+
+export type EditAgentConfigsResponse2 = EditAgentConfigsResponses[keyof EditAgentConfigsResponses];
 
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;

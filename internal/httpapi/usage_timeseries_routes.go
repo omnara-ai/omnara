@@ -53,11 +53,11 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid interval")
 	}
 	groupLimit := cmp.Or(valueOrZero(params.GroupLimit), usageTimeseriesDefaultGroupLimit)
-	projectIDs, err := usagePublicIDsFromParams(publicid.KindProject, "project_ids", params.ProjectIds)
+	projectIDs, err := publicIDsFromParams(publicid.KindProject, "project_ids", params.ProjectIds)
 	if err != nil {
 		return nil, err
 	}
-	profileIDs, err := usagePublicIDsFromParams(publicid.KindAgentProfile, "agent_profile_ids", params.AgentProfileIds)
+	profileIDs, err := publicIDsFromParams(publicid.KindAgentProfile, "agent_profile_ids", params.AgentProfileIds)
 	if err != nil {
 		return nil, err
 	}
@@ -192,21 +192,6 @@ func usageTimeseriesInterval(
 	default:
 		return openapi.UsageTimeseriesIntervalMonth
 	}
-}
-
-func usagePublicIDsFromParams(kind publicid.Kind, name string, values *[]string) ([]uuid.UUID, error) {
-	if values == nil {
-		return nil, nil
-	}
-	ids := make([]uuid.UUID, 0, len(*values))
-	for _, value := range *values {
-		id, ok := parseOpenAPIPublicID(kind, value)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid "+name)
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 type usageTimeseriesGroupKey struct {

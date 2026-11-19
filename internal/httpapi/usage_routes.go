@@ -29,13 +29,13 @@ func (s strictOpenAPIServer) GetOrgUsage(
 			openapi.ErrorCodeInvalidRequest, "include_project_ids and exclude_project_ids cannot be combined",
 		)
 	}
-	includeProjectIDs, err := usagePublicIDsFromParams(
+	includeProjectIDs, err := publicIDsFromParams(
 		publicid.KindProject, "include_project_ids", request.Params.IncludeProjectIds,
 	)
 	if err != nil {
 		return nil, err
 	}
-	excludeProjectIDs, err := usagePublicIDsFromParams(
+	excludeProjectIDs, err := publicIDsFromParams(
 		publicid.KindProject, "exclude_project_ids", request.Params.ExcludeProjectIds,
 	)
 	if err != nil {
