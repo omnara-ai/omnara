@@ -68,7 +68,7 @@ jobs:
       (github.event_name == 'pull_request' && github.event.action == 'labeled' &&
        github.event.label.name == 'live-batch-test')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 100
     concurrency:
       group: ${{ github.workflow }}-live-openrouter-batch-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: false
@@ -133,7 +133,7 @@ jobs:
       - run: make test-live-openrouter-batch
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          # Per model call; the turn makes two.
+          # Per model call; the batch turn makes two, and is allowed up to four.
           OMNARA_LIVE_OPENROUTER_BATCH_WAIT: 15m
 
       - name: Show database logs on failure

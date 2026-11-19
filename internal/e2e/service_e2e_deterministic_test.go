@@ -1272,6 +1272,9 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		modelOptions,
 		"service-e2e-openrouter",
 		modeltest.LiveOpenRouterProviderModelSlug,
+		// Also on the synchronous provider, so the live batch journey can
+		// compare both providers on the same model.
+		serviceE2EOpenRouterBatchModel(),
 	)
 	// The same OpenRouter credential behind the Batch API variant. Its model
 	// must have a batch variant; only the live batch journey calls it.

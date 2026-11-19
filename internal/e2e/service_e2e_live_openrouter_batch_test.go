@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,21 +25,54 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// Each batch may take up to 24 hours. The test waits this long per model call
-// (override with OMNARA_LIVE_OPENROUTER_BATCH_WAIT) and skips if OpenRouter has
-// not finished by then.
-const defaultLiveOpenRouterBatchWait = 15 * time.Minute
+const (
+	// Each batch may take up to 24 hours. The test waits this long per model
+	// call (override with OMNARA_LIVE_OPENROUTER_BATCH_WAIT) and skips if
+	// OpenRouter has not finished by then.
+	defaultLiveOpenRouterBatchWait = 15 * time.Minute
+	// The turn asks for this many tool calls in one model response.
+	liveBatchTurnToolCalls = 3
+	// Two model calls if the model batches its tool calls as asked (tool
+	// requests, then the answer); allow for a model that spreads them out.
+	liveBatchTurnMinModelCalls = 2
+	liveBatchTurnMaxModelCalls = 4
+)
+
+type liveToolTurnOptions struct {
+	Seed           string
+	ProviderConfig string
+	// Batch runs the turn through the Batch API variant, resumed by callbacks.
+	Batch  bool
+	Budget time.Duration
+}
+
+type liveToolTurnMetrics struct {
+	ProviderConfig string
+	Elapsed        time.Duration
+	ModelCalls     int
+	ToolCalls      int
+	InputTokens    int64
+	OutputTokens   int64
+	// CostUSD is the sum the provider reported; CostedCalls is how many of the
+	// model calls reported one.
+	CostUSD     float64
+	CostedCalls int
+	Callbacks   int64
+}
 
 // TestServiceE2ELiveOpenRouterBatchTurn is deliberately the only live batch
-// test, because batch inference is slow. It runs one full agent turn through
-// the real services against the real OpenRouter Batch API:
+// test, because batch inference is slow. It runs the same full agent turn
+// through the real services twice against OpenRouter, on the same model:
 //
-//	input -> batch 1 (model asks for a tool) -> MCP tool runs -> batch 2 (model answers)
+//	input -> model asks for three tool calls -> MCP tools run -> model answers
 //
-// The worker's fallback poll is pushed out of reach, so the turn can only
-// advance when OpenRouter calls the API's batch callback route, which is
-// exposed through a cloudflared quick tunnel. Between callbacks the agent's
-// runtime lock must stay held with no worker attached.
+// first on the synchronous provider as a baseline, then on the Batch API
+// provider, and reports wall time and cost for both.
+//
+// On the batch run the worker's fallback poll is pushed out of reach, so the
+// turn can only advance when OpenRouter calls the API's batch callback route,
+// which is exposed through a cloudflared quick tunnel. Between callbacks the
+// agent's runtime lock must stay held with no worker attached.
 func TestServiceE2ELiveOpenRouterBatchTurn(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) == "" {
 		t.Fatal("OPENROUTER_API_KEY is required for the live OpenRouter batch service E2E")
@@ -51,24 +85,78 @@ func TestServiceE2ELiveOpenRouterBatchTurn(t *testing.T) {
 		}
 		wait = parsed
 	}
-	const modelCalls = 2
-	turnBudget := modelCalls * wait
-	ctx, cancel := context.WithTimeout(context.Background(), turnBudget+15*time.Minute)
+
+	var baseline, batch *liveToolTurnMetrics
+	t.Run("sync_baseline", func(t *testing.T) {
+		baseline = runLiveOpenRouterToolTurn(t, liveToolTurnOptions{
+			Seed:           "live-openrouter-sync-turn",
+			ProviderConfig: "openrouter-prod",
+			Budget:         5 * time.Minute,
+		})
+	})
+	t.Run("batch", func(t *testing.T) {
+		batch = runLiveOpenRouterToolTurn(t, liveToolTurnOptions{
+			Seed:           "live-openrouter-batch-turn",
+			ProviderConfig: serviceE2EOpenRouterBatchProviderConfig,
+			Batch:          true,
+			Budget:         liveBatchTurnMaxModelCalls * wait,
+		})
+	})
+
+	t.Logf("same turn on model %s (%d tool calls requested):", serviceE2EOpenRouterBatchModel(), liveBatchTurnToolCalls)
+	for _, metrics := range []*liveToolTurnMetrics{baseline, batch} {
+		if metrics != nil {
+			t.Log(metrics.summary())
+		}
+	}
+	if baseline == nil || batch == nil {
+		t.Log("comparison incomplete: one of the runs did not finish")
+		return
+	}
+	t.Logf("batch took %.1fx the wall time of the synchronous turn", batch.Elapsed.Seconds()/baseline.Elapsed.Seconds())
+	if baseline.CostedCalls == baseline.ModelCalls && batch.CostedCalls == batch.ModelCalls && baseline.CostUSD > 0 {
+		t.Logf("batch cost %.0f%% of the synchronous turn ($%.6f vs $%.6f)",
+			100*batch.CostUSD/baseline.CostUSD, batch.CostUSD, baseline.CostUSD)
+	} else {
+		t.Log("cost comparison unavailable: not every model call reported a cost")
+	}
+}
+
+func (m liveToolTurnMetrics) summary() string {
+	cost := fmt.Sprintf("$%.6f", m.CostUSD)
+	if m.CostedCalls != m.ModelCalls {
+		cost += fmt.Sprintf(" (reported by %d of %d model calls)", m.CostedCalls, m.ModelCalls)
+	}
+	line := fmt.Sprintf("  %-16s wall=%-8s model_calls=%d tool_calls=%d input_tokens=%d output_tokens=%d cost=%s",
+		m.ProviderConfig, m.Elapsed.Round(time.Second), m.ModelCalls, m.ToolCalls, m.InputTokens, m.OutputTokens, cost)
+	if m.Callbacks > 0 {
+		line += " callbacks=" + strconv.FormatInt(m.Callbacks, 10)
+	}
+	return line
+}
+
+func runLiveOpenRouterToolTurn(t *testing.T, opts liveToolTurnOptions) *liveToolTurnMetrics {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Budget+15*time.Minute)
 	defer cancel()
 
-	const seed = "live-openrouter-batch-turn"
-	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, seed)
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, opts.Seed)
 	toolResult := "OPAQUE_TOOL_RESULT_" + rand.Text()
 	mcpServer := mcptest.NewJSONServerWithGreetResult(t, toolResult)
-	callbacks := exposeLiveBatchCallbackRoute(t, ctx, env)
+	callbacks := &atomic.Int64{}
+	if opts.Batch {
+		callbacks = exposeLiveBatchCallbackRoute(t, ctx, env)
+	}
 	env.startAPI(t, ctx)
-	waitForLiveBatchTunnel(t, ctx, env)
+	if opts.Batch {
+		waitForLiveBatchTunnel(t, ctx, env)
+	}
 
 	modelSlug := serviceE2EOpenRouterBatchModel()
-	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(t, ctx, seed, strings.Join([]string{
+	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(t, ctx, opts.Seed, strings.Join([]string{
 		"instruction: Use tools only when explicitly requested. Preserve exact tool results.",
 		"model:",
-		"  provider_config: " + serviceE2EOpenRouterBatchProviderConfig,
+		"  provider_config: " + opts.ProviderConfig,
 		"  name: " + modelSlug,
 		"mcp:",
 		"  docs:",
@@ -83,22 +171,27 @@ func TestServiceE2ELiveOpenRouterBatchTurn(t *testing.T) {
 
 	nonce := strings.ToUpper(strings.ReplaceAll(env.seed, "-", "_"))
 	toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
-	marker := "BATCH_TURN_DONE_" + nonce
+	marker := "TOOL_TURN_DONE_" + nonce
 	project.createInput(t, ctx, agentID, strings.Join([]string{
-		"Call the " + toolName + " tool exactly once with name set to TOOL_FACT_" + nonce + ".",
+		"Call the " + toolName + " tool exactly three times, with name set to ALPHA_" + nonce +
+			", BRAVO_" + nonce + ", and CHARLIE_" + nonce + ".",
+		"Make all three calls together in a single response, in parallel, not one after another.",
 		"The exact result is generated inside the tool server and cannot be guessed.",
-		"After the tool returns, do not call another tool.",
+		"After the tools return, do not call another tool.",
 		"Reply on one line beginning with " + marker + " followed by the exact text the tool returned.",
 	}, "\n"))
-	worker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
-		ProviderConfig: serviceE2EOpenRouterBatchProviderConfig,
+	workerOptions := serviceWorkerOptions{
+		ProviderConfig: opts.ProviderConfig,
 		BaseURL:        os.Getenv("OPENROUTER_BASE_URL"),
+	}
+	if opts.Batch {
 		// Out of reach on purpose: only a real callback may resume the turn.
-		ExtraEnv: []string{"OMNARA_MODEL_BATCH_POLL_INTERVAL=12h"},
-	})
+		workerOptions.ExtraEnv = []string{"OMNARA_MODEL_BATCH_POLL_INTERVAL=12h"}
+	}
+	worker := env.startWorker(t, ctx, project.projectID, workerOptions)
 
 	started := time.Now()
-	deadline := started.Add(turnBudget)
+	deadline := started.Add(opts.Budget)
 	sawParkedLock := false
 	var output string
 	for !strings.Contains(output, marker) {
@@ -107,68 +200,116 @@ func TestServiceE2ELiveOpenRouterBatchTurn(t *testing.T) {
 			t.Fatalf("query model failures: %v", err)
 		}
 		if failure != "" {
-			t.Fatalf("terminal live batch model failure: %s worker_logs=%s", failure, worker.logExcerpt())
+			t.Fatalf("terminal live model failure: %s worker_logs=%s", failure, worker.logExcerpt())
 		}
-		parked := liveParkedBatchLocks(t, ctx, env, agentUUID)
-		sawParkedLock = sawParkedLock || parked > 0
+		parked := 0
+		if opts.Batch {
+			parked = liveParkedBatchLocks(t, ctx, env, agentUUID)
+			sawParkedLock = sawParkedLock || parked > 0
+		}
 		if time.Now().After(deadline) {
 			if parked > 0 {
 				// The batch is still running at OpenRouter; that is its schedule,
 				// not a defect. Everything up to the parked lock was verified.
 				t.Skipf("turn still waiting on an OpenRouter batch after %s (%d callbacks so far); "+
-					"raise OMNARA_LIVE_OPENROUTER_BATCH_WAIT to wait longer", turnBudget, callbacks.Load())
+					"raise OMNARA_LIVE_OPENROUTER_BATCH_WAIT to wait longer", opts.Budget, callbacks.Load())
 			}
-			t.Fatalf("turn did not finish within %s and no batch is parked; callbacks=%d output=%q worker_logs=%s",
-				turnBudget, callbacks.Load(), output, worker.logExcerpt())
+			t.Fatalf("turn did not finish within %s; callbacks=%d output=%q worker_logs=%s",
+				opts.Budget, callbacks.Load(), output, worker.logExcerpt())
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("waiting for the batch turn: %v", ctx.Err())
-		case <-time.After(2 * time.Second):
+			t.Fatalf("waiting for the tool turn: %v", ctx.Err())
+		case <-time.After(time.Second):
 		}
 		output, err = latestModelOutputTextAfterSequence(ctx, env, projectUUID, agentUUID, 0)
 		if err != nil {
 			t.Fatalf("query model output: %v", err)
 		}
 	}
-	t.Logf("turn finished in %s with %d callbacks: %s", time.Since(started).Round(time.Second), callbacks.Load(), output)
+	metrics := &liveToolTurnMetrics{
+		ProviderConfig: opts.ProviderConfig,
+		Elapsed:        time.Since(started),
+		Callbacks:      callbacks.Load(),
+	}
 	if !strings.Contains(output, toolResult) {
-		t.Fatalf("final output %q does not carry the tool result %q from the first batch", output, toolResult)
+		t.Fatalf("final output %q does not carry the tool result %q", output, toolResult)
 	}
 	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
 
-	if !sawParkedLock {
-		t.Fatal("never observed a parked runtime lock held past the worker lease while a batch was running")
+	wantVariant := "openrouter"
+	if opts.Batch {
+		wantVariant = "openrouter-batch"
 	}
-	// With the fallback poll disabled, each model call needs its own callback.
-	if got := callbacks.Load(); got < modelCalls {
-		t.Fatalf("API received %d batch callbacks, want at least %d", got, modelCalls)
-	}
-	var succeeded, leftover int
+	var costUSD *float64
 	if err := env.db.QueryRow(ctx, `
-SELECT count(*) FROM model_call_contexts context
+SELECT count(*),
+       coalesce(sum(context.input_tokens_total), 0),
+       coalesce(sum(context.output_tokens_total), 0),
+       sum(context.provider_reported_cost_usd)::float8,
+       count(context.provider_reported_cost_usd)
+FROM model_call_contexts context
 JOIN configured_model_revisions revision
   ON revision.org_id = context.org_id AND revision.id = context.configured_model_revision_id
 JOIN model_provider_configs provider_config
   ON provider_config.org_id = revision.org_id AND provider_config.id = revision.model_provider_config_id
 WHERE context.project_id = $1 AND context.agent_id = $2
   AND context.operation_kind = 'normal' AND context.state = 'succeeded'
-  AND provider_config.name = $3 AND provider_config.api_variant = 'openrouter-batch'
+  AND provider_config.name = $3 AND provider_config.api_variant = $4
   AND provider_config.deleted_at IS NULL`,
-		projectUUID, agentUUID, serviceE2EOpenRouterBatchProviderConfig).Scan(&succeeded); err != nil {
-		t.Fatalf("query batch model contexts: %v", err)
+		projectUUID, agentUUID, opts.ProviderConfig, wantVariant).Scan(
+		&metrics.ModelCalls, &metrics.InputTokens, &metrics.OutputTokens, &costUSD, &metrics.CostedCalls,
+	); err != nil {
+		t.Fatalf("query model call usage: %v", err)
 	}
-	if succeeded != modelCalls {
-		t.Fatalf("succeeded batch model calls = %d, want %d (tool request, then final answer)", succeeded, modelCalls)
+	if costUSD != nil {
+		metrics.CostUSD = *costUSD
 	}
-	if err := env.db.QueryRow(ctx,
-		`SELECT count(*) FROM model_batch_requests WHERE agent_id = $1`, agentUUID).Scan(&leftover); err != nil {
-		t.Fatalf("query leftover batch requests: %v", err)
+	if metrics.ModelCalls < liveBatchTurnMinModelCalls || metrics.ModelCalls > liveBatchTurnMaxModelCalls {
+		t.Fatalf("succeeded model calls on %s = %d, want %d to %d",
+			opts.ProviderConfig, metrics.ModelCalls, liveBatchTurnMinModelCalls, liveBatchTurnMaxModelCalls)
 	}
-	if leftover != 0 {
-		t.Fatalf("%d batch requests left behind after the turn", leftover)
+	if metrics.InputTokens == 0 || metrics.OutputTokens == 0 {
+		t.Fatalf("model usage was not recorded: %+v", metrics)
 	}
-	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, toolResult)
+
+	var resultBlocks int
+	if err := env.db.QueryRow(ctx, `
+SELECT count(*) FILTER (WHERE call.state = 'completed'), count(block.id)
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result
+  ON result.agent_id = call.agent_id AND result.tool_call_id = call.id AND result.outcome = 'succeeded'
+LEFT JOIN content_blocks block
+  ON block.agent_id = result.agent_id AND block.owner_tool_call_result_id = result.id
+ AND block.block_kind = 'text' AND block.text_content = $4
+WHERE call.project_id = $1 AND call.agent_id = $2 AND call.name = $3`,
+		projectUUID, agentUUID, toolName, toolResult).Scan(&metrics.ToolCalls, &resultBlocks); err != nil {
+		t.Fatalf("query tool calls: %v", err)
+	}
+	if metrics.ToolCalls < liveBatchTurnToolCalls || resultBlocks != metrics.ToolCalls {
+		t.Fatalf("completed %s calls = %d with %d matching results, want at least %d, all returning the tool result",
+			toolName, metrics.ToolCalls, resultBlocks, liveBatchTurnToolCalls)
+	}
+
+	if opts.Batch {
+		if !sawParkedLock {
+			t.Fatal("never observed a parked runtime lock held past the worker lease while a batch was running")
+		}
+		// With the fallback poll disabled, each model call needs its own callback.
+		if metrics.Callbacks < int64(metrics.ModelCalls) {
+			t.Fatalf("API received %d batch callbacks for %d model calls", metrics.Callbacks, metrics.ModelCalls)
+		}
+		var leftover int
+		if err := env.db.QueryRow(ctx,
+			`SELECT count(*) FROM model_batch_requests WHERE agent_id = $1`, agentUUID).Scan(&leftover); err != nil {
+			t.Fatalf("query leftover batch requests: %v", err)
+		}
+		if leftover != 0 {
+			t.Fatalf("%d batch requests left behind after the turn", leftover)
+		}
+	}
+	t.Logf("%s finished: %s", opts.ProviderConfig, output)
+	return metrics
 }
 
 // liveParkedBatchLocks counts the agent's parked batch requests whose runtime

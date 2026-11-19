@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
@@ -154,9 +155,41 @@ type batchObject struct {
 	Status    string        `json:"status"`
 	ExpiresAt *int64        `json:"expires_at"`
 	Results   []batchResult `json:"results"`
+	Usage     *batchUsage   `json:"usage"`
 	Error     *struct {
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+// batchUsage is the whole batch's accounting: what OpenRouter charged, plus
+// the upstream inference cost when the batch ran on a BYOK key.
+type batchUsage struct {
+	Cost        json.RawMessage `json:"cost"`
+	IsBYOK      *bool           `json:"is_byok"`
+	CostDetails *struct {
+		UpstreamInferenceCost json.RawMessage `json:"upstream_inference_cost"`
+	} `json:"cost_details"`
+}
+
+// reportedCost is the batch's total cost in USD, or "" when it is not reported.
+func (u *batchUsage) reportedCost() modelenvelope.ProviderReportedCostUSD {
+	if u == nil {
+		return ""
+	}
+	costs := []string{strings.TrimSpace(string(u.Cost))}
+	if u.IsBYOK != nil && *u.IsBYOK && u.CostDetails != nil {
+		if upstream := strings.TrimSpace(string(u.CostDetails.UpstreamInferenceCost)); upstream != "" && upstream != "null" {
+			costs = append(costs, upstream)
+		}
+	}
+	if costs[0] == "" || costs[0] == "null" {
+		return ""
+	}
+	total, valid := modelenvelope.SumProviderReportedCostUSD(costs...)
+	if !valid {
+		return ""
+	}
+	return total
 }
 
 type batchResult struct {
@@ -296,11 +329,17 @@ func (c Client) resultResponse(ctx context.Context, batch batchObject, customID 
 		if statusCode == 0 {
 			statusCode = http.StatusOK
 		}
-		return c.Inner.RouteClient().ParseBufferedResponse(ctx, route.Response{
+		response, err := c.Inner.RouteClient().ParseBufferedResponse(ctx, route.Response{
 			StatusCode: statusCode,
 			Header:     header,
 			Body:       result.Response.Body,
 		})
+		// A batch result need not repeat the cost in its body. This client
+		// submits one request per batch, so the batch's cost is that request's.
+		if err == nil && response.ProviderReportedCostUSD == "" && len(batch.Results) == 1 {
+			response.ProviderReportedCostUSD = batch.Usage.reportedCost()
+		}
+		return response, err
 	}
 	return model.Response{}, model.ProviderError{
 		Kind:    model.ErrorKindProviderUnavailable,

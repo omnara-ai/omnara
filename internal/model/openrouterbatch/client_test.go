@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -232,6 +233,37 @@ func TestCollectDeferredParsesResultWithWrappedProtocol(t *testing.T) {
 			}
 			if response.Usage.OutputTokens != 4 {
 				t.Fatalf("usage = %+v", response.Usage)
+			}
+		})
+	}
+}
+
+func TestCollectDeferredTakesCostFromBatchUsageWhenResultOmitsIt(t *testing.T) {
+	result := `{"custom_id":"ctx-1","response":{"status_code":200,"request_id":"req-1","body":` +
+		`{"id":"gen-1","model":"` + testModel + `","choices":[{"index":0,"finish_reason":"stop",` +
+		`"message":{"role":"assistant","content":"hi"}}],"usage":{"prompt_tokens":3,"completion_tokens":4%s}}}}`
+	for name, test := range map[string]struct {
+		resultUsage string
+		batchUsage  string
+		want        string
+	}{
+		"batch cost":            {batchUsage: `{"cost":0.0125,"is_byok":false}`, want: "0.0125"},
+		"byok adds upstream":    {batchUsage: `{"cost":0.01,"is_byok":true,"cost_details":{"upstream_inference_cost":0.2}}`, want: "0.21"},
+		"result cost wins":      {resultUsage: `,"cost":0.5,"is_byok":false`, batchUsage: `{"cost":0.0125,"is_byok":false}`, want: "0.5"},
+		"no usage on the batch": {batchUsage: `null`, want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newClient(t, chatInner, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"id":"batch_123","status":"completed","usage":%s,"results":[`+result+`]}`,
+					test.batchUsage, test.resultUsage)
+			})
+			response, err := client.CollectDeferred(context.Background(),
+				model.DeferredHandle{ProviderHandle: "batch_123", CustomID: "ctx-1"})
+			if err != nil {
+				t.Fatalf("collect: %v", err)
+			}
+			if string(response.ProviderReportedCostUSD) != test.want {
+				t.Fatalf("reported cost = %q, want %q", response.ProviderReportedCostUSD, test.want)
 			}
 		})
 	}
