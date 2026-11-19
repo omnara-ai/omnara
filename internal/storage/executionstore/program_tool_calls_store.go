@@ -274,6 +274,24 @@ func (s *Store) CancelProgramToolCall(ctx context.Context, ref ProgramToolCallRe
 	return done, err
 }
 
+// CancelProgramToolCallByKey cancels the call a process made under key. It succeeds when there is
+// nothing left to cancel.
+func (s *Store) CancelProgramToolCallByKey(
+	ctx context.Context, projectID, agentID, processID uuid.UUID, key string,
+) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil || processID == uuid.Nil || key == "" {
+		return errors.New("project, agent, process, and key are required")
+	}
+	_, err := programUnit(ctx, s, "cancel_program_tool_call_by_key", projectID, agentID,
+		func(_ *agentexecution.Unit, h *agentexecution.Handle) (struct{}, error) {
+			return struct{}{}, h.CancelProgramToolByKey(ctx, processID, key)
+		})
+	if errors.Is(err, storeerr.ErrProcessTerminal) || errors.Is(err, storeerr.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
 func (s *Store) ReleaseProgramToolCallClaim(ctx context.Context, ref ProgramToolCallRef) error {
 	if err := ref.validate(); err != nil {
 		return err

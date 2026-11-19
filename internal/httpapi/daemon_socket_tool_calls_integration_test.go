@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -341,10 +342,19 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, goneWaiting.State)
 	cancel := daemonprotocol.Message{ToolCallCancel: &daemonprotocol.ToolCallCancel{
 		ProcessID: gone.ProcessID, Key: gone.Key}}
-	require.NoError(t, abandoned.handleToolCallCancel(cancel))
-	require.NoError(t, abandoned.handleToolCallCancel(cancel), "a repeated cancel is ignored")
+	require.NoError(t, abandoned.handleToolCallCancel(ctx, cancel))
+	require.NoError(t, abandoned.handleToolCallCancel(ctx, cancel), "a repeated cancel is harmless")
 	abandoned.toolCallsDone.Wait()
-	require.Empty(t, abandoned.send, "a canceled call reports nothing more")
+	acknowledged := func(socket *daemonSocket, want int) {
+		t.Helper()
+		require.Len(t, socket.send, want)
+		for range want {
+			report := nextToolCallReport(t, socket)
+			require.True(t, report.CancelRecorded, "a canceled call reports only that its cancel was recorded")
+			require.Empty(t, report.State)
+		}
+	}
+	acknowledged(abandoned, 2)
 	canceled := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/tool-calls/"+goneWaiting.ToolCallID,
 		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	require.Equal(t, "completed", canceled["state"])
@@ -352,7 +362,9 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	interactions = requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions?state=open", "", "",
 		http.StatusOK, authHeaders(f.project.AdminToken))
 	require.Empty(t, interactions["data"], "the canceled call's approval prompt is closed")
-	require.NoError(t, abandoned.handleToolCallCancel(cancel), "a cancel for a finished call is ignored")
+	require.NoError(t, abandoned.handleToolCallCancel(ctx, cancel))
+	abandoned.toolCallsDone.Wait()
+	acknowledged(abandoned, 1) // a cancel for a finished call is acknowledged, so it is not sent again
 
 	retried := f.socket()
 	again := programToolOffer(f.process.ProcessID, "again", toolcatalog.ToolNameStorageRead,
@@ -362,16 +374,17 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.NoError(t, retried.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &again}))
 	first := nextToolCallReport(t, retried)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.State)
-	require.NoError(t, retried.handleToolCallCancel(againCancel))
+	require.NoError(t, retried.handleToolCallCancel(ctx, againCancel))
 	retried.workMu.Lock()
 	require.Empty(t, retried.toolCalls, "a canceled call stops answering for its key at once")
 	retried.workMu.Unlock()
 	require.NoError(t, retried.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &again}),
 		"the same key offered right after a cancel is served, not dropped")
+	require.True(t, nextToolCallReport(t, retried).CancelRecorded)
 	second := nextToolCallReport(t, retried)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, second.State)
 	require.NotEqual(t, first.ToolCallID, second.ToolCallID, "the canceled call is not reused")
-	require.NoError(t, retried.handleToolCallCancel(againCancel))
+	require.NoError(t, retried.handleToolCallCancel(ctx, againCancel))
 	retried.toolCallsDone.Wait()
 	require.Empty(t, retried.toolCalls)
 	require.Empty(t, retried.toolCallsCanceling)
@@ -419,6 +432,66 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	rerun = f.offer(t, "lost", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, lostRef.ToolCallID), rerun.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
+
+	// A cancel ends a call a server is still running: that server loses its claim, and the call no
+	// longer counts against the command.
+	heldRef := orphan("held", time.Minute)
+	holding := f.socket()
+	held := programToolOffer(f.process.ProcessID, "held", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.NoError(t, holding.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &held}))
+	require.NoError(t, holding.handleToolCallCancel(ctx, daemonprotocol.Message{
+		ToolCallCancel: &daemonprotocol.ToolCallCancel{
+			ProcessID: held.ProcessID, Key: held.Key}}))
+	holding.toolCallsDone.Wait()
+	acknowledged(holding, 1)
+	stopped := requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		agentPath+"/tool-calls/"+testPublicID(t, publicid.KindToolCall, heldRef.ToolCallID), "", "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	require.Equal(t, []any{"completed", "canceled"}, []any{stopped["state"], stopped["outcome"]})
+	require.ErrorIs(t, execution.RenewProgramToolCallClaim(ctx, heldRef, time.Minute),
+		storeerr.ErrProgramToolCallClaimLost, "the server running a canceled call stops at its next renewal")
+
+	// A cancel reaches a connection that never served its call, after a reconnect. It still ends the
+	// stored call, without the call being offered again.
+	elsewhere := f.socket()
+	away := programToolOffer(f.process.ProcessID, "away", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	away.OfferID = "away-offer"
+	awayCtx, disconnect := context.WithCancel(ctx)
+	require.NoError(t, elsewhere.handleToolCallOffer(awayCtx, daemonprotocol.Message{ToolCallOffer: &away}))
+	awayWaiting := nextToolCallReport(t, elsewhere)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, awayWaiting.State)
+	disconnect()
+	elsewhere.toolCallsDone.Wait()
+	later := f.socket()
+	require.NoError(t, later.handleToolCallCancel(ctx, daemonprotocol.Message{
+		ToolCallCancel: &daemonprotocol.ToolCallCancel{
+			ProcessID: away.ProcessID, Key: away.Key, OfferID: away.OfferID}}))
+	later.toolCallsDone.Wait()
+	recorded := nextToolCallReport(t, later)
+	require.Equal(t, []any{true, away.OfferID}, []any{recorded.CancelRecorded, recorded.OfferID})
+	stopped = requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/tool-calls/"+awayWaiting.ToolCallID,
+		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
+	require.Equal(t, []any{"completed", "canceled"}, []any{stopped["state"], stopped["outcome"]})
+
+	// Fields echoed in a rejection are bounded, so the report always fits a message.
+	longName := f.socket()
+	long := programToolOffer(f.process.ProcessID, "long", strings.Repeat(`"`, 300_000), `{}`)
+	require.NoError(t, longName.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &long}))
+	tooLong := nextToolCallReport(t, longName)
+	require.Equal(t, invalid, tooLong.ErrorCode)
+	require.LessOrEqual(t, len(tooLong.Error), daemonprotocol.ProgramToolCallMaxErrorBytes)
+	longName.toolCallsDone.Wait()
+
+	// A connection whose runtime is not online cannot start calls, even for a process of its machine.
+	offline := newDaemonSocket(f.server, nil, uuid.New(), f.process.OrgUUID, f.process.MachineUUID,
+		uuid.New(), f.process.TokenUUID, false)
+	unauthorized := programToolOffer(f.process.ProcessID, "offline", toolcatalog.ToolNameStorageList, `{}`)
+	require.NoError(t, offline.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &unauthorized}))
+	refused := nextToolCallReport(t, offline)
+	require.Equal(t, []any{daemonprotocol.AckStatusPermanentReject, unavailable},
+		[]any{refused.AckStatus, refused.ErrorCode})
+	offline.toolCallsDone.Wait()
 
 	stale, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
 		ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
@@ -566,8 +639,9 @@ func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
 			require.Equal(t, daemonprotocol.ErrorCodeToolCallLimitReached, refused.ErrorCode)
 			continue
 		}
-		require.NoError(t, socket.handleToolCallCancel(daemonprotocol.Message{ToolCallCancel: &daemonprotocol.ToolCallCancel{
-			ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}}))
+		require.NoError(t, socket.handleToolCallCancel(ctx, daemonprotocol.Message{
+			ToolCallCancel: &daemonprotocol.ToolCallCancel{
+				ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}}))
 	}
 	socket.workMu.Lock()
 	active, serving := socket.toolCallsActive, len(socket.toolCalls)
@@ -576,6 +650,9 @@ func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
 	require.Zero(t, serving)
 
 	require.NoError(t, blocked.Rollback(ctx))
+	for range daemonToolCallLimit {
+		require.True(t, nextToolCallReport(t, socket).CancelRecorded, "each cancel is acknowledged")
+	}
 	socket.toolCallsDone.Wait()
 	socket.workMu.Lock()
 	active = socket.toolCallsActive
@@ -591,4 +668,55 @@ func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
 		}
 	}
 	socket.toolCallsDone.Wait()
+}
+
+// A call waiting for approval keeps its place when its key is offered again, even after a config
+// change that would stop a new call to that tool. It is not left open with nobody serving it: once
+// approved it runs under the current config and fails there.
+func TestDaemonSocketProgramToolCallReattachesAfterConfigChange(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	offer := programToolOffer(f.process.ProcessID, "pending", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	first := f.socket()
+	firstCtx, disconnect := context.WithCancel(ctx)
+	require.NoError(t, first.handleToolCallOffer(firstCtx, daemonprotocol.Message{ToolCallOffer: &offer}))
+	waiting := nextToolCallReport(t, first)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, waiting.State)
+	disconnect()
+	first.toolCallsDone.Wait()
+
+	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list", "storage_read"),
+		"  storage_read:\n", "  storage_read:\n    code_mode: false\n", 1))
+	f.rejected(t, "new", toolcatalog.ToolNameStorageRead, `{"path":"/memory/engineering/notes.md"}`,
+		daemonprotocol.ErrorCodeToolCallUnavailable)
+
+	reconnected := f.socket()
+	require.NoError(t, reconnected.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+	again := nextToolCallReport(t, reconnected)
+	require.Empty(t, again.AckStatus, "the open call is picked up, not rejected: %s", again.Error)
+	require.Equal(t, waiting.ProgramToolCallResult, again.ProgramToolCallResult)
+
+	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+	interactions := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions", "", "",
+		http.StatusOK, authHeaders(f.project.AdminToken))
+	open, ok := interactions["data"].([]any)
+	require.True(t, ok)
+	require.Len(t, open, 1)
+	interaction, ok := open[0].(map[string]any)
+	require.True(t, ok)
+	interactionID, ok := interaction["id"].(string)
+	require.True(t, ok)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/interactions/"+interactionID+"/resolve",
+		httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	done := nextToolCallReport(t, reconnected)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+	require.Equal(t, waiting.ToolCallID, done.ToolCallID)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, done.Outcome,
+		"the tool can no longer be called from commands: %+v", done.Content)
+	reconnected.toolCallsDone.Wait()
 }

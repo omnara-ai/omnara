@@ -21,12 +21,19 @@ export function AgentConfigCodeModeField({
             each tool’s permissions and stay out of the model’s context. This does not change which
             tools the model can call. To choose which tools commands can call, set{' '}
             <code>code_mode</code> on a tool or MCP server in the config editor. Subagents that copy
-            this agent inherit it.
+            this agent inherit it. Agents on the same machine can call each other’s tools this way,
+            so use it on machines dedicated to one agent or to agents you trust equally.
           </>
         }
         checked={value?.enabled === true}
         onChange={(event) => {
-          onChange(event.target.checked ? { ...value, enabled: true } : undefined)
+          if (event.target.checked) {
+            onChange({ ...value, enabled: true })
+            return
+          }
+          // Keep the rest of the policy so turning code mode back on can't widen command access.
+          const hasPolicy = Object.keys(value ?? {}).some((key) => key !== 'enabled')
+          onChange(hasPolicy ? { ...value, enabled: false } : undefined)
         }}
       />
     </FieldGroup>

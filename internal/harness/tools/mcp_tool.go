@@ -70,6 +70,10 @@ func (e Executor) dispatchMCPTool(
 		Backoff:              e.MCPInitializationBackoff,
 		SigV4CredentialCache: e.SigV4CredentialCache,
 		OAuthHTTPClient:      e.MCPAuthHTTPClient,
+		// A call from a command runs under the agent's current config, which can change while the
+		// call is outstanding. The check above covers only the row read here; this covers every row
+		// the manager reloads to recover.
+		BindConfig: turn.contract != nil,
 	}
 	result, err := manager.CallTool(ctx, mcp.ToolCallInput{
 		OrgID:     turn.OrgID,

@@ -443,9 +443,10 @@ func TestProgramMCPToolCallKeepsUnknownOutcomeWhenResponseIsLost(t *testing.T) {
 	done := fixture.get(t, ctx, call.ID)
 	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
-	result := string(done.ResultContentParts)
+	// Stored JSON is not byte-for-byte what was written, so compare it with whitespace removed.
+	result := strings.ReplaceAll(string(done.ResultContentParts), " ", "")
 	require.Contains(t, result, `"error_code":"outcome_unknown"`)
-	require.Contains(t, result, "upstream closed the connection", "the result keeps what came back")
+	require.Contains(t, result, "upstreamclosedtheconnection", "the result keeps what came back")
 	require.Contains(t, result, `"http_status":502`)
 
 	again := fixture.create(t, ctx, "lost", name, `{"name":"Ada"}`)

@@ -35,7 +35,7 @@ const programmaticToolCallsGuidance = "Commands you start with `run_command` can
 	"instead of calling tools one at a time when a task needs many calls, or results you would only filter, " +
 	"join, count or reshape: results reach only the command and stay out of your context, so print only what " +
 	"you need. Before relying on fields of a tool's result that `run_command` doesn't show, check its " +
-	"`output_schema` with `tool_search`. Examples, for a POSIX shell:\n```sh\n"
+	"`output_schema` with `omnarad call tool_search`. Examples, for a POSIX shell:\n```sh\n"
 
 const programmaticParallelExample = "# Run independent calls in parallel; a command can have 128 calls in flight.\n" +
 	"# xargs waits for every call and exits nonzero if one fails\n" +

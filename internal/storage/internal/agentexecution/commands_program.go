@@ -582,25 +582,53 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 	})
 }
 
+// CancelProgramTool ends a call whose command stopped waiting for it. A call a server is still running
+// is ended too: that server loses its claim and stops, and whatever it reports later is dropped.
 func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.fencedProgramTool(ctx, ref)
 		if err != nil {
 			return false, err
 		}
-		switch {
-		case row.State == "completed":
-			return true, nil
-		case row.ProgramClaimID != nil && !row.ClaimExpired:
-			return false, nil
-		}
-		outcome, body, err := programToolStopped(row, "caller_gone", "The command stopped waiting for this call.")
-		if err != nil {
-			return false, err
-		}
-		_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
-		return err == nil, err
+		return true, h.cancelProgramTool(ctx, row)
 	})
+}
+
+// CancelProgramToolByKey cancels the call key names for the process, if it made one. A named call is
+// left alone: it outlives the command that stopped waiting.
+func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID, key string) error {
+	_, err := programCommand(h, func() (struct{}, error) {
+		process, err := h.lockProgram(ctx, processID)
+		if err != nil {
+			return struct{}{}, err
+		}
+		found, err := executiondb.New().ReadProgramToolByKey(ctx, h.unit.DB(),
+			executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: key})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return struct{}{}, nil
+		}
+		if err != nil {
+			return struct{}{}, err
+		}
+		row := executiondb.ReadProgramToolRow(found)
+		if row.ProcessID != processID || row.ProgramNamed || !h.programToolOpen(process, row) {
+			return struct{}{}, nil
+		}
+		return struct{}{}, h.cancelProgramTool(ctx, row)
+	})
+	return err
+}
+
+func (h *Handle) cancelProgramTool(ctx context.Context, row executiondb.ReadProgramToolRow) error {
+	if row.State == "completed" {
+		return nil
+	}
+	outcome, body, err := programToolStopped(row, "caller_gone", "The command stopped waiting for this call.")
+	if err != nil {
+		return err
+	}
+	_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
+	return err
 }
 
 func (h *Handle) resolveProgramInteraction(

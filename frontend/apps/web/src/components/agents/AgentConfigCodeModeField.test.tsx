@@ -51,3 +51,14 @@ it('keeps the default when turned on', () => {
 it('removes the section when turned off', () => {
   expect(toggle({ enabled: true })).toHaveBeenCalledWith(undefined)
 })
+
+it('keeps the default through an off and on round trip', () => {
+  const disabled = { enabled: false, default_allowed: false }
+  expect(toggle({ enabled: true, default_allowed: false })).toHaveBeenCalledWith(disabled)
+  expect(toggle(disabled)).toHaveBeenCalledWith({ enabled: true, default_allowed: false })
+})
+
+it('warns that agents sharing a machine can call each other’s tools', () => {
+  toggle(undefined)
+  expect(container.textContent).toContain('Agents on the same machine can call each other’s tools')
+})
