@@ -5,14 +5,17 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -290,6 +293,70 @@ func TestEditAgentConfigsRestart(t *testing.T) {
 	require.Equal(t, []any{edited, "failed", "not_found"},
 		[]any{deleted[1]["agent_profile_id"], deleted[1]["status"], deleted[1]["code"]})
 	require.Len(t, deleted, 5)
+}
+
+func TestEditAgentConfigsConcurrentReplay(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-edit-race")
+	headers := authHeaders(project.AdminToken)
+	config := createPublicHTTPAgentConfig(t, handler, project, "agent-config-edit-race", "yaml",
+		"instruction: Be direct.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	profile := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-race", "Race",
+		testutil.RequireType[string](t, config["id"]), project.AdminToken, http.StatusCreated)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	launched := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		`{"profile":"`+profileID+`"}`, "idem-agent-config-edit-race-launch", http.StatusCreated, headers)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
+	edits := func(replace string) string {
+		return `"edits":[{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"` + replace + `"}]}`
+	}
+	race := func(key string, bodies ...string) {
+		t.Helper()
+		gate := integrationdb.BeginTx(t, ctx, pool)
+		_, err := gate.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('project_lifecycle:' || $1::uuid::text, 0))`,
+			project.ProjectUUID)
+		require.NoError(t, err)
+		var done []<-chan integrationdb.AsyncResult[*httptest.ResponseRecorder]
+		for _, body := range bodies {
+			req := httptest.NewRequest(http.MethodPost, project.ProjectPath+"/agent-configs/edit", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", key)
+			for name, value := range headers {
+				req.Header.Set(name, value)
+			}
+			done = append(done, integrationdb.RunAsync(func() (*httptest.ResponseRecorder, error) {
+				return performRequest(handler, req), nil
+			}))
+		}
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", len(bodies))
+		require.NoError(t, gate.Rollback(ctx))
+		var results []map[string]any
+		for _, response := range done {
+			recorder := integrationdb.AwaitSuccess(t, response, "concurrent edit request")
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			var page map[string]any
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
+			results = append(results, testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, page["data"])[0]))
+		}
+		var applied []bool
+		for _, result := range results {
+			_, hasEdits := result["edits"]
+			_, hasPrevious := result["previous_config_id"]
+			require.Equal(t, hasEdits, hasPrevious, result)
+			applied = append(applied, hasEdits)
+		}
+		require.NotEqual(t, applied[0], applied[1], results)
+		require.Equal(t, results[0]["current_config_id"], results[1]["current_config_id"])
+	}
+
+	race("idem-agent-config-edit-race-agent",
+		`{"agent_ids":["`+agentID+`"],`+edits("Be kind."), `{"agent_ids":["`+agentID+`"],`+edits("Be calm."))
+	profileBody := `{"agent_profile_ids":["` + profileID + `"],"apply_to":["profile"],` + edits("Be brief.")
+	race("idem-agent-config-edit-race-profile", profileBody, profileBody)
 }
 
 func testPublicIDOrder(t *testing.T, kind publicid.Kind, a, b string) bool {

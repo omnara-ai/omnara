@@ -51,12 +51,12 @@ func ApplyEdits(format SourceFormat, source string, edits []Edit) (EditResult, e
 		return EditResult{}, err
 	}
 	limit := max(maxEditedSourceBytes, len(source))
-	budget := limit - len(source)
+	budget := limit
 	outcomes := make([]string, len(edits))
 	for i, edit := range edits {
 		outcome, err := apply(after, edit, &budget)
 		if errors.Is(err, errEditTooLarge) {
-			err = fmt.Errorf("%w: edited config would exceed %d bytes", ErrInvalidEdit, limit)
+			err = fmt.Errorf("%w: text replacements would add more than %d bytes", ErrInvalidEdit, limit)
 		}
 		if err != nil {
 			return EditResult{}, fmt.Errorf("edit %d: %w", i, err)

@@ -46,6 +46,7 @@ type ChangeAgentConfigResult struct {
 	AgentConfig    AgentConfigRecord
 	ConfigChange   AgentConfigChangeRecord
 	DeleteMachines []MachineRecord
+	Created        bool
 }
 
 func (s *Store) ChangeAgentConfig(
@@ -257,6 +258,7 @@ func (s *Store) changeAgentConfigOnce(
 		AgentConfig:    config,
 		ConfigChange:   configChange,
 		DeleteMachines: deleteMachines,
+		Created:        true,
 	}, nil
 }
 
