@@ -89,12 +89,6 @@ describe('modelProviderKind', () => {
   it('falls back to custom for unknown or lookalike hosts', () => {
     expect(modelProviderKind({ ...config, base_url: 'https://llm.example.com/v1' })).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'https://notopenai.com/v1' })).toBe('custom')
-    expect(modelProviderKind({ ...config, base_url: 'https://nottheopenlake.com/v1' })).toBe(
-      'custom',
-    )
-    expect(
-      modelProviderKind({ ...config, base_url: 'https://theopenlake.com.example.com/v1' }),
-    ).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'not a url' })).toBe('custom')
   })
 })

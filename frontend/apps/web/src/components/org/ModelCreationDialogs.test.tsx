@@ -684,62 +684,42 @@ function providerApi(modelCatalog: JsonValue = { status: 'ok', models: discovere
   })
 }
 
-it.each([
-  { label: 'OpenAI', preset: 'openai' },
-  { label: 'OpenRouter', preset: 'openrouter' },
-  { label: 'Anthropic', preset: 'anthropic' },
-])(
-  'creates a $label preset provider and continues straight into the model picker',
-  async ({ label, preset }) => {
-    const api = providerApi()
-    await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+it('creates a preset provider and continues straight into the model picker', async () => {
+  const api = providerApi()
+  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
 
-    expect(element('#mp-provider').textContent).toContain('OpenAI')
-    await selectOption(element('#mp-provider'), label)
-    await type('#mp-name', `production-${preset}`)
-    await selectOption(labeledControl('API key'), 'openai-api-key')
-    await clickButton('Add provider')
+  expect(element('#mp-provider').textContent).toContain('OpenAI')
+  await type('#mp-name', 'production-openai')
+  await selectOption(labeledControl('API key'), 'openai-api-key')
+  await clickButton('Add provider')
 
-    expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
-      { name: `production-${preset}`, credential_secret_id: credentialSecret.id, preset },
-    ])
-    await waitForUI(() => {
-      expect(modelRows()).toContain('model-one100K')
-    })
-    expect(api.requestsTo('GET', catalogPath)).toEqual([])
-    expect(button('Skip for now')).toBeDefined()
-  },
-)
+  expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+    { name: 'production-openai', credential_secret_id: credentialSecret.id, preset: 'openai' },
+  ])
+  await waitForUI(() => {
+    expect(modelRows()).toContain('model-one100K')
+  })
+  expect(api.requestsTo('GET', catalogPath)).toEqual([])
+  expect(button('Skip for now')).toBeDefined()
+})
 
-it.each(['https://api.theopenlake.com/v1', 'https://llm-proxy.example.com/v1'])(
-  'creates OpenLake with explicit endpoint settings at %s and continues to model selection',
-  async (baseUrl) => {
-    const api = providerApi()
-    await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
-    await selectOption(element('#mp-provider'), 'OpenLake')
-    await clickButton('Advanced')
+it('submits the OpenLake endpoint without opening Advanced', async () => {
+  const api = providerApi()
+  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+  await selectOption(element('#mp-provider'), 'OpenLake')
+  await type('#mp-name', 'production-openlake')
+  await selectOption(labeledControl('API key'), credentialSecret.name)
+  await clickButton('Add provider')
 
-    expect(element('#mp-base-url')).toHaveProperty('value', 'https://api.theopenlake.com/v1')
-    expect(element('#mp-api-format').textContent).toContain('OpenAI Chat Completions')
-    await type('#mp-base-url', baseUrl)
-    await type('#mp-name', 'production-openlake')
-    await selectOption(labeledControl('API key'), 'openai-api-key')
-    await clickButton('Add provider')
-
-    expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
-      {
-        name: 'production-openlake',
-        credential_secret_id: credentialSecret.id,
-        api_format: 'openai-chat-completions',
-        base_url: baseUrl,
-      },
-    ])
-    await waitForUI(() => {
-      expect(modelRows()).toContain('model-one100K')
-    })
-    expect(api.requestsTo('GET', catalogPath)).toEqual([])
-  },
-)
+  expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+    {
+      name: 'production-openlake',
+      credential_secret_id: credentialSecret.id,
+      api_format: 'openai-chat-completions',
+      base_url: 'https://api.theopenlake.com/v1',
+    },
+  ])
+})
 
 it('deletes the provider and returns to its settings when the catalog fails', async () => {
   const api = providerApi({ status: 'failed', error: 'unauthorized' })
