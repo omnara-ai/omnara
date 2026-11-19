@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -188,7 +189,7 @@ func secretMetadataJSON(
 	labels := resourcemeta.Metadata{}
 	maps.Copy(labels, metadata)
 	delete(labels, secrets.KeyMCPURL)
-	if mcpURL != "" {
+	if publishableURL(mcpURL) {
 		labels[secrets.KeyMCPURL] = mcpURL
 		if raw, err := normalizedSecretMetadata(labels); err == nil {
 			return raw, nil
@@ -196,6 +197,12 @@ func secretMetadataJSON(
 		delete(labels, secrets.KeyMCPURL)
 	}
 	return normalizedSecretMetadata(labels)
+}
+
+func publishableURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") &&
+		parsed.Hostname() != "" && parsed.User == nil
 }
 
 func mirroredStoredMetadata(secret SecretRecord, mcpURL string) (json.RawMessage, bool) {

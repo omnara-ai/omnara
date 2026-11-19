@@ -410,6 +410,14 @@ func TestPublicOAuthSecretMetadataMirrorsMaterialMCPURL(t *testing.T) {
 		`{"owner":{"kind":"org"},"name":"long-url","material":{"kind":"oauth_token_set","access_token":"access","mcp_url":"https://mcp.example/`+strings.Repeat("a", 600)+`"}}`,
 		"", http.StatusCreated, headers)
 	requireMetadata(longURL, map[string]any{})
+	credentialURL := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
+		`{"owner":{"kind":"org"},"name":"credential-url","material":{"kind":"oauth_token_set","access_token":"access","mcp_url":"https://user:secret@mcp.example/mcp"}}`,
+		"", http.StatusCreated, headers)
+	requireMetadata(credentialURL, map[string]any{})
+	credentialRenamed := requestJSONWithHeaders(t, handler, http.MethodPatch,
+		secretsPath+"/"+testutil.RequireType[string](t, credentialURL["id"]),
+		`{"name":"credential-url-renamed"}`, "", http.StatusOK, headers)
+	requireMetadata(credentialRenamed, map[string]any{})
 
 	generic := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
 		`{"owner":{"kind":"org"},"name":"labeled-generic","metadata":{"mcp_url":"https://label.example"},"material":{"kind":"generic","value":"v"}}`,

@@ -871,6 +871,9 @@ func TestOAuthRefreshRotationMirrorsMaterialMCPURL(t *testing.T) {
 	)); diff != "" {
 		t.Fatalf("rotated metadata mismatch (-want +got):\n%s", diff)
 	}
+	if diff := cmp.Diff(map[string]string{}, rotateMetadata("https://user:secret@mcp.example/mcp")); diff != "" {
+		t.Fatalf("credential URL published on rotation (-want +got):\n%s", diff)
+	}
 	legacy := map[string]string{}
 	for i := range resourcemeta.MaxEntries + 1 {
 		legacy[fmt.Sprintf("label-%02d", i)] = "v"
