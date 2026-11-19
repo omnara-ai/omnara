@@ -103,7 +103,6 @@ type GitHubPendingReview struct {
 	Review *github.Review `json:"review"`
 }
 
-// Each tool's output schema is built once and attached to its catalog definition.
 var (
 	StorageReadSchema = sync.OnceValues(func() (json.RawMessage, error) {
 		return json.RawMessage(storageReadSchema), nil

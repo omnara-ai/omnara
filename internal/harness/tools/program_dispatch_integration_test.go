@@ -37,7 +37,6 @@ func newProgramToolFixture(t *testing.T, ctx context.Context, label string, with
 	t.Helper()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{
 		withMCP: withMCP, mcpDeferred: true, withMemory: true, withMachine: true,
-		// storage_list stays loaded: deferring a tool does not decide whether commands can call it.
 		extraTools: "  storage_list: {}\n" +
 			"  storage_read:\n    deferred: true\n    permission: {mode: always_ask}\n" +
 			"  storage_search:\n    deferred: true\n    permission: {mode: always_deny}\n" +

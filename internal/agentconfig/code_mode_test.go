@@ -154,8 +154,6 @@ func TestCodeModeDefaultAllowedCompilesOnlyWhenFalse(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Whether commands can call a tool comes from the tool's own code_mode setting, then its MCP
-// server's, then the agent default. Deferral plays no part.
 func TestCodeModePerToolControl(t *testing.T) {
 	const tools = `
 tools:

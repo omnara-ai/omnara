@@ -165,8 +165,6 @@ func TestEnsureConnectionLeavesConnectionsAloneWhenNothingIsDue(t *testing.T) {
 	}
 }
 
-// A connection row can be reconciled to another endpoint while a call made under the old config is
-// still recovering. With BindConfig the old config's credential is never read for that row.
 func TestManagerConnectionRefusesRowOfAnotherConfig(t *testing.T) {
 	configA := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://a.example/mcp",
 		Auth: &agentconfig.RuntimeMCPAuth{Type: "bearer", SecretID: uuid.New()}}

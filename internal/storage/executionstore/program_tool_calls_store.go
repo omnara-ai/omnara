@@ -72,11 +72,10 @@ type CreateProgramToolCallInput struct {
 	AgentID   uuid.UUID
 	ProcessID uuid.UUID
 	Key       string
-	// Named is set when the command chose the key, so the call outlives that command.
-	Named bool
-	Name  string
-	Type  string
-	Input json.RawMessage
+	Named     bool
+	Name      string
+	Type      string
+	Input     json.RawMessage
 }
 
 type CompleteProgramToolCallInput struct {
@@ -274,8 +273,7 @@ func (s *Store) CancelProgramToolCall(ctx context.Context, ref ProgramToolCallRe
 	return done, err
 }
 
-// CancelProgramToolCallByKey cancels the call a process made under key. It succeeds when there is
-// nothing left to cancel.
+// CancelProgramToolCallByKey succeeds when there is nothing left to cancel.
 func (s *Store) CancelProgramToolCallByKey(
 	ctx context.Context, projectID, agentID, processID uuid.UUID, key string,
 ) error {

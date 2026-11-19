@@ -18,8 +18,6 @@ import (
 var (
 	ErrSessionExpired = errors.New("mcp: session expired (server returned 404)")
 
-	// ErrConnectionConfigChanged reports a connection that was reconciled for a different server
-	// config than the one it was about to be used with.
 	ErrConnectionConfigChanged = errors.New("mcp: connection is no longer for this server configuration")
 
 	ErrIncompleteStream = errors.New("mcp: SSE stream closed before matching response arrived")
@@ -70,9 +68,8 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("mcp: unexpected HTTP status %d: %s", e.Status, e.Body)
 }
 
-// ResponseLostError reports that a tool call reached its server but no usable answer came back: the
-// connection dropped, the reply could not be read, or a gateway answered in the server's place. The
-// call may or may not have taken effect. Err is what was observed.
+// ResponseLostError reports a tool call that reached its server but got no usable answer, so it may
+// or may not have taken effect.
 type ResponseLostError struct {
 	Err error
 }

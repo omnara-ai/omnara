@@ -51,7 +51,7 @@ type RuntimeMCPTool struct {
 type RuntimeMCPToolResolution struct {
 	Permission toolpermission.Selection
 	Deferred   bool
-	// CodeMode is the tool's or server's code_mode setting; nil follows the agent default.
+	// nil follows the agent default.
 	CodeMode *bool
 }
 

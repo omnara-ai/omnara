@@ -600,9 +600,6 @@ func attachToolSubscription(
 	return subscription
 }
 
-// A call from a command is pinned to the config captured for its turn, not to the config of the
-// model context that started the command, so an integration tool enabled while the command runs
-// can be called and one the captured config lacks cannot.
 func TestProgramIntegrationToolAuthorityUsesCapturedConfig(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixtureWithOptions(t, ctx, "program-authority", toolFixtureOptions{

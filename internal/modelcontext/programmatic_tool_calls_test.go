@@ -83,8 +83,6 @@ func TestRuntimeContractToolSpecsDescribeProgrammaticToolCallsOnlyWhenEnabled(t 
 	}
 }
 
-// Code mode and deferral are independent: each combination keeps the tool in the model's tools,
-// and only the contract's code mode setting decides whether commands can call it.
 func TestRuntimeContractToolSpecsKeepCodeModeIndependentOfDeferral(t *testing.T) {
 	contract := webToolsContract(t)
 	contract.CodeMode = &agentconfig.CodeModeCompiled{Enabled: true}
