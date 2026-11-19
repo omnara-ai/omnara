@@ -72,9 +72,11 @@ type CreateProgramToolCallInput struct {
 	AgentID   uuid.UUID
 	ProcessID uuid.UUID
 	Key       string
-	Name      string
-	Type      string
-	Input     json.RawMessage
+	// Named is set when the command chose the key, so the call outlives that command.
+	Named bool
+	Name  string
+	Type  string
+	Input json.RawMessage
 }
 
 type CompleteProgramToolCallInput struct {
@@ -145,7 +147,7 @@ func (s *Store) CreateProgramToolCall(
 	return programUnit(ctx, s, "create_program_tool_call", input.ProjectID, input.AgentID,
 		func(unit *agentexecution.Unit, h *agentexecution.Handle) (ProgramToolCallRecord, error) {
 			tool, err := h.CreateProgramTool(ctx, agentexecution.CreateProgramToolInput{ProcessID: input.ProcessID,
-				Key: input.Key, Name: input.Name, Type: input.Type, Input: input.Input})
+				Key: input.Key, Named: input.Named, Name: input.Name, Type: input.Type, Input: input.Input})
 			if err != nil {
 				return ProgramToolCallRecord{}, err
 			}

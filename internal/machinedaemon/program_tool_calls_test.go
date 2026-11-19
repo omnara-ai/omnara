@@ -91,6 +91,7 @@ func answerProgramToolCallOffers(
 				}
 				for _, report := range answer(*message.ToolCallOffer) {
 					report.ProcessID, report.Key = message.ToolCallOffer.ProcessID, message.ToolCallOffer.Key
+					report.OfferID = message.ToolCallOffer.OfferID
 					assert.NoError(t, transport.handleMessage(t.Context(), daemonprotocol.Message{
 						Type: daemonprotocol.MessageToolCallReport, ToolCallReport: &report}))
 				}
@@ -220,17 +221,32 @@ func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 		done <- body
 	}()
 	require.Eventually(t, func() bool { return len(handler.offers()) == 1 }, 5*time.Second, 10*time.Millisecond)
-	want := daemonprotocol.ToolCallOffer{ProcessID: processID}
+	offered := handler.offers()[0]
+	require.NotEmpty(t, offered.OfferID)
+	want := daemonprotocol.ToolCallOffer{ProcessID: processID, OfferID: offered.OfferID}
 	want.Key, want.Name, want.Input = "k-1", "storage_list", json.RawMessage(`{}`)
-	require.Equal(t, []daemonprotocol.ToolCallOffer{want}, handler.offers())
+	require.Equal(t, want, offered)
 	select {
 	case body := <-done:
 		t.Fatalf("call returned without a report: %s", body)
 	case <-time.After(100 * time.Millisecond):
 	}
 	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "other"})
+	// A report for another offer of this key, such as an earlier request that stopped waiting, is
+	// not this request's answer.
+	stale := completedProgramToolCall(`"stale"`)
+	stale.ProcessID, stale.Key, stale.OfferID = processID, "k-1", "an-earlier-offer"
+	handler.report(stale)
+	unaddressed := completedProgramToolCall(`"stale"`)
+	unaddressed.ProcessID, unaddressed.Key = processID, "k-1"
+	handler.report(unaddressed)
+	select {
+	case body := <-done:
+		t.Fatalf("call returned another offer's report: %s", body)
+	case <-time.After(100 * time.Millisecond):
+	}
 	report := completedProgramToolCall(`1`)
-	report.ProcessID, report.Key = processID, "k-1"
+	report.ProcessID, report.Key, report.OfferID = processID, "k-1", offered.OfferID
 	handler.report(report)
 	select {
 	case body := <-done:
@@ -277,7 +293,7 @@ func TestProgramToolCallServerLimitsConcurrencyPerProcess(t *testing.T) {
 	require.Equal(t, "1", retryAfter)
 	for _, offer := range handler.offers() {
 		report := completedProgramToolCall(`1`)
-		report.ProcessID, report.Key = offer.ProcessID, offer.Key
+		report.ProcessID, report.Key, report.OfferID = offer.ProcessID, offer.Key, offer.OfferID
 		handler.report(report)
 	}
 	wg.Wait()
@@ -439,7 +455,7 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 		go func() {
 			<-approved
 			report := completedProgramToolCall(`{"files":["x/a"]}`)
-			report.ProcessID, report.Key = offer.ProcessID, offer.Key
+			report.ProcessID, report.Key, report.OfferID = offer.ProcessID, offer.Key, offer.OfferID
 			client.programToolCalls.report(report)
 		}()
 		return []daemonprotocol.ToolCallReport{{ProgramToolCallResult: daemonprotocol.ProgramToolCallResult{
@@ -532,11 +548,14 @@ func TestProgramToolCallServerCancelsAbandonedCall(t *testing.T) {
 	t.Cleanup(func() { client.clearTransport(transport) })
 
 	abandon := startAbandonedProgramToolCall(t, handler, processID)
-	require.Equal(t, daemonprotocol.MessageToolCallOffer, nextProgramToolCallMessage(t, transport).Type)
+	offered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, offered.Type)
+	require.NotEmpty(t, offered.ToolCallOffer.OfferID)
 	abandon()
 	message := nextProgramToolCallMessage(t, transport)
 	require.Equal(t, daemonprotocol.MessageToolCallCancel, message.Type)
-	require.Equal(t, daemonprotocol.ToolCallCancel{ProcessID: processID, Key: "k-1"}, *message.ToolCallCancel)
+	require.Equal(t, daemonprotocol.ToolCallCancel{ProcessID: processID, Key: "k-1",
+		OfferID: offered.ToolCallOffer.OfferID}, *message.ToolCallCancel, "a cancel names the offer it ends")
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 }
 

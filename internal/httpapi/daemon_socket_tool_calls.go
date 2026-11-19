@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,9 +65,22 @@ func rejectToolCall(code, format string, args ...any) error {
 		message: fmt.Sprintf(format, args...)}
 }
 
+// servedToolCall is one key of one process being served on this socket. A key is served by a single
+// goroutine however often it is offered; offerID is the offer that goroutine currently answers.
 type servedToolCall struct {
 	canceled chan struct{}
 	done     chan struct{}
+	// reoffered is signaled when next is set.
+	reoffered chan struct{}
+	// offerID and next are guarded by the socket's workMu. next is the latest offer of the key that
+	// arrived while it was being served. It is admitted against the stored call before it is answered.
+	offerID string
+	next    *daemonprotocol.ToolCallOffer
+}
+
+func newServedToolCall(offer daemonprotocol.ToolCallOffer) *servedToolCall {
+	return &servedToolCall{canceled: make(chan struct{}), done: make(chan struct{}),
+		reoffered: make(chan struct{}, 1), offerID: offer.OfferID}
 }
 
 func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotocol.Message) error {
@@ -78,48 +92,65 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 		return errors.New("tool_call_offer process_id and key are required")
 	}
 	id := offer.ProcessID + "\x00" + offer.Key
-	call := &servedToolCall{canceled: make(chan struct{}), done: make(chan struct{})}
 	s.workMu.Lock()
-	_, serving := s.toolCalls[id]
-	full := len(s.toolCalls) >= daemonToolCallLimit
-	// The same key offered again after a cancel: let that cancel finish first, so this offer sees
-	// what it left.
-	canceling := s.toolCallsCanceling[id]
-	if !serving && !full {
-		s.toolCalls[id] = call
-		s.toolCallsDone.Add(1)
+	if serving, ok := s.toolCalls[id]; ok {
+		// The same offer sent twice is served once. A new offer of the key waits for the goroutine
+		// serving it, which checks it against the stored call.
+		if serving.offerID != offer.OfferID {
+			serving.next = &offer
+			select {
+			case serving.reoffered <- struct{}{}:
+			default:
+			}
+		}
+		s.workMu.Unlock()
+		return nil
 	}
-	s.workMu.Unlock()
-	switch {
-	case serving:
-	case full:
+	// A call counts until its goroutine exits, whether or not it has been canceled.
+	if s.toolCallsActive >= daemonToolCallLimit {
+		s.workMu.Unlock()
 		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
 			AckStatus: daemonprotocol.AckStatusTransientError, ErrorCode: daemonprotocol.ErrorCodeToolCallLimitReached,
 			Error: "this machine has too many tool calls in flight; wait for one to finish"})
-	default:
-		go func() {
-			defer s.toolCallsDone.Done()
-			defer func() {
-				s.workMu.Lock()
-				if s.toolCalls[id] == call {
-					delete(s.toolCalls, id)
-				}
-				if s.toolCallsCanceling[id] == call {
-					delete(s.toolCallsCanceling, id)
-				}
-				s.workMu.Unlock()
-				close(call.done)
-			}()
-			if canceling != nil {
-				select {
-				case <-canceling.done:
-				case <-ctx.Done():
-					return
-				}
-			}
-			s.serveToolCall(ctx, offer, call.canceled)
-		}()
+		return nil
 	}
+	call := newServedToolCall(offer)
+	// The same key offered again after a cancel: let that cancel finish first, so this offer sees
+	// what it left.
+	canceling := s.toolCallsCanceling[id]
+	s.toolCalls[id] = call
+	s.toolCallsActive++
+	s.toolCallsDone.Add(1)
+	s.workMu.Unlock()
+	go func() {
+		defer s.toolCallsDone.Done()
+		defer func() {
+			s.workMu.Lock()
+			if s.toolCalls[id] == call {
+				delete(s.toolCalls, id)
+			}
+			if s.toolCallsCanceling[id] == call {
+				delete(s.toolCallsCanceling, id)
+			}
+			s.toolCallsActive--
+			next := call.next
+			call.next = nil
+			s.workMu.Unlock()
+			close(call.done)
+			// An offer that arrived too late for this goroutine to answer is served afresh.
+			if next != nil && ctx.Err() == nil {
+				_ = s.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: next})
+			}
+		}()
+		if canceling != nil {
+			select {
+			case <-canceling.done:
+			case <-ctx.Done():
+				return
+			}
+		}
+		s.serveToolCall(ctx, offer, call)
+	}()
 	return nil
 }
 
@@ -127,21 +158,28 @@ func (s *daemonSocket) handleToolCallCancel(msg daemonprotocol.Message) error {
 	if msg.ToolCallCancel == nil {
 		return errors.New("tool_call_cancel payload is required")
 	}
-	id := msg.ToolCallCancel.ProcessID + "\x00" + msg.ToolCallCancel.Key
+	cancel := *msg.ToolCallCancel
+	id := cancel.ProcessID + "\x00" + cancel.Key
 	s.workMu.Lock()
-	if call, serving := s.toolCalls[id]; serving {
+	defer s.workMu.Unlock()
+	call, serving := s.toolCalls[id]
+	switch {
+	case !serving:
+	case call.next != nil && call.next.OfferID == cancel.OfferID:
+		call.next = nil
+	case cancel.OfferID == "" || cancel.OfferID == call.offerID:
+		// The call keeps its place in the limit until its goroutine exits.
 		close(call.canceled)
 		delete(s.toolCalls, id)
 		s.toolCallsCanceling[id] = call
 	}
-	s.workMu.Unlock()
 	return nil
 }
 
 func (s *daemonSocket) reportToolCall(
 	ctx context.Context, offer daemonprotocol.ToolCallOffer, report daemonprotocol.ToolCallReport,
 ) {
-	report.ProcessID, report.Key = offer.ProcessID, offer.Key
+	report.ProcessID, report.Key, report.OfferID = offer.ProcessID, offer.Key, offer.OfferID
 	msg := daemonprotocol.Message{Type: daemonprotocol.MessageToolCallReport, ToolCallReport: &report}
 	if encoded, err := json.Marshal(msg); err != nil || len(encoded) > daemonprotocol.MaxMessageBytes {
 		report.Outcome = daemonprotocol.ProgramToolCallOutcomeFailed
@@ -158,18 +196,28 @@ func (s *daemonSocket) reportToolCall(
 	}
 }
 
+func (s *daemonSocket) rejectToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer, err error) {
+	rejection := programToolCallRejection(s.server, err)
+	s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
+		AckStatus: rejection.status, ErrorCode: rejection.code, Error: rejection.message})
+}
+
+// nextToolCallOffer takes the offer waiting on call, if any.
+func (s *daemonSocket) nextToolCallOffer(call *servedToolCall) *daemonprotocol.ToolCallOffer {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
+	next := call.next
+	call.next = nil
+	return next
+}
+
 func (s *daemonSocket) serveToolCall(
-	ctx context.Context, offer daemonprotocol.ToolCallOffer, canceled <-chan struct{},
+	ctx context.Context, offer daemonprotocol.ToolCallOffer, call *servedToolCall,
 ) {
 	server := s.server
-	reject := func(err error) {
-		rejection := programToolCallRejection(server, err)
-		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
-			AckStatus: rejection.status, ErrorCode: rejection.code, Error: rejection.message})
-	}
 	ref, result, err := server.offerProgramToolCall(ctx, s.orgID, s.machineID, offer)
 	if err != nil {
-		reject(err)
+		s.rejectToolCall(ctx, offer, err)
 		return
 	}
 	if result != nil {
@@ -178,10 +226,12 @@ func (s *daemonSocket) serveToolCall(
 	}
 	poll := programToolCallFallbackPoll
 	updates := make(chan struct{}, 1)
+	var watching atomic.Value
+	watching.Store(ref.ToolCallID)
 	if server.agentToolCallUpdateSubscriber != nil {
 		subscription, err := server.agentToolCallUpdateSubscriber.SubscribeAgentToolCallUpdates(ctx, ref.AgentID,
 			func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
-				if update.ToolCallID != ref.ToolCallID {
+				if update.ToolCallID != watching.Load() {
 					return
 				}
 				select {
@@ -196,6 +246,11 @@ func (s *daemonSocket) serveToolCall(
 			poll = programToolCallPoll
 		}
 	}
+	// A run this goroutine started that is still waiting for capacity stops when the goroutine
+	// exits, so runs waiting their turn are bounded by the calls being served.
+	abandoned := make(chan struct{})
+	defer close(abandoned)
+	canceled := call.canceled
 	var running <-chan struct{}
 	claim, awaitingApproval, canceling := true, false, false
 	var reclaimAfter time.Time
@@ -211,7 +266,7 @@ func (s *daemonSocket) serveToolCall(
 		}
 		if err != nil {
 			if ctx.Err() == nil {
-				reject(err)
+				s.rejectToolCall(ctx, offer, err)
 			}
 			return
 		}
@@ -244,14 +299,14 @@ func (s *daemonSocket) serveToolCall(
 		case executionstore.ToolCallStateAwaitingAuthorization, executionstore.ToolCallStateReady:
 			if claim && running == nil && !canceling {
 				//nolint:contextcheck // the run outlives this socket's context
-				running = server.runProgramToolCall(ref)
+				running = server.runProgramToolCall(ref, abandoned)
 			}
 		case executionstore.ToolCallStateWaiting:
 			if claim && running == nil && !canceling && record.Type == toolcatalog.ToolTypeBuiltIn &&
 				!time.Now().Before(reclaimAfter) {
 				reclaimAfter = time.Now().Add(programToolCallLease / 3)
 				//nolint:contextcheck // the run outlives this socket's context
-				running = server.runProgramToolCall(ref)
+				running = server.runProgramToolCall(ref, abandoned)
 			}
 		case executionstore.ToolCallStateRunning:
 		}
@@ -269,6 +324,31 @@ func (s *daemonSocket) serveToolCall(
 		case <-canceled:
 			timer.Stop()
 			canceling, canceled = true, nil
+		case <-call.reoffered:
+			timer.Stop()
+			next := s.nextToolCallOffer(call)
+			if next == nil {
+				continue
+			}
+			// The key was offered again. Admit that offer against the stored call like any other, and
+			// answer it under its own offer ID: it gets this call only if it asks for the same thing.
+			nextRef, result, err := server.offerProgramToolCall(ctx, s.orgID, s.machineID, *next)
+			switch {
+			case err != nil:
+				s.rejectToolCall(ctx, *next, err)
+			case result != nil:
+				s.reportToolCall(ctx, *next, daemonprotocol.ToolCallReport{ProgramToolCallResult: *result})
+			default:
+				s.workMu.Lock()
+				call.offerID = next.OfferID
+				s.workMu.Unlock()
+				offer, awaitingApproval = *next, false
+				if nextRef.ToolCallID != ref.ToolCallID {
+					ref = nextRef
+					watching.Store(ref.ToolCallID)
+					running, claim, reclaimAfter = nil, true, time.Time{}
+				}
+			}
 		case <-timer.C:
 		}
 	}
@@ -340,7 +420,7 @@ func (s *Server) offerProgramToolCall(
 	// has not started yet still has to pass those checks.
 	create := executionstore.CreateProgramToolCallInput{
 		ProjectID: program.ProjectID, AgentID: program.AgentID, ProcessID: program.ProcessID,
-		Key: key, Name: offer.Name, Input: offer.Input,
+		Key: key, Named: offer.KeepOnDisconnect, Name: offer.Name, Input: offer.Input,
 	}
 	existing, resumed, err := s.store.Execution().ResumeProgramToolCall(ctx, create)
 	if err != nil {
@@ -372,7 +452,9 @@ func (s *Server) offerProgramToolCall(
 		ProcessID: record.ProcessID, ToolCallID: record.ID}, nil, nil
 }
 
-func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-chan struct{} {
+// runProgramToolCall claims and runs the call. abandoned stops a run that is still waiting for
+// capacity; a run that has claimed the call finishes on its own.
+func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef, abandoned <-chan struct{}) <-chan struct{} {
 	done := make(chan struct{})
 	if !s.programToolRuns.start() {
 		close(done)
@@ -389,7 +471,7 @@ func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-cha
 		}()
 		ctx, cancel := context.WithCancel(s.daemonHub.ctx)
 		defer cancel()
-		if !s.programToolRuns.acquire(ctx) {
+		if !s.programToolRuns.acquire(ctx, abandoned) {
 			return
 		}
 		defer s.programToolRuns.release()
@@ -451,13 +533,15 @@ type programToolRuns struct {
 	slots chan struct{}
 }
 
-func (r *programToolRuns) acquire(ctx context.Context) bool {
+func (r *programToolRuns) acquire(ctx context.Context, abandoned <-chan struct{}) bool {
 	if r.slots == nil {
 		return true
 	}
 	select {
 	case r.slots <- struct{}{}:
 		return true
+	case <-abandoned:
+		return false
 	case <-ctx.Done():
 		return false
 	}

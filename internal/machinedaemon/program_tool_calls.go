@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -237,6 +238,9 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request could not be read")
 		return
 	}
+	// The server answers this request by its offer ID, never by its key alone: the key may still
+	// name an earlier request that stopped waiting.
+	offer.OfferID = uuid.NewString()
 	id := processID + "\x00" + offer.Key
 	call := &programToolCall{offer: offer, changed: make(chan struct{}, 1)}
 	h.mu.Lock()
@@ -336,7 +340,7 @@ func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	call, ok := h.calls[report.ProcessID+"\x00"+report.Key]
-	if !ok {
+	if !ok || call.offer.OfferID != report.OfferID {
 		return
 	}
 	call.report = &report
@@ -383,7 +387,8 @@ func (t *daemonSocketTransport) offerToolCall(ctx context.Context, offer daemonp
 
 func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
 	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel,
-		ToolCallCancel: &daemonprotocol.ToolCallCancel{ProcessID: offer.ProcessID, Key: offer.Key}})
+		ToolCallCancel: &daemonprotocol.ToolCallCancel{
+			ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}})
 }
 
 func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {

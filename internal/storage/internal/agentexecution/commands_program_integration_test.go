@@ -658,3 +658,131 @@ func TestProgramToolKeyResumesAcrossCommands(t *testing.T) {
 	require.False(t, replay.Created)
 	require.Equal(t, retry.ID, replay.ID)
 }
+
+// A call the command named with its own key belongs to the agent and that key. It keeps running,
+// or waiting for approval, after the command that made it has ended, and a rerun picks it up.
+func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
+	f := newProgramFixture(t)
+	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
+	named := func(owner programFixture, key, toolType string) agentexecution.ProgramTool {
+		t.Helper()
+		var tool agentexecution.ProgramTool
+		owner.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+			var err error
+			tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+				ProcessID: owner.process, Key: programKey(key), Named: true, Name: "storage_read", Type: toolType,
+				Input: json.RawMessage(`{"path":"a"}`)})
+			require.NoError(t, err)
+		})
+		return tool
+	}
+	resume := func(h *agentexecution.Handle, key string) (agentexecution.ProgramTool, bool) {
+		t.Helper()
+		tool, found, err := h.ResumeProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: second.process, Key: programKey(key), Named: true, Name: "storage_read",
+			Input: json.RawMessage(`{"path":"a"}`)})
+		require.NoError(t, err)
+		return tool, found
+	}
+
+	running := named(f, "running", "mcp")
+	runClaim := uuid.New()
+	runRef := agentexecution.ProgramToolRef{ID: running.ID, ProcessID: f.process, ClaimID: runClaim}
+	_, found := f.claim(t, running.ID, runClaim)
+	require.True(t, found)
+	asking := named(f, "asking", "built_in")
+	askClaim := uuid.New()
+	_, found = f.claim(t, asking.ID, askClaim)
+	require.True(t, found)
+	idle := named(f, "idle", "built_in")
+	var interaction agentexecution.Interaction
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		started, err := h.AuthorizeProgramTool(t.Context(), runRef, time.Minute)
+		require.NoError(t, err)
+		require.True(t, started)
+		interaction, err = h.OpenProgramPermission(t.Context(),
+			agentexecution.ProgramToolRef{ID: asking.ID, ProcessID: f.process, ClaimID: askClaim},
+			programPermission(t), nil)
+		require.NoError(t, err)
+	})
+
+	_, err := f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
+ exit_code=0 WHERE id=$1`, f.process)
+	require.NoError(t, err)
+	f.try(t, func(h *agentexecution.Handle) {
+		_, err := h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: f.process, Key: programKey("late"), Named: true, Name: "storage_read", Type: "built_in",
+			Input: json.RawMessage(`{}`)})
+		require.ErrorIs(t, err, storeerr.ErrProcessTerminal, "an ended command makes no new calls")
+	})
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	reapable, err := cell.ListProgramToolReapable(t.Context(), agentexecution.ReapableProgramTool{}, 10)
+	require.NoError(t, err)
+	require.Empty(t, reapable, "named calls are not reaped with their command")
+	require.NoError(t, cell.RenewProgramTool(t.Context(), f.agent, runRef, time.Minute),
+		"the server running a named call keeps its claim after the command ends")
+
+	// A rerun from another command gets the live execution, not an unknown outcome.
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		tool, found := resume(h, "running")
+		require.True(t, found)
+		require.Equal(t, []any{running.ID, f.process, "waiting"}, []any{tool.ID, tool.ProcessID, tool.State})
+	})
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.CompleteProgramTool(t.Context(), runRef, "succeeded",
+			[]agentexecution.Content{{Kind: "text", Text: "done"}})
+		require.NoError(t, err, "the original execution still records its result")
+	})
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		tool, found := resume(h, "running")
+		require.True(t, found)
+		require.Equal(t, []any{running.ID, "completed"}, []any{tool.ID, tool.State})
+	})
+	state, outcome := programState(t, f, running.ID)
+	require.Equal(t, []string{"completed", "succeeded"}, []string{state, outcome})
+
+	// A rerun gets the original approval wait, and that approval still releases the call.
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		tool, found := resume(h, "asking")
+		require.True(t, found)
+		require.Equal(t, []any{asking.ID, "awaiting_permission"}, []any{tool.ID, tool.State})
+		_, err := h.ResolveInteraction(t.Context(), agentexecution.ResolveInteractionInput{ID: interaction.ID,
+			Resolution: interactionform.Resolution{Answers: []interactionform.Answer{
+				{OptionIndices: []int{toolpermission.AllowOptionIndex}}}}})
+		require.NoError(t, err)
+	})
+	var interactions int
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM agent_interactions WHERE agent_id=$1`, f.agent).Scan(&interactions))
+	require.Equal(t, 1, interactions, "the rerun did not open another approval")
+	state, _ = programState(t, f, asking.ID)
+	require.Equal(t, "ready", state)
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, phase, found, err := h.ClaimProgramTool(t.Context(),
+			agentexecution.ProgramToolRef{ID: asking.ID, ProcessID: f.process, ClaimID: uuid.New()}, time.Minute)
+		require.NoError(t, err)
+		require.True(t, found, "the approved call can be run after its command ended")
+		require.Equal(t, agentexecution.ProgramToolExecute, phase)
+	})
+
+	// A named call nothing picks up is ended once its lifetime has passed, and its key is free again.
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		reaped, err := h.ReapProgramTool(t.Context(), idle.ID)
+		require.NoError(t, err)
+		require.False(t, reaped)
+	})
+	defer agentexecution.SetProgramToolNamedLifetime(0)()
+	reapable, err = cell.ListProgramToolReapable(t.Context(), agentexecution.ReapableProgramTool{}, 10)
+	require.NoError(t, err)
+	require.Len(t, reapable, 1, "a claimed call is left to the server running it")
+	require.Equal(t, idle.ID, reapable[0].ID)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		reaped, err := h.ReapProgramTool(t.Context(), idle.ID)
+		require.NoError(t, err)
+		require.True(t, reaped)
+	})
+	state, outcome = programState(t, f, idle.ID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+	retry := named(second, "idle", "built_in")
+	require.True(t, retry.Created)
+}

@@ -37,8 +37,8 @@ type ProgramToolCallRequest struct {
 	Key   string          `json:"key"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
-	// KeepOnDisconnect leaves the call open when its command stops waiting, so the command can
-	// offer the key again to pick it up. Set when the command chose the key.
+	// KeepOnDisconnect leaves the call open when its command stops waiting or ends, so a command of
+	// the same agent can offer the key again to pick it up. Set when the command chose the key.
 	KeepOnDisconnect bool `json:"keep_on_disconnect,omitempty"`
 }
 
@@ -58,12 +58,16 @@ type ProgramToolCallContent struct {
 
 type ToolCallOffer struct {
 	ProcessID string `json:"process_id"`
+	// OfferID identifies this offer of the key. A key can be offered again, by a rerun or with a
+	// different input, so reports and cancels carry the offer they belong to.
+	OfferID string `json:"offer_id,omitempty"`
 	ProgramToolCallRequest
 }
 
 type ToolCallReport struct {
 	ProcessID string `json:"process_id"`
 	Key       string `json:"key"`
+	OfferID   string `json:"offer_id,omitempty"`
 	ProgramToolCallResult
 	AckStatus AckStatus `json:"ack_status,omitempty"`
 	ErrorCode string    `json:"error_code,omitempty"`
@@ -73,4 +77,5 @@ type ToolCallReport struct {
 type ToolCallCancel struct {
 	ProcessID string `json:"process_id"`
 	Key       string `json:"key"`
+	OfferID   string `json:"offer_id,omitempty"`
 }

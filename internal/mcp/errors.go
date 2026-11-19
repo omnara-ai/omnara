@@ -66,6 +66,33 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("mcp: unexpected HTTP status %d: %s", e.Status, e.Body)
 }
 
+// ResponseLostError reports that a tool call reached its server but no usable answer came back: the
+// connection dropped, the reply could not be read, or a gateway answered in the server's place. The
+// call may or may not have taken effect. Err is what was observed.
+type ResponseLostError struct {
+	Err error
+}
+
+func (e *ResponseLostError) Error() string { return e.Err.Error() }
+
+func (e *ResponseLostError) Unwrap() error { return e.Err }
+
+// responseLost reports whether err, seen after a request was written, leaves the request's effect
+// unknown. A JSON-RPC error and a 4xx status are the server's own answer, and an expired session is
+// retried. A canceled or timed-out request is reported as interrupted by its caller.
+func responseLost(err error) bool {
+	var rpcErr *RPCError
+	if errors.As(err, &rpcErr) || errors.Is(err, ErrSessionExpired) ||
+		errors.Is(err, context.Canceled) || IsTimeout(err) {
+		return false
+	}
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status >= http.StatusInternalServerError
+	}
+	return true
+}
+
 type RPCError struct {
 	Code       int
 	Message    string

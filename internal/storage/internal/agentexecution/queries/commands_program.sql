@@ -3,19 +3,21 @@ SELECT p.id,p.tool_call_id,(p.execution_granted_at IS NOT NULL AND p.state IN ('
 FROM processes p WHERE p.agent_id=sqlc.arg(agent_id) AND p.id=sqlc.arg(id) FOR SHARE;
 
 -- name: InsertProgramTool :one
-INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
+INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
+ program_named,created_at)
 SELECT sqlc.arg(id),c.project_id,c.agent_id,sqlc.arg(key),sqlc.arg(name),sqlc.arg(input)::jsonb,sqlc.arg(type),
- 'awaiting_authorization','program',c.id,statement_timestamp()
+ 'awaiting_authorization','program',c.id,sqlc.arg(named)::boolean,statement_timestamp()
 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(parent_id) AND c.caller='model'
 ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
 RETURNING id;
 
 -- name: CountOpenProgramTools :one
+-- Named calls outlive their command, so every open one counts against each command of the agent.
 SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
- AND parent_tool_call_id=sqlc.arg(parent_id)::uuid AND state<>'completed';
+ AND (parent_tool_call_id=sqlc.arg(parent_id)::uuid OR program_named) AND state<>'completed';
 
 -- name: ReadProgramTool :one
-SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
@@ -24,7 +26,7 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.caller='program' AND c.id=sqlc.arg(id)
 FOR UPDATE OF c;
 
 -- name: ReadProgramToolByKey :one
-SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
@@ -47,14 +49,17 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
  AND c.state IN ('awaiting_authorization','waiting') AND c.program_claim_id=sqlc.arg(claim_id)
  AND c.program_claim_expires_at>statement_timestamp()
  AND EXISTS(SELECT 1 FROM processes p WHERE p.agent_id=c.agent_id AND p.id=sqlc.arg(process_id)
- AND p.tool_call_id=c.parent_tool_call_id AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
+ AND p.tool_call_id=c.parent_tool_call_id
+ AND (c.program_named OR (p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))))
 RETURNING c.program_claim_expires_at;
 
 -- name: ListProgramToolReapable :many
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
-WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active' OR p.execution_granted_at IS NULL
- OR p.state NOT IN ('starting','running')
+WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
+ OR ((p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
+  OR (c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'
+   AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
  AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)
 ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
