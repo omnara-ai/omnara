@@ -703,7 +703,7 @@ it('creates a preset provider and continues straight into the model picker', asy
   expect(button('Skip for now')).toBeDefined()
 })
 
-it('submits the OpenLake endpoint without opening Advanced', async () => {
+it('submits the OpenLake preset without opening Advanced', async () => {
   const api = providerApi()
   await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
   await selectOption(element('#mp-provider'), 'OpenLake')
@@ -715,8 +715,7 @@ it('submits the OpenLake endpoint without opening Advanced', async () => {
     {
       name: 'production-openlake',
       credential_secret_id: credentialSecret.id,
-      api_format: 'openai-chat-completions',
-      base_url: 'https://api.theopenlake.com/v1',
+      preset: 'openlake',
     },
   ])
 })

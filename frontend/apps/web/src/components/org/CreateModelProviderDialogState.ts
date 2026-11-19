@@ -45,7 +45,7 @@ export const modelProviderOptions = [
     value: 'openlake',
     label: 'OpenLake',
     keyPlaceholder: 'OpenLake API key',
-    serverPreset: undefined,
+    serverPreset: 'openlake',
     endpoint: { baseUrl: 'https://api.theopenlake.com/v1', apiFormat: 'openai-chat-completions' },
   },
   {
