@@ -191,6 +191,55 @@ func TestWebSocketRetryAfterSurvivesRuntimeReconciliation(t *testing.T) {
 	}
 }
 
+func TestWebSocketMachineTokenNotInjectedIsNotRevocation(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		code    string
+		want    error
+		notWant error
+	}{
+		"machine token not injected": {
+			code:    daemonprotocol.ErrorCodeMachineTokenNotInjected,
+			want:    errDaemonRuntimeUnregistered,
+			notWant: errDaemonAuthorizationRevoked,
+		},
+		"rejected machine token": {
+			code:    "unauthorized",
+			want:    errDaemonAuthorizationRevoked,
+			notWant: errDaemonRuntimeUnregistered,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, _ *http.Request) {
+					http.Error(w, `{"code":"`+test.code+`"}`, http.StatusUnauthorized)
+				},
+			))
+			t.Cleanup(server.Close)
+			client := New(
+				Config{
+					APIURL:       server.URL,
+					MachineToken: daemonprotocol.ProviderInjectedMachineToken,
+				},
+				server.Client(),
+				nil,
+			)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := client.runRegisteredRuntime(
+				ctx,
+				DaemonRuntime{ID: "drt_machine_token_not_injected", NextHeartbeatAfterMS: 1_000},
+				localStartupState{},
+			)
+			if !errors.Is(err, test.want) || errors.Is(err, test.notWant) {
+				t.Fatalf("runtime error = %v, want %v and not %v", err, test.want, test.notWant)
+			}
+		})
+	}
+}
+
 func TestHeartbeatAcknowledgementMarksConnectionHealthy(t *testing.T) {
 	t.Parallel()
 

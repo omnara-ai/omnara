@@ -183,9 +183,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 							r.Context(),
 							logent.AuthSchemeBearer,
 							logent.TokenKindMachineDaemon,
-							logent.AuthResultUnavailable,
+							logent.AuthResultMachineTokenNotInjected,
 						)
-						apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+						s.writeUnauthorized(w, r, openapi.ErrorCodeMachineTokenNotInjected)
 						return
 					}
 				}
@@ -212,7 +212,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 					kind,
 					logent.AuthResultUnauthorized,
 				)
-				s.writeUnauthorized(w, r)
+				s.writeUnauthorized(w, r, openapi.ErrorCodeUnauthorized)
 				return
 			}
 			sessionCookie, cookieErr := httpauth.BrowserSessionCookie(r, s.publicURL)
@@ -269,15 +269,17 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				logent.AuthResultUnauthorized,
 			)
 		}
-		s.writeUnauthorized(w, r)
+		s.writeUnauthorized(w, r, openapi.ErrorCodeUnauthorized)
 	})
 }
 
-func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
+func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request, code openapi.ErrorCode) {
+	challenge := "Bearer"
 	if r.URL.Path == apimcp.Path {
-		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+s.mcpProtectedResourceMetadataURL(r)+`"`)
+		challenge = `Bearer resource_metadata="` + s.mcpProtectedResourceMetadataURL(r) + `"`
 	}
-	apierror.Write(w, openapi.ErrorCodeUnauthorized)
+	w.Header().Set("WWW-Authenticate", challenge)
+	apierror.Write(w, code)
 }
 
 func (s *Server) authenticateBearerToken(
