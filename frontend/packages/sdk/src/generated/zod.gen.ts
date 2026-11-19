@@ -1631,7 +1631,7 @@ export const zTextContentBlock = z.object({
 });
 
 /**
- * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents. Audio (WAV, MP3, M4A, FLAC) is sent directly only to Chat Completions models whose input modalities allow audio; other models receive the artifact ID and the filename.
  */
 export const zInlineMediaContentBlock = z.object({
     type: z.enum(['media']),
@@ -1640,6 +1640,10 @@ export const zInlineMediaContentBlock = z.object({
         'image/jpeg',
         'image/gif',
         'image/webp',
+        'audio/wav',
+        'audio/mpeg',
+        'audio/mp4',
+        'audio/flac',
         'application/pdf',
         'text/plain',
         'text/markdown',

@@ -8,11 +8,17 @@ type mediaTypeInfo struct {
 const (
 	AttachmentKindImage    = "image"
 	AttachmentKindDocument = "document"
+	AttachmentKindAudio    = "audio"
 
 	mediaTypeImagePNG  = "image/png"
 	mediaTypeImageJPEG = "image/jpeg"
 	mediaTypeImageGIF  = "image/gif"
 	mediaTypeImageWebP = "image/webp"
+
+	mediaTypeAudioWAV  = "audio/wav"
+	mediaTypeAudioMPEG = "audio/mpeg"
+	mediaTypeAudioMP4  = "audio/mp4"
+	mediaTypeAudioFLAC = "audio/flac"
 
 	mediaTypeApplicationPDF     = "application/pdf"
 	mediaTypeTextPlain          = "text/plain"
@@ -38,6 +44,10 @@ var attachmentMediaTypes = map[string]mediaTypeInfo{
 	mediaTypeImageJPEG:          {Kind: AttachmentKindImage, Extension: ".jpg"},
 	mediaTypeImageGIF:           {Kind: AttachmentKindImage, Extension: ".gif"},
 	mediaTypeImageWebP:          {Kind: AttachmentKindImage, Extension: ".webp"},
+	mediaTypeAudioWAV:           {Kind: AttachmentKindAudio, Extension: ".wav"},
+	mediaTypeAudioMPEG:          {Kind: AttachmentKindAudio, Extension: ".mp3"},
+	mediaTypeAudioMP4:           {Kind: AttachmentKindAudio, Extension: ".m4a"},
+	mediaTypeAudioFLAC:          {Kind: AttachmentKindAudio, Extension: ".flac"},
 	mediaTypeApplicationPDF:     {Kind: AttachmentKindDocument, Extension: ".pdf"},
 	mediaTypeTextPlain:          {Kind: AttachmentKindDocument, Extension: ".txt"},
 	mediaTypeTextMarkdown:       {Kind: AttachmentKindDocument, Extension: ".md"},
@@ -55,6 +65,36 @@ var attachmentMediaTypes = map[string]mediaTypeInfo{
 	mediaTypeApplicationDOCX:    {Kind: AttachmentKindDocument, Extension: ".docx"},
 	mediaTypeApplicationPPTX:    {Kind: AttachmentKindDocument, Extension: ".pptx"},
 	mediaTypeApplicationXLSX:    {Kind: AttachmentKindDocument, Extension: ".xlsx"},
+}
+
+var attachmentMediaTypeAliases = map[string]string{
+	"image/jpg":      mediaTypeImageJPEG,
+	"audio/x-wav":    mediaTypeAudioWAV,
+	"audio/wave":     mediaTypeAudioWAV,
+	"audio/vnd.wave": mediaTypeAudioWAV,
+	"audio/mp3":      mediaTypeAudioMPEG,
+	"audio/x-m4a":    mediaTypeAudioMP4,
+	"audio/m4a":      mediaTypeAudioMP4,
+	"audio/x-flac":   mediaTypeAudioFLAC,
+}
+
+// CanonicalAttachmentMediaType maps common aliases reported by chat platforms
+// and content sniffing to the media type Omnara stores.
+func CanonicalAttachmentMediaType(mediaType string) string {
+	if canonical, ok := attachmentMediaTypeAliases[mediaType]; ok {
+		return canonical
+	}
+	return mediaType
+}
+
+// AudioInputFormat returns the Chat Completions input_audio format for an
+// audio attachment media type.
+func AudioInputFormat(mediaType string) (string, bool) {
+	info, ok := attachmentMediaTypes[mediaType]
+	if !ok || info.Kind != AttachmentKindAudio {
+		return "", false
+	}
+	return info.Extension[1:], true
 }
 
 func AttachmentKindForMediaType(mediaType string) (string, bool) {

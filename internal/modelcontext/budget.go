@@ -191,6 +191,9 @@ func replaceMediaContent(content any, encodedMedia map[string][]int) int {
 		case "image_url":
 			payload, _ = block["image_url"].(map[string]any)
 			field = "url"
+		case "input_audio":
+			payload, _ = block["input_audio"].(map[string]any)
+			field = "data"
 		case "image", "document":
 			payload, _ = block["source"].(map[string]any)
 			if payload["type"] != "base64" {

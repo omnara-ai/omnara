@@ -13,7 +13,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
-const claudeImageBase64Limit = 5_000_000
+const (
+	claudeImageBase64Limit = 5_000_000
+	minAudioTokenEstimate  = 256
+)
 
 func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
 	var rendered []modelcontext.RenderedMedia
@@ -55,6 +58,11 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 			if rendersAsChatText(item) {
 				representation = modelcontext.MediaRepresentationInlineText
 			}
+		case modelcontext.AttachmentKindAudio:
+			if !p.client.rendersAudio(occurrence) {
+				continue
+			}
+			tokenEstimate = audioTokenEstimate(item)
 		default:
 			continue
 		}
@@ -67,6 +75,21 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		})
 	}
 	return rendered
+}
+
+// Audio is sent as input_audio only in user messages and only when the model's
+// input modalities allow it; otherwise the model sees the artifact reference.
+func (c Client) rendersAudio(occurrence modelcontext.ResolvedMediaOccurrence) bool {
+	if occurrence.IsToolResult() {
+		return false
+	}
+	return c.ModelCapabilities.AllowsInputModality(modelcontext.InputModalityAudio)
+}
+
+// Providers bill audio by duration, which is unknown here. Compressed formats
+// run near 2 tokens per KB, so size gives a conservative estimate for all four.
+func audioTokenEstimate(item modelcontext.ResolvedMedia) int {
+	return max(minAudioTokenEstimate, int(item.SizeBytes/512))
 }
 
 func isClaudeModelSlug(slug string) bool {
@@ -95,8 +118,15 @@ func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]mod
 		if len(resolved.Data) == 0 {
 			continue
 		}
-		if resolved.Kind != modelcontext.AttachmentKindImage &&
-			(resolved.Kind != modelcontext.AttachmentKindDocument || !rendersAsChatDocument(resolved)) {
+		// Only media the projector selected carries data, so audio reaches
+		// here only for models that accept it.
+		switch resolved.Kind {
+		case modelcontext.AttachmentKindImage, modelcontext.AttachmentKindAudio:
+		case modelcontext.AttachmentKindDocument:
+			if !rendersAsChatDocument(resolved) {
+				continue
+			}
+		default:
 			continue
 		}
 		out[id] = resolved
@@ -159,6 +189,19 @@ func chatMediaPart(resolved modelcontext.ResolvedMedia) (map[string]any, bool) {
 			text = "File: " + strconv.Quote(resolved.Filename) + "\n\n" + text
 		}
 		return map[string]any{"type": "text", "text": text}, true
+	}
+	if resolved.Kind == modelcontext.AttachmentKindAudio {
+		format, ok := modelcontext.AudioInputFormat(resolved.MediaType)
+		if !ok {
+			return nil, false
+		}
+		return map[string]any{
+			"type": "input_audio",
+			"input_audio": map[string]string{
+				"data":   base64.StdEncoding.EncodeToString(resolved.Data),
+				"format": format,
+			},
+		}, true
 	}
 	dataMediaType := resolved.MediaType
 	if dataMediaType == "text/tab-separated-values" {

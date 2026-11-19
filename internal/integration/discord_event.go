@@ -428,8 +428,10 @@ func discordInboxDownload(
 		return IntegrationInboxFile{}, storeerr.ErrIdempotencyConflict
 	}
 	contentType, _, _ := mime.ParseMediaType(download.Attachment.ContentType)
+	contentType = modelcontext.CanonicalAttachmentMediaType(contentType)
 	if !modelcontext.IsAttachmentMedia(contentType) {
 		contentType, _, _ = mime.ParseMediaType(http.DetectContentType(download.Content))
+		contentType = modelcontext.CanonicalAttachmentMediaType(contentType)
 		if !modelcontext.IsAttachmentMedia(contentType) {
 			contentType = ""
 		}
