@@ -17,6 +17,10 @@ const SecretCombobox = createResourceCombobox<Secret>({
   placeholder: 'Select secret',
 })
 
+function withSecret(secrets: Secret[], secret: Secret | null | undefined) {
+  return secret && !secrets.some((item) => item.id === secret.id) ? [secret, ...secrets] : secrets
+}
+
 export function AgentConfigMcpSecretCombobox({
   id,
   required,
@@ -60,25 +64,24 @@ export function AgentConfigMcpSecretCombobox({
     pageSize: 25,
   })
   const listedSecrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
-  const secrets =
-    knownSecret &&
-    matchesServer(knownSecret) &&
-    !listedSecrets.some((secret) => secret.id === knownSecret.id)
-      ? [knownSecret, ...listedSecrets]
-      : listedSecrets
+  const secrets = withSecret(
+    listedSecrets,
+    knownSecret && matchesServer(knownSecret) ? knownSecret : null,
+  )
   const selectedSecretQuery = useProjectAvailableSecret(orgId, projectId, server.secretId)
   const resolvedSecret = selectedSecretQuery.data?.secret
   const selectedSecret =
     secrets.find((secret) => secret.id === server.secretId) ??
-    (resolvedSecret?.id === server.secretId && matchesServer(resolvedSecret)
+    (resolvedSecret?.id === server.secretId && resolvedSecret.kind === secretKind
       ? resolvedSecret
       : null)
+  const items = withSecret(secrets, selectedSecret)
 
   return (
     <SecretCombobox
       id={id}
       required={required}
-      items={secrets}
+      items={items}
       value={selectedSecret}
       onValueChange={(secret) => {
         onChange(secret?.id ?? '')

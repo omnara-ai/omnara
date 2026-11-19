@@ -2,11 +2,14 @@ package secretstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -117,7 +120,7 @@ func (s *Store) createSecretTx(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
-	metadata, err := normalizedSecretMetadata(input.Metadata)
+	metadata, err := secretMetadataJSON(material.Kind, input.Metadata, material.Payload[secrets.KeyMCPURL])
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
@@ -172,6 +175,39 @@ func (s *Store) createSecretTx(
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
 	return record, version, nil
+}
+
+func secretMetadataJSON(
+	kind secrets.Kind,
+	metadata resourcemeta.Metadata,
+	mcpURL string,
+) (json.RawMessage, error) {
+	if kind != SecretKindOAuthTokenSet {
+		return normalizedSecretMetadata(metadata)
+	}
+	labels := resourcemeta.Metadata{}
+	maps.Copy(labels, metadata)
+	delete(labels, secrets.KeyMCPURL)
+	if mcpURL != "" {
+		labels[secrets.KeyMCPURL] = mcpURL
+		if raw, err := normalizedSecretMetadata(labels); err == nil {
+			return raw, nil
+		}
+		delete(labels, secrets.KeyMCPURL)
+	}
+	return normalizedSecretMetadata(labels)
+}
+
+func mirroredStoredMetadata(secret SecretRecord, mcpURL string) (json.RawMessage, bool) {
+	if secret.Kind != SecretKindOAuthTokenSet {
+		return nil, false
+	}
+	labels, err := resourcemeta.FromJSON(secret.Metadata)
+	if err != nil {
+		return nil, false
+	}
+	metadata, err := secretMetadataJSON(secret.Kind, labels, mcpURL)
+	return metadata, err == nil
 }
 
 type insertSecretVersionTxInput struct {
@@ -244,10 +280,6 @@ func (s *Store) UpdateSecretMetadata(
 	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
 	}
-	metadata, err := normalizedSecretMetadata(input.Metadata)
-	if err != nil {
-		return SecretRecord{}, invalidSecretRequest("%v", err)
-	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin update secret metadata: %w", err)
@@ -288,6 +320,16 @@ func (s *Store) UpdateSecretMetadata(
 	}
 	if err := s.authorizeSecretManage(ctx, current, input.Actor); err != nil {
 		return SecretRecord{}, err
+	}
+	mcpURL := ""
+	if current.Kind == SecretKindOAuthTokenSet {
+		if mcpURL, err = s.currentMCPURLTx(ctx, qtx, input.OrgID, input.SecretID); err != nil {
+			return SecretRecord{}, err
+		}
+	}
+	metadata, err := secretMetadataJSON(current.Kind, input.Metadata, mcpURL)
+	if err != nil {
+		return SecretRecord{}, invalidSecretRequest("%v", err)
 	}
 	normalizedName, err := normalizeSecretName(input.Name)
 	if err != nil {
@@ -432,11 +474,15 @@ func (s *Store) CreateSecretVersion(
 			err,
 		)
 	}
+	mcpURL := material.Payload[secrets.KeyMCPURL]
+	metadata, update := mirroredStoredMetadata(secret, mcpURL)
 	if input.SecretMetadata != nil {
-		metadata, err := normalizedSecretMetadata(input.SecretMetadata)
-		if err != nil {
+		if metadata, err = secretMetadataJSON(secret.Kind, input.SecretMetadata, mcpURL); err != nil {
 			return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 		}
+		update = true
+	}
+	if update {
 		if _, err := qtx.UpdateSecretMetadata(
 			ctx,
 			dbsqlc.UpdateSecretMetadataParams{

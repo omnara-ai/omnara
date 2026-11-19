@@ -349,6 +349,74 @@ func TestPublicUserOwnedSecretAndGrantParties(t *testing.T) {
 	}
 }
 
+func TestPublicOAuthSecretMetadataMirrorsMaterialMCPURL(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "secret-mcp-url")
+	headers := authHeaders(project.AdminToken)
+	secretsPath := "/api/v1/orgs/" + project.OrgID + "/secrets"
+	requireMetadata := func(secret map[string]any, want map[string]any) {
+		t.Helper()
+		require.Equal(t, want, secret["metadata"])
+	}
+
+	created := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
+		`{"owner":{"kind":"org"},"name":"mcp-oauth","metadata":{"team":"a","mcp_url":"https://spoof.example/mcp"},"material":{"kind":"oauth_token_set","access_token":"access","mcp_url":"https://mcp.example/one"}}`,
+		"", http.StatusCreated, headers)
+	requireMetadata(created, map[string]any{"team": "a", "mcp_url": "https://mcp.example/one"})
+	secretPath := secretsPath + "/" + testutil.RequireType[string](t, created["id"])
+
+	renamed := requestJSONWithHeaders(t, handler, http.MethodPatch, secretPath,
+		`{"name":"mcp-oauth-renamed"}`, "", http.StatusOK, headers)
+	requireMetadata(renamed, map[string]any{"team": "a", "mcp_url": "https://mcp.example/one"})
+	cleared := requestJSONWithHeaders(t, handler, http.MethodPatch, secretPath,
+		`{"metadata":{}}`, "", http.StatusOK, headers)
+	requireMetadata(cleared, map[string]any{"mcp_url": "https://mcp.example/one"})
+	relabeled := requestJSONWithHeaders(t, handler, http.MethodPatch, secretPath,
+		`{"metadata":{"team":"b","mcp_url":"https://spoof.example/mcp"}}`, "", http.StatusOK, headers)
+	requireMetadata(relabeled, map[string]any{"team": "b", "mcp_url": "https://mcp.example/one"})
+
+	rotated := requestJSONWithHeaders(t, handler, http.MethodPost, secretPath+"/versions",
+		`{"material":{"kind":"oauth_token_set","access_token":"next","mcp_url":"https://mcp.example/two"}}`,
+		"", http.StatusOK, headers)
+	requireMetadata(rotated, map[string]any{"team": "b", "mcp_url": "https://mcp.example/two"})
+	withoutURL := requestJSONWithHeaders(t, handler, http.MethodPost, secretPath+"/versions",
+		`{"material":{"kind":"oauth_token_set","access_token":"last"}}`,
+		"", http.StatusOK, headers)
+	requireMetadata(withoutURL, map[string]any{"team": "b"})
+
+	labels := map[string]any{}
+	pairs := make([]string, 0, 16)
+	for i := range 16 {
+		key := string(rune('a' + i))
+		labels[key] = "v"
+		pairs = append(pairs, `"`+key+`":"v"`)
+	}
+	full := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
+		`{"owner":{"kind":"org"},"name":"full-labels","metadata":{`+strings.Join(pairs, ",")+`},"material":{"kind":"oauth_token_set","access_token":"access","mcp_url":"https://mcp.example/full"}}`,
+		"", http.StatusCreated, headers)
+	requireMetadata(full, labels)
+	fullPath := secretsPath + "/" + testutil.RequireType[string](t, full["id"])
+	fullRotated := requestJSONWithHeaders(t, handler, http.MethodPost, fullPath+"/versions",
+		`{"material":{"kind":"oauth_token_set","access_token":"next","mcp_url":"https://mcp.example/full"}}`,
+		"", http.StatusOK, headers)
+	requireMetadata(fullRotated, labels)
+	restored := requestJSONWithHeaders(t, handler, http.MethodPatch, fullPath,
+		`{"metadata":{}}`, "", http.StatusOK, headers)
+	requireMetadata(restored, map[string]any{"mcp_url": "https://mcp.example/full"})
+	longURL := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
+		`{"owner":{"kind":"org"},"name":"long-url","material":{"kind":"oauth_token_set","access_token":"access","mcp_url":"https://mcp.example/`+strings.Repeat("a", 600)+`"}}`,
+		"", http.StatusCreated, headers)
+	requireMetadata(longURL, map[string]any{})
+
+	generic := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath,
+		`{"owner":{"kind":"org"},"name":"labeled-generic","metadata":{"mcp_url":"https://label.example"},"material":{"kind":"generic","value":"v"}}`,
+		"", http.StatusCreated, headers)
+	requireMetadata(generic, map[string]any{"mcp_url": "https://label.example"})
+}
+
 func TestPublicSecretErrorsDoNotEchoPayloads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
