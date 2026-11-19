@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -33,15 +32,15 @@ type resolvedScheduledMessageRequest struct {
 }
 
 type scheduleSummary struct {
-	ID        string `json:"id"`
-	Cron      string `json:"cron"`
-	Timezone  string `json:"timezone"`
-	Enabled   bool   `json:"enabled"`
-	NextRunAt string `json:"next_run_at,omitempty"`
-	LastRunAt string `json:"last_run_at,omitempty"`
-	CreatedAt string `json:"created_at"`
-	Name      string `json:"name"`
-	Message   string `json:"message"`
+	ID             string `json:"id"`
+	Cron           string `json:"cron"`
+	Timezone       string `json:"timezone"`
+	Enabled        bool   `json:"enabled"`
+	NextRunAt      string `json:"next_run_at,omitempty"`
+	LastRunAt      string `json:"last_run_at,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	Name           string `json:"name"`
+	MessagePreview string `json:"message_preview"`
 }
 
 type deleteScheduledMessageRequest struct {
@@ -49,10 +48,10 @@ type deleteScheduledMessageRequest struct {
 }
 
 type scheduledMessageSummary struct {
-	ID           string `json:"id"`
-	ScheduledFor string `json:"scheduled_for"`
-	CreatedAt    string `json:"created_at"`
-	Message      string `json:"message"`
+	ID             string `json:"id"`
+	ScheduledFor   string `json:"scheduled_for"`
+	CreatedAt      string `json:"created_at"`
+	MessagePreview string `json:"message_preview"`
 }
 
 func validateGetCurrentTimeInput(raw json.RawMessage) error {
@@ -60,28 +59,9 @@ func validateGetCurrentTimeInput(raw json.RawMessage) error {
 	return decodeStrictToolRequest(toolcatalog.ToolNameGetCurrentTime, raw, &input)
 }
 
-type listScheduledMessagesRequest struct {
-	Cursor *string `json:"cursor,omitempty"`
-}
-
 func validateListScheduledMessagesInput(raw json.RawMessage) error {
-	_, err := resolveListScheduledMessagesOffset(raw)
-	return err
-}
-
-func resolveListScheduledMessagesOffset(raw json.RawMessage) (int, error) {
-	var input listScheduledMessagesRequest
-	if err := decodeStrictToolRequest(toolcatalog.ToolNameListScheduledMessages, raw, &input); err != nil {
-		return 0, err
-	}
-	if input.Cursor == nil || strings.TrimSpace(*input.Cursor) == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(strings.TrimSpace(*input.Cursor))
-	if err != nil || offset < 0 {
-		return 0, errors.New("list_scheduled_messages cursor must be a next_cursor from an earlier call")
-	}
-	return offset, nil
+	var input struct{}
+	return decodeStrictToolRequest(toolcatalog.ToolNameListScheduledMessages, raw, &input)
 }
 
 func validateCreateScheduledMessageInput(raw json.RawMessage) error {
@@ -177,9 +157,30 @@ func scheduledMessageNote(createdAt, scheduledFor time.Time) string {
 	)
 }
 
+const (
+	scheduleMessageTemplateNote = "Scheduled message: your recurring schedule fired at {{.trigger.fired_at}}.\n\n"
+	templateLiteralOpenBraces   = `{{"{{"}}`
+)
+
 func scheduleMessageTemplate(input resolvedScheduledMessageRequest) string {
-	literal := func(text string) string { return strings.ReplaceAll(text, "{{", `{{"{{"}}`) }
-	return "Scheduled message: your recurring schedule fired at {{.trigger.fired_at}}.\n\n" + literal(input.message)
+	return scheduleMessageTemplateNote + strings.ReplaceAll(input.message, "{{", templateLiteralOpenBraces)
+}
+
+// scheduleMessageFromTemplate recovers the message the agent wrote from a template it created.
+func scheduleMessageFromTemplate(template string) string {
+	message, found := strings.CutPrefix(template, scheduleMessageTemplateNote)
+	if !found {
+		return template
+	}
+	return strings.ReplaceAll(message, templateLiteralOpenBraces, "{{")
+}
+
+func scheduledMessagePreview(message string) string {
+	runes := []rune(message)
+	if len(runes) <= toolcatalog.ScheduledMessagePreviewLength {
+		return message
+	}
+	return string(runes[:toolcatalog.ScheduledMessagePreviewLength]) + "…"
 }
 
 func scheduleSummaryFromRecord(schedule executionstore.AgentSchedule) (scheduleSummary, error) {
@@ -190,7 +191,7 @@ func scheduleSummaryFromRecord(schedule executionstore.AgentSchedule) (scheduleS
 	summary := scheduleSummary{
 		ID: id, Cron: schedule.CronExpression, Timezone: schedule.Timezone, Enabled: schedule.Enabled,
 		CreatedAt: formatScheduledMessageTime(schedule.CreatedAt), Name: schedule.Name,
-		Message: schedule.MessageTemplate,
+		MessagePreview: scheduledMessagePreview(scheduleMessageFromTemplate(schedule.MessageTemplate)),
 	}
 	if schedule.NextFireAfter != nil {
 		summary.NextRunAt = formatScheduledMessageTime(*schedule.NextFireAfter)
@@ -207,10 +208,10 @@ func scheduledMessageSummaryFromRecord(message executionstore.ScheduledMessage) 
 		return scheduledMessageSummary{}, fmt.Errorf("encode scheduled message id: %w", err)
 	}
 	return scheduledMessageSummary{
-		ID:           id,
-		ScheduledFor: formatScheduledMessageTime(message.ScheduledFor),
-		CreatedAt:    formatScheduledMessageTime(message.CreatedAt),
-		Message:      message.Text,
+		ID:             id,
+		ScheduledFor:   formatScheduledMessageTime(message.ScheduledFor),
+		CreatedAt:      formatScheduledMessageTime(message.CreatedAt),
+		MessagePreview: scheduledMessagePreview(message.Text),
 	}, nil
 }
 
@@ -265,10 +266,6 @@ func getCurrentTime(ctx context.Context, call transactionalToolContext) (transac
 }
 
 func listScheduledMessages(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
-	offset, err := resolveListScheduledMessagesOffset(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
 	messages, err := call.Reader.ListOwnScheduledMessages(ctx)
 	if err != nil {
 		return nil, err
@@ -293,16 +290,9 @@ func listScheduledMessages(ctx context.Context, call transactionalToolContext) (
 		}
 		scheduleSummaries = append(scheduleSummaries, summary)
 	}
-	total := len(summaries) + len(scheduleSummaries)
-	end := min(offset+toolcatalog.ScheduledMessagesPageSize, total)
-	result := map[string]any{
-		"scheduled_messages": pageSlice(summaries, offset, end),
-		"schedules":          pageSlice(scheduleSummaries, offset-len(summaries), end-len(summaries)),
-	}
-	if end < total {
-		result["next_cursor"] = strconv.Itoa(end)
-	}
-	content, err := structuredToolResultContent(result)
+	content, err := structuredToolResultContent(map[string]any{
+		"scheduled_messages": summaries, "schedules": scheduleSummaries,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -404,10 +394,4 @@ func createSchedule(input resolvedScheduledMessageRequest) transactionalPhaseRes
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failScheduledMessageTransaction("create_scheduled_message_failed", err)
 	})
-}
-
-func pageSlice[T any](items []T, start, end int) []T {
-	start = min(max(start, 0), len(items))
-	end = min(max(end, start), len(items))
-	return items[start:end]
 }

@@ -87,11 +87,7 @@ Provide exactly one of `timestamp`, `delay_seconds`, or `cron`.
 
 ### `list_scheduled_messages`
 
-Returns `scheduled_messages`, the agent's own undelivered one-time messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It also returns `schedules`, the cron schedules the agent created for itself, with each one's `id`, `cron`, `timezone`, `enabled`, `next_run_at`, and `message`. Results come 20 at a time; when the result includes `next_cursor`, pass it as `cursor` to get the rest.
-
-| Input | Type | Notes |
-| --- | --- | --- |
-| `cursor` | string | `next_cursor` from an earlier call |
+Returns `scheduled_messages`, the agent's own undelivered one-time messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message_preview`. It also returns `schedules`, the cron schedules the agent created for itself, with each one's `id`, `cron`, `timezone`, `enabled`, `next_run_at`, and `message_preview`. `message_preview` is the first 200 characters of the message. It takes no inputs.
 
 ### `delete_scheduled_message`
 

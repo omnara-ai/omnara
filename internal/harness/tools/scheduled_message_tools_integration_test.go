@@ -144,7 +144,7 @@ WHERE i.agent_id = $1 AND i.id = $2`, fixture.Agent.ID, createdID,
 	only := testutil.RequireType[map[string]any](t, messages[0])
 	require.Equal(t, created["id"], only["id"])
 	require.Equal(t, created["scheduled_for"], only["scheduled_for"])
-	require.Equal(t, text, only["message"])
+	require.Equal(t, text, only["message_preview"])
 
 	denied := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[3])
 	require.Equal(t, "delete_scheduled_message_failed", denied["error_code"])
@@ -238,6 +238,7 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	own := testutil.RequireType[map[string]any](t, schedules[0])
 	require.Equal(t, created["id"], own["id"])
 	require.Equal(t, "0 9 * * 1-5", own["cron"])
+	require.Equal(t, "Post the summary.", own["message_preview"])
 
 	denied := dispatch(calls[2])
 	require.Equal(t, "delete_scheduled_message_failed", denied["error_code"])

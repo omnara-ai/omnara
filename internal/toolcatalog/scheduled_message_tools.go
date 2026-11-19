@@ -8,15 +8,15 @@ const (
 
 	ScheduledMessageMaxDelaySeconds = 24 * 60 * 60
 	ScheduledMessageMaxLength       = 20000
-	ScheduledMessagesPageSize       = 20
+	ScheduledMessagePreviewLength   = 200
 
 	getCurrentTimeToolDescription = "Get the current date and time in UTC. Use it before scheduling a message " +
 		"for a specific time; do not guess the current time."
 	listScheduledMessagesToolDescription = "List what is scheduled for you. `scheduled_messages` holds the " +
 		"one-time messages you scheduled for yourself that have not been delivered yet, soonest first; one-time " +
 		"messages scheduled by anyone else are not listed. `schedules` holds the recurring cron schedules you " +
-		"created for yourself; schedules created by anyone else are not listed. Results come 20 at a time: " +
-		"when `next_cursor` is returned, pass it as `cursor` to get the rest."
+		"created for yourself; schedules created by anyone else are not listed. Each entry carries " +
+		"`message_preview`, the first 200 characters of its message."
 	createScheduledMessageToolDescription = "Schedule a message to yourself, to remind yourself to check on " +
 		"something or continue work. Provide exactly one of `timestamp` or `delay_seconds` for a one-time " +
 		"message, or `cron` for a recurring schedule that keeps messaging you until it is deleted; you can " +
@@ -43,12 +43,7 @@ func getCurrentTimeTool() (Entry, error) {
 }
 
 func listScheduledMessagesTool() (Entry, error) {
-	return toolEntry(ToolNameListScheduledMessages, listScheduledMessagesToolDescription, nil, map[string]any{
-		"cursor": map[string]any{
-			"type":        "string",
-			"description": "The `next_cursor` from an earlier call, to continue the list.",
-		},
-	})
+	return toolEntry(ToolNameListScheduledMessages, listScheduledMessagesToolDescription, nil, nil)
 }
 
 func createScheduledMessageTool() (Entry, error) {

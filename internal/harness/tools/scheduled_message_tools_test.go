@@ -2,10 +2,12 @@ package tools
 
 import (
 	"encoding/json"
-	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,22 +87,21 @@ func TestResolveCreateScheduledMessageRequestWithCron(t *testing.T) {
 	require.Equal(t, "UTC", utc.timezone)
 }
 
-func TestListScheduledMessagesCursor(t *testing.T) {
+func TestListScheduledMessagesTakesNoInput(t *testing.T) {
 	t.Parallel()
-	offset, err := resolveListScheduledMessagesOffset(json.RawMessage(`{}`))
-	require.NoError(t, err)
-	require.Zero(t, offset)
-	offset, err = resolveListScheduledMessagesOffset(json.RawMessage(`{"cursor":"20"}`))
-	require.NoError(t, err)
-	require.Equal(t, 20, offset)
-	for _, raw := range []string{`{"cursor":"-1"}`, `{"cursor":"abc"}`, `{"limit":5}`} {
-		_, err := resolveListScheduledMessagesOffset(json.RawMessage(raw))
-		require.Error(t, err, raw)
-	}
+	require.NoError(t, validateListScheduledMessagesInput(json.RawMessage(`{}`)))
+	require.Error(t, validateListScheduledMessagesInput(json.RawMessage(`{"cursor":"20"}`)))
+}
 
-	messages, schedules := []int{1, 2, 3}, []int{4, 5}
-	require.Equal(t, []int{3}, pageSlice(messages, 2, 4))
-	require.Equal(t, []int{4}, pageSlice(schedules, 2-len(messages), 4-len(messages)))
-	require.Empty(t, pageSlice(messages, 4, 6))
-	require.Equal(t, []int{5}, pageSlice(schedules, 4-len(messages), 6-len(messages)))
+func TestScheduledMessagePreviewsAreBoundedAndOmitTheScheduleNote(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "short", scheduledMessagePreview("short"))
+	long := strings.Repeat("é", toolcatalog.ScheduledMessagePreviewLength+1)
+	require.Equal(t, strings.Repeat("é", toolcatalog.ScheduledMessagePreviewLength)+"…", scheduledMessagePreview(long))
+
+	message := "Post {{the}} summary."
+	template := scheduleMessageTemplate(resolvedScheduledMessageRequest{message: message})
+	require.NotEqual(t, message, template)
+	require.Equal(t, message, scheduleMessageFromTemplate(template))
+	require.Equal(t, "Midday check.", scheduleMessageFromTemplate("Midday check."))
 }
