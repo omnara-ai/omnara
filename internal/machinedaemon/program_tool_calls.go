@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,9 @@ const (
 	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
 	programToolCallCancelTimeout = 10 * time.Second
+	// programToolCallCancelLimit bounds the cancels kept until the server acknowledges them. One is a
+	// few hundred bytes, and they clear on acknowledgment or when their process ends.
+	programToolCallCancelLimit = 4096
 )
 
 func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
@@ -128,10 +132,12 @@ type programToolCallHandler struct {
 	requests chan struct{}
 	stopping <-chan struct{}
 
-	mu        sync.Mutex
-	inFlight  map[string]int
-	calls     map[string]*programToolCall
-	abandoned []daemonprotocol.ToolCallOffer
+	mu       sync.Mutex
+	inFlight map[string]int
+	calls    map[string]*programToolCall
+	// cancels are the cancels the server has not acknowledged, oldest first. Entering the send queue
+	// is not delivery, so each stays here and is sent again on every connection until it is.
+	cancels []daemonprotocol.ToolCallCancel
 }
 
 type programToolCall struct {
@@ -237,10 +243,20 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	case err != nil || offer.Key == "":
 		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request could not be read")
 		return
+	case len(offer.Name) > daemonprotocol.ProgramToolCallMaxNameBytes:
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool name is too long")
+		return
 	}
 	// The server answers this request by its offer ID, never by its key alone: the key may still
 	// name an earlier request that stopped waiting.
 	offer.OfferID = uuid.NewString()
+	// Encoding escapes some characters, so an input within the raw limit can still be too large to send.
+	if encoded, err := json.Marshal(&daemonprotocol.Message{
+		Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer,
+	}); err != nil || len(encoded) > daemonprotocol.MaxMessageBytes {
+		h.writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "tool call input is too large")
+		return
+	}
 	id := processID + "\x00" + offer.Key
 	call := &programToolCall{offer: offer, changed: make(chan struct{}, 1)}
 	h.mu.Lock()
@@ -297,17 +313,18 @@ func (h *programToolCallHandler) abandon(ctx context.Context, offer daemonprotoc
 		return
 	default:
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), programToolCallCancelTimeout)
-	defer cancel()
-	if h.client.sendToolCallCancel(ctx, offer) {
-		return
-	}
+	cancel := daemonprotocol.ToolCallCancel{ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.abandoned) >= programToolCallServerLimit {
-		h.abandoned = h.abandoned[1:]
+	if len(h.cancels) >= programToolCallCancelLimit {
+		h.cancels = h.cancels[1:]
 	}
-	h.abandoned = append(h.abandoned, offer)
+	h.cancels = append(h.cancels, cancel)
+	h.mu.Unlock()
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), programToolCallCancelTimeout)
+	defer stop()
+	if transport, connected := h.client.socketTransport(); connected {
+		transport.cancelToolCall(ctx, cancel)
+	}
 }
 
 func (h *programToolCallHandler) resume(ctx context.Context, transport *daemonSocketTransport) {
@@ -319,18 +336,40 @@ func (h *programToolCallHandler) resume(ctx context.Context, transport *daemonSo
 			return
 		}
 	}
-	h.mu.Lock()
-	abandoned := h.abandoned
-	h.abandoned = nil
-	h.mu.Unlock()
-	for i, offer := range abandoned {
-		if !transport.offerToolCall(ctx, offer) || !transport.cancelToolCall(ctx, offer) {
-			h.mu.Lock()
-			h.abandoned = append(abandoned[i:], h.abandoned...)
-			h.mu.Unlock()
+	for _, cancel := range h.pendingCancels(ctx) {
+		if !transport.cancelToolCall(ctx, cancel) {
 			return
 		}
 	}
+}
+
+// pendingCancels returns the cancels still to deliver, dropping those of processes that have ended:
+// the server ends such a process's calls itself.
+func (h *programToolCallHandler) pendingCancels(ctx context.Context) []daemonprotocol.ToolCallCancel {
+	h.mu.Lock()
+	pending := append([]daemonprotocol.ToolCallCancel(nil), h.cancels...)
+	h.mu.Unlock()
+	if len(pending) == 0 {
+		return nil
+	}
+	state, err := h.client.stateStore(ctx)
+	if err != nil {
+		return pending
+	}
+	ended := map[string]bool{}
+	for _, cancel := range pending {
+		if _, checked := ended[cancel.ProcessID]; checked {
+			continue
+		}
+		process, found, err := state.Process(ctx, cancel.ProcessID)
+		ended[cancel.ProcessID] = err == nil && (!found || process.LocalClosed)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancels = slices.DeleteFunc(h.cancels, func(cancel daemonprotocol.ToolCallCancel) bool {
+		return ended[cancel.ProcessID]
+	})
+	return append([]daemonprotocol.ToolCallCancel(nil), h.cancels...)
 }
 
 func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
@@ -339,6 +378,12 @@ func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if report.CancelRecorded {
+		h.cancels = slices.DeleteFunc(h.cancels, func(cancel daemonprotocol.ToolCallCancel) bool {
+			return cancel.ProcessID == report.ProcessID && cancel.Key == report.Key && cancel.OfferID == report.OfferID
+		})
+		return
+	}
 	call, ok := h.calls[report.ProcessID+"\x00"+report.Key]
 	if !ok || call.offer.OfferID != report.OfferID {
 		return
@@ -376,19 +421,12 @@ func (c *Client) sendToolCallOffer(ctx context.Context, offer daemonprotocol.Too
 	}
 }
 
-func (c *Client) sendToolCallCancel(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
-	transport, connected := c.socketTransport()
-	return connected && transport.cancelToolCall(ctx, offer)
-}
-
 func (t *daemonSocketTransport) offerToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
 	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer})
 }
 
-func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
-	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel,
-		ToolCallCancel: &daemonprotocol.ToolCallCancel{
-			ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}})
+func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, cancel daemonprotocol.ToolCallCancel) bool {
+	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel, ToolCallCancel: &cancel})
 }
 
 func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {

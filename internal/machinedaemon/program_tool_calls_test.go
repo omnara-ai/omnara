@@ -559,35 +559,68 @@ func TestProgramToolCallServerCancelsAbandonedCall(t *testing.T) {
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestProgramToolCallServerCancelsAbandonedCallOnReconnect(t *testing.T) {
+// A cancel that entered the send queue may never have been written. It is kept, and sent again on
+// every connection without offering the call again, until the server acknowledges it.
+func TestProgramToolCallServerRepeatsCancelUntilAcknowledged(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	handler := client.newProgramToolCallHandler()
 	client.programToolCalls = handler
-
-	abandon := startAbandonedProgramToolCall(t, handler, processID)
-	abandon()
-	abandoned := func() int {
+	pending := func() int {
 		handler.mu.Lock()
 		defer handler.mu.Unlock()
-		return len(handler.abandoned)
+		return len(handler.cancels)
 	}
-	require.Eventually(t, func() bool { return abandoned() == 1 }, 5*time.Second, 10*time.Millisecond)
+	first := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	client.setTransport(first)
 
-	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
-	handler.resume(t.Context(), transport)
-	offer := nextProgramToolCallMessage(t, transport)
-	require.Equal(t, daemonprotocol.MessageToolCallOffer, offer.Type)
-	require.Equal(t, "k-1", offer.ToolCallOffer.Key)
-	cancel := nextProgramToolCallMessage(t, transport)
-	require.Equal(t, daemonprotocol.MessageToolCallCancel, cancel.Type)
-	require.Equal(t, "k-1", cancel.ToolCallCancel.Key)
-	require.Zero(t, abandoned())
+	abandon := startAbandonedProgramToolCall(t, handler, processID)
+	offered := nextProgramToolCallMessage(t, first)
+	abandon()
+	sent := nextProgramToolCallMessage(t, first)
+	require.Equal(t, daemonprotocol.MessageToolCallCancel, sent.Type)
+	require.Equal(t, 1, pending(), "a queued cancel is not a delivered one")
+	client.clearTransport(first)
+
+	for range 2 {
+		transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+		handler.resume(t.Context(), transport)
+		again := nextProgramToolCallMessage(t, transport)
+		require.Equal(t, daemonprotocol.MessageToolCallCancel, again.Type, "the call is not offered again")
+		require.Equal(t, *sent.ToolCallCancel, *again.ToolCallCancel)
+		require.Empty(t, transport.send)
+		require.Equal(t, 1, pending())
+	}
+
+	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "k-1", OfferID: "another-offer",
+		CancelRecorded: true})
+	require.Equal(t, 1, pending(), "an acknowledgment clears only its own offer's cancel")
+	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "k-1",
+		OfferID: offered.ToolCallOffer.OfferID, CancelRecorded: true})
+	require.Zero(t, pending())
 
 	stopping := make(chan struct{})
 	close(stopping)
 	handler.stopping = stopping
 	handler.abandon(t.Context(), daemonprotocol.ToolCallOffer{ProcessID: processID})
-	require.Zero(t, abandoned())
+	require.Zero(t, pending())
+}
+
+func TestProgramToolCallServerRefusesOffersTooLargeToSend(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	client.programToolCalls = handler
+	for name, body := range map[string]string{
+		// Each "<" is six bytes once encoded, so this input fits the raw limit but not a message.
+		"escaped input": `{"key":"k-1","name":"storage_read","input":{"path":"` + strings.Repeat("<", 200_000) + `"}}`,
+		"long name":     `{"key":"k-1","name":"` + strings.Repeat("n", daemonprotocol.ProgramToolCallMaxNameBytes+1) + `","input":{}}`,
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/tool-calls/"+processID, strings.NewReader(body))
+		handler.ServeHTTP(recorder, request)
+		require.GreaterOrEqual(t, recorder.Code, 400, name)
+		require.Less(t, recorder.Code, 500, name)
+		require.Empty(t, handler.offers(), name)
+	}
 }
 
 func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {

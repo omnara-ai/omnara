@@ -18,6 +18,10 @@ import (
 var (
 	ErrSessionExpired = errors.New("mcp: session expired (server returned 404)")
 
+	// ErrConnectionConfigChanged reports a connection that was reconciled for a different server
+	// config than the one it was about to be used with.
+	ErrConnectionConfigChanged = errors.New("mcp: connection is no longer for this server configuration")
+
 	ErrIncompleteStream = errors.New("mcp: SSE stream closed before matching response arrived")
 
 	ErrUnsupportedResponse = errors.New("mcp: unsupported response content type")

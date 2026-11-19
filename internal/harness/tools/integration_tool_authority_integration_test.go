@@ -620,3 +620,34 @@ func attachToolSubscription(
 	require.NoError(t, err)
 	return subscription
 }
+
+// A call from a command is pinned to the config captured for its turn, not to the config of the
+// model context that started the command, so an integration tool enabled while the command runs
+// can be called and one the captured config lacks cannot.
+func TestProgramIntegrationToolAuthorityUsesCapturedConfig(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "program-authority", toolFixtureOptions{
+		withSlackIntegration: true, withToolContext: true,
+	})
+	call := f.recordPendingToolCall(t, ctx, "post",
+		toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage), `{"text":"hello"}`, f.Now)
+	record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	require.NoError(t, err)
+	executor := Executor{Store: f.Store}
+	captured, err := agentConfigContract(ctx, f.Store, f.Agent.ProjectID, f.AgentConfig.ID)
+	require.NoError(t, err)
+	require.Contains(t, captured.IntegrationTools, call.Name)
+
+	turn := f.turn()
+	turn.contract = &captured
+	access, err := executor.resolveIntegrationToolAuthority(ctx, turn, record)
+	require.NoError(t, err)
+	require.Equal(t, f.Install.ID, access.Integration.ID)
+
+	// The model context's config still has the tool; the captured one decides.
+	without := captured
+	without.IntegrationTools = nil
+	turn.contract = &without
+	_, err = executor.resolveIntegrationToolAuthority(ctx, turn, record)
+	require.ErrorContains(t, err, "was not configured for this call")
+}

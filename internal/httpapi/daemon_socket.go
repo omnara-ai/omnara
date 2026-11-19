@@ -326,7 +326,7 @@ func (s *daemonSocket) handleMessage(ctx context.Context, msg daemonprotocol.Mes
 	case daemonprotocol.MessageToolCallOffer:
 		return s.handleToolCallOffer(ctx, msg)
 	case daemonprotocol.MessageToolCallCancel:
-		return s.handleToolCallCancel(msg)
+		return s.handleToolCallCancel(ctx, msg)
 	default:
 		return errUnsupportedDaemonMessage
 	}

@@ -16,6 +16,11 @@ const (
 	ProgramToolCallMaxResultBytes = MaxMessageBytes - 16*1024
 	// ProgramToolCallMaxKeyBytes bounds a call's idempotency key.
 	ProgramToolCallMaxKeyBytes = 128
+	// ProgramToolCallMaxNameBytes bounds a tool name. Names are echoed in errors, so an unbounded one
+	// could push a report past the message limit.
+	ProgramToolCallMaxNameBytes = 256
+	// ProgramToolCallMaxErrorBytes bounds the error text of a report.
+	ProgramToolCallMaxErrorBytes = 4096
 )
 
 // ValidProgramToolCallKey reports whether key can identify a call: 1 to 128 printable ASCII
@@ -72,6 +77,9 @@ type ToolCallReport struct {
 	AckStatus AckStatus `json:"ack_status,omitempty"`
 	ErrorCode string    `json:"error_code,omitempty"`
 	Error     string    `json:"error,omitempty"`
+	// CancelRecorded acknowledges a cancel: the server has ended the offer's call, or found nothing
+	// left to end. Until it arrives the daemon sends the cancel again on its next connection.
+	CancelRecorded bool `json:"cancel_recorded,omitempty"`
 }
 
 type ToolCallCancel struct {

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -161,5 +162,39 @@ func TestEnsureConnectionLeavesConnectionsAloneWhenNothingIsDue(t *testing.T) {
 				t.Fatalf("ready = %t for state %q", result.Ready, tc.conn.State)
 			}
 		})
+	}
+}
+
+// A connection row can be reconciled to another endpoint while a call made under the old config is
+// still recovering. With BindConfig the old config's credential is never read for that row.
+func TestManagerConnectionRefusesRowOfAnotherConfig(t *testing.T) {
+	configA := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://a.example/mcp",
+		Auth: &agentconfig.RuntimeMCPAuth{Type: "bearer", SecretID: uuid.New()}}
+	configB := configA
+	configB.URL = "https://b.example/mcp"
+	configB.Auth = &agentconfig.RuntimeMCPAuth{Type: "bearer", SecretID: uuid.New()}
+	hashB, err := executionstore.MCPServerConfigHash(configB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowB := executionstore.MCPConnectionRecord{ServerKey: "docs", EndpointURL: configB.URL, ConfigHash: hashB}
+
+	// Secrets is nil, so reading a credential would panic: the refusal has to come first.
+	_, _, err = Manager{BindConfig: true}.Connection(
+		context.Background(), uuid.New(), uuid.New(), rowB, configA, "", "")
+	if !errors.Is(err, ErrConnectionConfigChanged) {
+		t.Fatalf("connection for another config = %v, want ErrConnectionConfigChanged", err)
+	}
+
+	unauthenticated := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: configB.URL}
+	hash, err := executionstore.MCPServerConfigHash(unauthenticated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowB.ConfigHash = hash
+	conn, _, err := Manager{BindConfig: true}.Connection(
+		context.Background(), uuid.New(), uuid.New(), rowB, unauthenticated, "", "")
+	if err != nil || conn.EndpointURL != configB.URL {
+		t.Fatalf("connection for its own config = %+v, %v", conn, err)
 	}
 }

@@ -34,6 +34,10 @@ type Manager struct {
 	Client               Client
 	Backoff              func(attempt int) time.Duration
 	SigV4CredentialCache *sigv4.CredentialCache
+	// BindConfig requires every connection row to have been reconciled for the server config it is
+	// used with. Set it when that config is not the one the caller first read the row under, so a
+	// row reconciled to another endpoint meanwhile is never sent this config's credential.
+	BindConfig bool
 
 	OAuthHTTPClient *http.Client
 
@@ -374,6 +378,16 @@ func (m Manager) Connection(
 			conn.ServerKey,
 			server.ServerKey,
 		)
+	}
+	if m.BindConfig {
+		hash, err := executionstore.MCPServerConfigHash(server)
+		if err != nil {
+			return Conn{}, executionstore.MCPServerCatalogIdentity{}, err
+		}
+		if conn.ConfigHash != hash {
+			return Conn{}, executionstore.MCPServerCatalogIdentity{}, fmt.Errorf(
+				"%w: mcp server %q", ErrConnectionConfigChanged, conn.ServerKey)
+		}
 	}
 	return m.connection(ctx, orgID, projectID, conn.ServerKey, conn.EndpointURL, server.Auth, sessionID, protocolVersion)
 }
