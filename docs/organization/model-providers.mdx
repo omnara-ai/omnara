@@ -39,18 +39,6 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 
   Presets are available for `openai`, `anthropic`, `openrouter`, and `openlake`. For a proxy, local vLLM server, or another compatible endpoint, set the API format, base URL, endpoint path, and authentication method yourself.
 
-  OpenLake uses OpenAI Chat Completions at `https://api.theopenlake.com/v1` with bearer-token authentication. Store your OpenLake API key as a secret using the same workflow above, then create the provider:
-
-  ```bash
-  npx omnara model-providers create \
-    --name openlake-prod \
-    --preset openlake \
-    --credential-secret-id sec_hcyd5n6a2bfgik7mv4qtrwz3je \
-    --json
-  ```
-
-  For REST or the SDK, use `preset: "openlake"` in the creation request.
-
   Omnara fetches the provider's model catalog when it creates the provider, and on demand with `omnara model-providers catalog {model-provider-config-id}`, `GET …/model-provider-configs/{id}/model-catalog`, or `sdk.getModelCatalog`. The catalog probe can fail without failing the request, which allows private or air-gapped endpoints. Check `model_catalog.status`; you can configure models manually if needed.
 
   A provider cannot be deleted while it still has configured models.
