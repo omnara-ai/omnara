@@ -107,7 +107,14 @@ func (c Client) ModelAPIVariant() modelprotocol.APIVariant { return c.Inner.Mode
 
 func (c Client) Capabilities() model.Capabilities { return c.Inner.Capabilities() }
 
+// Prepare asks for long prompt-cache retention unless caching is turned off.
+// Consecutive batch calls of a turn are minutes to hours apart, so a short-lived
+// cache entry is written at a premium and has expired before it can be read.
+// Routes without long retention fall back to their normal caching.
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
+	if model.EffectiveCacheRetention(input.Policy.CacheRetention) == model.CacheRetentionShort {
+		input.Policy.CacheRetention = model.CacheRetentionLong
+	}
 	return c.Inner.Prepare(ctx, input)
 }
 

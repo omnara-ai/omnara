@@ -58,6 +58,43 @@ type liveToolTurnMetrics struct {
 	CostUSD     float64
 	CostedCalls int
 	Callbacks   int64
+	// Calls is one line per model call, in order: cache usage and cost.
+	Calls []string
+}
+
+// liveModelCallBreakdown describes each succeeded model call of the turn, so a
+// cost difference between providers can be traced to cache usage.
+func liveModelCallBreakdown(
+	t *testing.T, ctx context.Context, env *serviceE2EEnvironment, projectUUID, agentUUID string,
+) []string {
+	t.Helper()
+	rows, err := env.db.Query(ctx, `
+SELECT coalesce(input_tokens_total, 0), coalesce(uncached_input_tokens, 0),
+       coalesce(cache_read_input_tokens, 0), coalesce(cache_write_input_tokens, 0),
+       coalesce(output_tokens_total, 0), coalesce(provider_reported_cost_usd::text, 'not reported')
+FROM model_call_contexts
+WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'succeeded'
+ORDER BY input_event_sequence, attempt_number, created_at, id`, projectUUID, agentUUID)
+	if err != nil {
+		t.Fatalf("query model call breakdown: %v", err)
+	}
+	defer rows.Close()
+	var calls []string
+	for rows.Next() {
+		var input, uncached, cacheRead, cacheWrite, output int64
+		var cost string
+		if err := rows.Scan(&input, &uncached, &cacheRead, &cacheWrite, &output, &cost); err != nil {
+			t.Fatalf("scan model call breakdown: %v", err)
+		}
+		calls = append(calls, fmt.Sprintf(
+			"    call %d: input=%d (uncached=%d cache_read=%d cache_write=%d) output=%d cost_usd=%s",
+			len(calls)+1, input, uncached, cacheRead, cacheWrite, output, cost,
+		))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate model call breakdown: %v", err)
+	}
+	return calls
 }
 
 // TestServiceE2ELiveOpenRouterBatchTurn is deliberately the only live batch
@@ -107,6 +144,9 @@ func TestServiceE2ELiveOpenRouterBatchTurn(t *testing.T) {
 	for _, metrics := range []*liveToolTurnMetrics{baseline, batch} {
 		if metrics != nil {
 			t.Log(metrics.summary())
+			for _, call := range metrics.Calls {
+				t.Log(call)
+			}
 		}
 	}
 	if baseline == nil || batch == nil {
@@ -309,6 +349,7 @@ WHERE call.project_id = $1 AND call.agent_id = $2 AND call.name = $3`,
 		}
 	}
 	t.Logf("%s finished: %s", opts.ProviderConfig, output)
+	metrics.Calls = liveModelCallBreakdown(t, ctx, env, projectUUID, agentUUID)
 	return metrics
 }
 

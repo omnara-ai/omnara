@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/model/openrouterbatch"
 	"github.com/omnara-ai/omnara/internal/model/route"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
@@ -62,6 +63,41 @@ func TestBatchesURLForBaseURL(t *testing.T) {
 	}
 	if _, err := openrouterbatch.BatchesURLForBaseURL("openrouter.ai/api/v1"); err == nil {
 		t.Error("relative base URL was accepted")
+	}
+}
+
+func TestPrepareForcesLongCacheRetentionUnlessCachingIsOff(t *testing.T) {
+	client := newClient(t, chatInner, func(http.ResponseWriter, *http.Request) {})
+	content := json.RawMessage(`[{"type":"text","text":"hello"}]`)
+	for name, test := range map[string]struct {
+		retention model.CacheRetention
+		wantLong  bool
+		wantCache bool
+	}{
+		"unset becomes long":  {retention: model.CacheRetentionUnset, wantLong: true, wantCache: true},
+		"short becomes long":  {retention: model.CacheRetentionShort, wantLong: true, wantCache: true},
+		"long stays long":     {retention: model.CacheRetentionLong, wantLong: true, wantCache: true},
+		"none stays disabled": {retention: model.CacheRetentionNone},
+	} {
+		t.Run(name, func(t *testing.T) {
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					SystemPrompt: "Be brief.",
+					Messages:     []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: content}},
+				},
+				Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: test.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			body := string(prepared.Body)
+			if got := strings.Contains(body, `"cache_control"`); got != test.wantCache {
+				t.Fatalf("cache_control present = %t, want %t in %s", got, test.wantCache, body)
+			}
+			if got := strings.Contains(body, `"ttl":"1h"`); got != test.wantLong {
+				t.Fatalf("long cache ttl present = %t, want %t in %s", got, test.wantLong, body)
+			}
+		})
 	}
 }
 
