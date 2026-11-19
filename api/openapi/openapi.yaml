@@ -10357,6 +10357,7 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+            - machine_token_not_injected
     ErrorCode:
       type: string
       description: Known error codes.
@@ -10390,6 +10391,7 @@ components:
         - validation_failed
         - csrf_check_failed
         - authentication_unavailable
+        - machine_token_not_injected
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -10397,6 +10399,7 @@ components:
         - invalid_request
         - validation_failed
         - unauthorized
+        - machine_token_not_injected
         - forbidden
         - csrf_check_failed
         - not_found

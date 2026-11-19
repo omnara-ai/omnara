@@ -25,10 +25,26 @@ type httpStatusError struct {
 
 func (e httpStatusError) Error() string { return e.Status + ": " + e.Body }
 
+func (e httpStatusError) code() string {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(e.Body), &body); err != nil {
+		return ""
+	}
+	return body.Code
+}
+
+func (e httpStatusError) machineTokenNotInjected() bool {
+	return e.StatusCode == http.StatusUnauthorized &&
+		e.code() == daemonprotocol.ErrorCodeMachineTokenNotInjected
+}
+
 func IsAuthenticationRejected(err error) bool {
 	var statusErr httpStatusError
 	return errors.As(err, &statusErr) &&
-		(statusErr.StatusCode == http.StatusUnauthorized || statusErr.StatusCode == http.StatusForbidden)
+		(statusErr.StatusCode == http.StatusUnauthorized || statusErr.StatusCode == http.StatusForbidden) &&
+		!statusErr.machineTokenNotInjected()
 }
 
 func isTerminalDaemonRequestError(err error) bool {
