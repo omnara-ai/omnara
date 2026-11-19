@@ -194,6 +194,7 @@ func (e AgentExecutor) collectDeferredModelWork(
 	response, respErr := client.CollectDeferred(callCtx, model.DeferredHandle{
 		ProviderHandle: request.ProviderBatchID,
 		CustomID:       request.CustomID,
+		SubmittedAt:    request.CreatedAt,
 	})
 	if errors.Is(respErr, model.ErrDeferredPending) {
 		if _, err := store.ParkModelBatchRuntime(ctx, executionstore.ParkModelBatchRuntimeInput{

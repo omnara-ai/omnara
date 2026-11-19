@@ -28,6 +28,7 @@ type ModelBatchRequestRecord struct {
 	InputFingerprint     string
 	ProviderBatchID      string
 	DeadlineAt           *time.Time
+	CreatedAt            time.Time
 }
 
 type CreateModelBatchRequestInput struct {
@@ -260,5 +261,6 @@ func modelBatchRequestRecord(request agentexecution.BatchRequest) ModelBatchRequ
 		InputFingerprint:     request.InputFingerprint,
 		ProviderBatchID:      request.ProviderBatchID,
 		DeadlineAt:           request.DeadlineAt,
+		CreatedAt:            request.CreatedAt,
 	}
 }

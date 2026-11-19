@@ -121,7 +121,9 @@ func TestLiveOpenRouterBatchRoundTrip(t *testing.T) {
 	}
 	t.Logf("submitted batch %s (expires %s); waiting up to %s", submission.ProviderHandle, submission.ExpiresAt, wait)
 
-	handle := model.DeferredHandle{ProviderHandle: submission.ProviderHandle, CustomID: customID}
+	handle := model.DeferredHandle{
+		ProviderHandle: submission.ProviderHandle, CustomID: customID, SubmittedAt: time.Now(),
+	}
 	deadline := time.Now().Add(wait)
 	polls := 0
 	for {

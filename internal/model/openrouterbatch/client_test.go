@@ -287,6 +287,33 @@ func TestCollectDeferredClassifiesFailures(t *testing.T) {
 	}
 }
 
+func TestCollectDeferredMissingBatchIsPendingOnlyRightAfterSubmit(t *testing.T) {
+	// OpenRouter accepts a batch before it can be read back, so a 404 shortly
+	// after submission means "not yet", while a later one means it is gone.
+	client := newClient(t, chatInner, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"code":404,"message":"Batch job batch_123 not found."}}`))
+	})
+	collect := func(submittedAt time.Time) error {
+		_, err := client.CollectDeferred(context.Background(), model.DeferredHandle{
+			ProviderHandle: "batch_123", CustomID: "ctx-1", SubmittedAt: submittedAt,
+		})
+		return err
+	}
+	if err := collect(time.Now().Add(-time.Second)); !errors.Is(err, model.ErrDeferredPending) {
+		t.Fatalf("missing batch right after submit: %v, want pending", err)
+	}
+	for name, submittedAt := range map[string]time.Time{
+		"long after submit": time.Now().Add(-time.Hour),
+		"unknown":           {},
+	} {
+		err := collect(submittedAt)
+		if _, ok := model.ClassifyError(err); !ok || errors.Is(err, model.ErrDeferredPending) {
+			t.Fatalf("missing batch, submitted %s: %v, want a final provider error", name, err)
+		}
+	}
+}
+
 func TestCollectDeferredGoneBatchIsFinal(t *testing.T) {
 	client := newClient(t, chatInner, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusGone)

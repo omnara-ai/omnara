@@ -28,6 +28,8 @@ type BatchRequest struct {
 	InputFingerprint     string
 	ProviderBatchID      string
 	DeadlineAt           *time.Time
+	// CreatedAt is set when the request is read back, not when it is claimed.
+	CreatedAt time.Time
 }
 
 type CreateBatchRequestInput struct {
@@ -104,6 +106,7 @@ func (u *Unit) BatchRequest(ctx context.Context, route AgentRoute, runtimeID, id
 		ContextID: row.ModelCallContextID, TurnID: row.TurnID, OpeningInputIDs: row.OpeningInputIds,
 		OpeningEventSequence: row.OpeningEventSequence, CustomID: row.CustomID,
 		InputFingerprint: row.InputFingerprint, ProviderBatchID: row.ProviderBatchID, DeadlineAt: row.DeadlineAt,
+		CreatedAt: row.CreatedAt,
 	}, nil
 }
 

@@ -166,7 +166,7 @@ func (q *Queries) ParkExecutionRuntime(ctx context.Context, db DBTX, arg ParkExe
 
 const readExecutionBatchRequest = `-- name: ReadExecutionBatchRequest :one
 SELECT b.id,a.project_id,b.agent_id,b.runtime_lock_id,b.model_call_context_id,b.turn_id,b.opening_input_ids,
- b.opening_event_sequence,b.custom_id,b.input_fingerprint,b.provider_batch_id,b.state,b.deadline_at
+ b.opening_event_sequence,b.custom_id,b.input_fingerprint,b.provider_batch_id,b.state,b.deadline_at,b.created_at
 FROM model_batch_requests b JOIN agents a ON a.id=b.agent_id
 WHERE b.id=$1 AND b.agent_id=$2 AND b.runtime_lock_id=$3
 `
@@ -191,6 +191,7 @@ type ReadExecutionBatchRequestRow struct {
 	ProviderBatchID      string
 	State                string
 	DeadlineAt           *time.Time
+	CreatedAt            time.Time
 }
 
 func (q *Queries) ReadExecutionBatchRequest(ctx context.Context, db DBTX, arg ReadExecutionBatchRequestParams) (ReadExecutionBatchRequestRow, error) {
@@ -210,6 +211,7 @@ func (q *Queries) ReadExecutionBatchRequest(ctx context.Context, db DBTX, arg Re
 		&i.ProviderBatchID,
 		&i.State,
 		&i.DeadlineAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }

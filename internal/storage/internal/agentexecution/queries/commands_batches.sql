@@ -9,7 +9,7 @@ WHERE r.id=sqlc.arg(runtime_id) AND r.agent_id=sqlc.arg(agent_id) AND a.project_
 
 -- name: ReadExecutionBatchRequest :one
 SELECT b.id,a.project_id,b.agent_id,b.runtime_lock_id,b.model_call_context_id,b.turn_id,b.opening_input_ids,
- b.opening_event_sequence,b.custom_id,b.input_fingerprint,b.provider_batch_id,b.state,b.deadline_at
+ b.opening_event_sequence,b.custom_id,b.input_fingerprint,b.provider_batch_id,b.state,b.deadline_at,b.created_at
 FROM model_batch_requests b JOIN agents a ON a.id=b.agent_id
 WHERE b.id=sqlc.arg(id) AND b.agent_id=sqlc.arg(agent_id) AND b.runtime_lock_id=sqlc.arg(runtime_id);
 

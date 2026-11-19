@@ -31,6 +31,10 @@ const (
 	maxBatchErrorResponseBytes int64 = 64 * 1024
 	batchRequestTimeout              = 2 * time.Minute
 
+	// notFoundGrace is how long after submission a missing batch is treated
+	// as not readable yet: OpenRouter accepts a batch before it can be read back.
+	notFoundGrace = 10 * time.Minute
+
 	statusCompleted = "completed"
 	statusFailed    = "failed"
 	statusExpired   = "expired"
@@ -240,6 +244,9 @@ func (c Client) CollectDeferred(ctx context.Context, handle model.DeferredHandle
 		return model.Response{}, pending(err)
 	}
 	switch {
+	case status == http.StatusNotFound && !handle.SubmittedAt.IsZero() &&
+		time.Since(handle.SubmittedAt) < notFoundGrace:
+		return model.Response{}, pending(httpStatusError(endpoint, status, header, body))
 	case status == http.StatusTooManyRequests || status >= 500:
 		// Reading the batch is idempotent; look again instead of failing the call.
 		return model.Response{}, pending(httpStatusError(endpoint, status, header, body))

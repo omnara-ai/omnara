@@ -40,4 +40,7 @@ type DeferredSubmission struct {
 type DeferredHandle struct {
 	ProviderHandle string
 	CustomID       string
+	// SubmittedAt lets a client tolerate a provider that cannot read a job
+	// back immediately after accepting it. Zero means unknown.
+	SubmittedAt time.Time
 }
