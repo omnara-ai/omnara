@@ -54,7 +54,7 @@ function modelProviderRequest(
   if (values.provider !== 'bedrock') {
     const { endpoint, serverPreset } = modelProviderOption(values.provider)
     const baseUrl = values.baseUrl.trim()
-    if (serverPreset && endpoint?.baseUrl === baseUrl && endpoint.apiFormat === values.apiFormat) {
+    if (serverPreset && endpoint.baseUrl === baseUrl && endpoint.apiFormat === values.apiFormat) {
       return { ...common, preset: serverPreset }
     }
     const request: CreateModelProviderConfigRequest = {
