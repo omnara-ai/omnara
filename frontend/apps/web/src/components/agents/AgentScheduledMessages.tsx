@@ -4,6 +4,7 @@ import type { AgentInput } from '@omnara/sdk'
 import { type AgentScope, useScheduledMessages } from '@/components/agents/useScheduledMessages'
 import { X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -51,7 +52,20 @@ export function ScheduledMessagesList({
       {scheduled.map((input) => (
         <li key={input.id} className="flex items-center justify-between gap-3 px-3 py-2">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate text-sm font-medium">{backlogInputPreview(input).text}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="truncate text-sm font-medium">
+                  {backlogInputPreview(input).text}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="start"
+                className="max-w-sm px-4 py-2 text-left text-sm leading-relaxed whitespace-pre-wrap"
+              >
+                {backlogInputPreview(input).text}
+              </TooltipContent>
+            </Tooltip>
             <time dateTime={input.scheduled_for} className="text-muted-foreground truncate text-xs">
               Once · {formatDateTime(input.scheduled_for)}
             </time>

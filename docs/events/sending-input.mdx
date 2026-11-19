@@ -90,7 +90,9 @@ The dashboard shows waiting inputs above the composer. Through the API, you can 
 
 <SendingInputBacklog />
 
-Scheduled inputs are listed last, with `state: scheduled` and their `scheduled_for` time. Similarly, you can cancel a queued or scheduled input, change its position, or switch it between queued and steering delivery. Promoting is idempotent: it also returns `200` if the input is already steering or the agent has already taken it. Other invalid state transitions return `409`.
+Scheduled inputs are listed last, with `state: scheduled` and their `scheduled_for` time. Until its time arrives, a scheduled input can only be canceled: moving it or switching its delivery mode returns `409`.
+
+Similarly, you can cancel a queued input, change its position, or switch it between queued and steering delivery. Promoting is idempotent: it also returns `200` if the input is already steering or the agent has already taken it. Other invalid state transitions return `409`.
 
 <Info>
 Full schemas and playground: [List waiting backlog inputs](/api-reference/endpoints/agents/list-waiting-backlog-inputs) · [Cancel](/api-reference/endpoints/agents/cancel-queued-backlog-input) · [Move](/api-reference/endpoints/agents/move-queued-backlog-input) · [Promote](/api-reference/endpoints/agents/promote-queued-input-to-steering) · [Demote](/api-reference/endpoints/agents/demote-steering-input-to-queued).

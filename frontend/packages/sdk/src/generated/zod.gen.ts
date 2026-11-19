@@ -1554,6 +1554,16 @@ export const zAgentInputDeliveryMode = z.enum([
 
 export const zCreateAgentInputDeliveryMode = z.enum(['queued', 'steering']);
 
+/**
+ * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
+ */
+export const zAgentInputState = z.enum([
+    'scheduled',
+    'received',
+    'resolved',
+    'canceled'
+]);
+
 export const zAgentMachineBindingState = z.enum(['attached', 'released']);
 
 export const zAgentMachineBindingKind = z.enum(['explicit', 'pool']);
@@ -1705,7 +1715,7 @@ export const zSubmitToolResultContentBlock = z.discriminatedUnion('type', [
 export const zAgentInput = z.object({
     id: zAgentInputId,
     agent_id: zAgentId,
-    state: z.string(),
+    state: zAgentInputState,
     delivery_mode: zAgentInputDeliveryMode,
     input_kind: zAgentInputKind,
     actor_id: zActorId.optional(),

@@ -2835,13 +2835,15 @@ export type AgentInputDeliveryMode = 'queued' | 'steering' | 'immediate';
 
 export type CreateAgentInputDeliveryMode = 'queued' | 'steering';
 
+/**
+ * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
+ */
+export type AgentInputState = 'scheduled' | 'received' | 'resolved' | 'canceled';
+
 export type AgentInput = {
     id: AgentInputId;
     agent_id: AgentId;
-    /**
-     * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
-     */
-    state: string;
+    state: AgentInputState;
     delivery_mode: AgentInputDeliveryMode;
     input_kind: AgentInputKind;
     /**

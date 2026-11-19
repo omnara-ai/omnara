@@ -14016,6 +14016,12 @@ components:
     CreateAgentInputDeliveryMode:
       type: string
       enum: [queued, steering]
+    AgentInputState:
+      type: string
+      enum: [scheduled, received, resolved, canceled]
+      description: >-
+        scheduled while a content input waits for its scheduled_for time, received once it is
+        waiting for the agent, resolved when the agent has processed it, or canceled.
     AgentInput:
       type: object
       additionalProperties: false
@@ -14026,10 +14032,7 @@ components:
         agent_id:
           $ref: '#/components/schemas/AgentID'
         state:
-          type: string
-          description: >-
-            scheduled while a content input waits for its scheduled_for time, received once it is
-            waiting for the agent, resolved when the agent has processed it, or canceled.
+          $ref: '#/components/schemas/AgentInputState'
         delivery_mode:
           $ref: '#/components/schemas/AgentInputDeliveryMode'
         input_kind:
