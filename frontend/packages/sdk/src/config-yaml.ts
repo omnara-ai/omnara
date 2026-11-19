@@ -19,11 +19,23 @@ const backendNumber: ScalarTag = {
   test: new RegExp(`^(?:[-+]_*)?(?:${backendNumberForms.join('|')})$`),
   resolve: (source) => Number(source.replaceAll('_', '')),
 }
+const backendCommaTimestamp: ScalarTag = {
+  tag: 'tag:yaml.org,2002:timestamp',
+  default: true,
+  test: /^\d{4}-\d{1,2}-\d{1,2}(?:[Tt]| +)\d{1,2}:\d{1,2}:\d{1,2},\d+(?:Z|[-+]\d{2}:\d{2})?$/,
+  resolve: (source) => {
+    const timestamp: unknown = parseDocument(source.replace(',', '.'), {
+      schema: 'yaml-1.1',
+    }).toJS()
+    return timestamp
+  },
+}
 const compat = [
   ...new Schema({ schema: 'yaml-1.1' }).tags.filter(
     (tag) => backendTags.has(tag.tag) && tag.format !== 'TIME',
   ),
   backendNumber,
+  backendCommaTimestamp,
 ]
 const backendSchema = new Schema({ schema: 'core', customTags: (tags) => [...compat, ...tags] })
 

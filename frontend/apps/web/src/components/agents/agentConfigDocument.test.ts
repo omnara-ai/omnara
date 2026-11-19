@@ -327,7 +327,21 @@ it.each(['tools: {web_search}', 'mcp: {docs}', 'subagents: {helper}', 'max_depth
   },
 )
 
-it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F', '0X1F', '-0o17', '1e_3'])(
+const backendSpecificScalarForms = [
+  '2026-1-2',
+  '2026-01-02T10:00:00,5Z',
+  '2026-1-2t10:0:0,5+05:30',
+  '2026-01-02 10:00:00,5',
+  '2026-01-02  10:00:00,5',
+  '2026-1-2   1:2:3,123',
+  '-0x1F',
+  '0x1_F',
+  '0X1F',
+  '-0o17',
+  '1e_3',
+]
+
+it.each(['2026-01-02', '1_000', '0b1', ...backendSpecificScalarForms])(
   'quotes strings consistently with backend scalar parsing: %s',
   (value) => {
     const { session, draft } = draftFor(header + 'machine_sources: [{machine_name: example}]\n')
@@ -357,11 +371,12 @@ it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F', '0X1F', '-0
   },
 )
 
-it.each(['2026-1-2', '-0x1F', '0x1_F', '0X1F', '-0o17', '1e_3'])(
+it.each(backendSpecificScalarForms)(
   'preserves backend-specific scalar forms on read: %s',
   (value) => {
     const source =
-      header + `machine_sources: [{machine_name: example, env_overlay: {VALUE: ${value}}}]\n`
+      header +
+      `machine_sources:\n  - machine_name: example\n    env_overlay:\n      VALUE: ${value}\n`
     const { session, draft } = draftFor(source)
     expect(draft.machineSources).toHaveLength(0)
     expect(session.diagnostics.some((issue) => issue.message.includes('version-dependent'))).toBe(
