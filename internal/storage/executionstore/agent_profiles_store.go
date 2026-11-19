@@ -229,6 +229,7 @@ func (s *Store) RetargetAgentProfile(
 	}
 	record := agentProfileRecordFromRetargetSQLC(row, profile.OrgID)
 	record.CurrentConfig = config
+	record.Created = true
 	if err := tx.Commit(ctx); err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("commit retarget agent profile: %w", err)
 	}

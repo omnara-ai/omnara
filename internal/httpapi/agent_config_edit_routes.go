@@ -274,6 +274,10 @@ func (s strictOpenAPIServer) editAgentConfig(
 		return agentConfigEditFailed(result, err)
 	}
 	edit.deleteMachines = append(edit.deleteMachines, change.DeleteMachines...)
+	if !change.Created {
+		result.Edits = nil
+		return agentConfigEditUpdated(result, change.AgentConfig.ID, change.AgentConfig.ID)
+	}
 	return agentConfigEditUpdated(result, config.ID, change.AgentConfig.ID)
 }
 
@@ -324,7 +328,7 @@ func (s strictOpenAPIServer) editAgentProfileConfig(
 		ConfigID:                config.ID,
 		IdempotencyKey:          key,
 	})
-	if errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if errors.Is(err, storeerr.ErrIdempotencyConflict) || (err == nil && !updated.Created) {
 		if replayed, found, replayErr := replay(); replayErr != nil || found {
 			return replayed, replayErr
 		}
