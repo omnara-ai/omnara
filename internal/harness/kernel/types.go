@@ -15,6 +15,7 @@ type ModelWorkExecution struct {
 	ModelCallContextID       uuid.UUID
 	SourceModelCallContextID uuid.UUID
 	SourceModelOutputID      uuid.UUID
+	BatchRequestID           uuid.UUID
 	TurnID                   uuid.UUID
 	InputIDs                 []uuid.UUID
 	OpeningEventSequence     int64

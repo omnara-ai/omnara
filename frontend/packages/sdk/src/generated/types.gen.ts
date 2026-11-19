@@ -680,9 +680,9 @@ export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
 export type ModelProviderAuthKindResponse = string;
 
 /**
- * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock.
+ * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock. openrouter-batch sends agent model calls through the OpenRouter Batch API with any api_format: responses arrive asynchronously, typically within 24 hours.
  */
-export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
+export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock' | 'openrouter-batch';
 
 export type ModelProviderApiVariantResponse = string;
 

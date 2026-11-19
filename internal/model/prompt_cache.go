@@ -66,7 +66,7 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
 		switch route.APIVariant {
-		case modelprotocol.APIVariantOpenRouter:
+		case modelprotocol.APIVariantOpenRouter, modelprotocol.APIVariantOpenRouterBatch:
 			model, _, _ := strings.Cut(normalizedProviderModelSlug(route.ProviderModelSlug), ":")
 			anthropic := strings.HasPrefix(model, "anthropic/")
 			return promptCacheCapability{

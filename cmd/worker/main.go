@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -28,6 +29,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/modelbatch"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -219,6 +221,9 @@ func main() {
 	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
+		DeferredCallbackURL: func(batchRequestID uuid.UUID, token string) string {
+			return modelbatch.OpenRouterCallbackURL(cfg.PublicURL, batchRequestID, token)
+		},
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
 			Store: store, HTTPClient: integrationHTTPClient,
 		}.Notify,

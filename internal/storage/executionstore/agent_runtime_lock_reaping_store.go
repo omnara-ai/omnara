@@ -66,6 +66,11 @@ func (s *Store) ReapExpiredAgentRuntimeLocks(ctx context.Context, batchSize int3
 			suppressedErrors,
 		))
 	}
+	if ctx.Err() == nil {
+		if err := s.purgeOrphanModelBatchRequests(ctx); err != nil {
+			reapErrs = append(reapErrs, fmt.Errorf("purge orphan model batch requests: %w", err))
+		}
+	}
 	if len(reapErrs) > 0 {
 		return total, errors.Join(reapErrs...)
 	}

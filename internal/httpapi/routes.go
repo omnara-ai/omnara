@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/modelbatch"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
@@ -43,6 +44,10 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodPost, Pattern: slackActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: discordInteractionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: GitHubEventsPath, Access: manualRouteAccessProviderSigned},
+	{
+		Method: http.MethodPost, Pattern: modelbatch.OpenRouterCallbackPathPattern,
+		Access: manualRouteAccessProviderSigned,
+	},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: omnaradInstallPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: webConfigPath, Access: manualRouteAccessStatic},
@@ -65,6 +70,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.slackActionsRoute)
 	mux.HandleFunc("POST /api/integrations/discord/{application_id}/interactions", s.discordInteractionsRoute)
 	mux.Handle("POST /api/integrations/github/events", s.GitHubEventsHandler())
+	mux.HandleFunc("POST /api/model-batches/openrouter/{batch_request_id}/{token}", s.openRouterBatchCallbackRoute)
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)

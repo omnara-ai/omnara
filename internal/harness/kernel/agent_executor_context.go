@@ -129,6 +129,8 @@ func (e AgentExecutor) executeModelStep(
 		mcpTrigger = mcp.TriggerTurnResume
 	case executionstore.ModelWorkContinue:
 		mcpTrigger = mcp.TriggerTurnContinue
+	case executionstore.ModelWorkCollect:
+		// Collect work never prepares a request; it is handled before this step.
 	}
 	if mcpTrigger != 0 {
 		if err := e.ensureMCPConnections(
@@ -165,8 +167,7 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, err, false, model.Response{})
 	}
 	client := resolved.Client
-	apiFormat, apiVariant, hasAPIIdentity := model.APIIdentityForClient(client)
-	if !hasAPIIdentity {
+	if _, _, hasAPIIdentity := model.APIIdentityForClient(client); !hasAPIIdentity {
 		cause := model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
 			Source:  "model",
@@ -282,6 +283,9 @@ func (e AgentExecutor) executeModelStep(
 		}
 		return e.enterContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{})
 	}
+	if deferred, ok := client.(model.DeferredClient); ok {
+		return e.submitDeferredModelCall(ctx, input, claim, resolved, deferred, policy, prepared)
+	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
 	}
@@ -314,6 +318,28 @@ func (e AgentExecutor) executeModelStep(
 			response, err = client.Respond(callCtx, request)
 		}
 	}
+	return e.completeModelCall(
+		ctx, input, claim, resolved, bundle, policy, prepared.InputFingerprint,
+		response, err, streamSink.ToolCallIDs(),
+	)
+}
+
+// completeModelCall records the outcome of a provider call, whether the
+// response arrived on this goroutine or was collected from a deferred job.
+func (e AgentExecutor) completeModelCall(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	bundle modelcontext.Bundle,
+	policy model.RequestPolicy,
+	inputFingerprint string,
+	response model.Response,
+	err error,
+	streamedToolCallIDs map[string]uuid.UUID,
+) (modelStep, error) {
+	client := resolved.Client
+	apiFormat, apiVariant, _ := model.APIIdentityForClient(client)
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
@@ -348,14 +374,14 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
-	envelope.InputFingerprint = prepared.InputFingerprint
+	envelope.InputFingerprint = inputFingerprint
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
 		Envelope:            envelope,
 		Response:            response,
 		Resolved:            resolved,
-		StreamedToolCallIDs: streamSink.ToolCallIDs(),
+		StreamedToolCallIDs: streamedToolCallIDs,
 	}
 	return e.finishModelResponse(ctx, input, step)
 }

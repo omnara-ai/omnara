@@ -34,6 +34,12 @@ type AgentExecutor struct {
 	MCPInitializationBackoff func(attempt int) time.Duration
 	ModelRetryDelay          func(time.Duration) time.Duration
 	OnModelFailure           func(ctx context.Context, projectID, agentID, runtimeLockID uuid.UUID) error
+	// DeferredCallbackURL returns the URL a deferred provider job calls when it
+	// finishes, or "" to rely on polling alone.
+	DeferredCallbackURL func(batchRequestID uuid.UUID, token string) string
+	// DeferredPollInterval is how often a parked model call is checked when no
+	// callback arrives.
+	DeferredPollInterval time.Duration
 }
 
 func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) error {
@@ -74,7 +80,13 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 		}
 	}
 
-	step, err := e.executeModelStep(ctx, input, builder, e.ModelResolver)
+	var step modelStep
+	var err error
+	if input.Kind == executionstore.ModelWorkCollect {
+		step, err = e.collectDeferredModelWork(ctx, input, builder, e.ModelResolver)
+	} else {
+		step, err = e.executeModelStep(ctx, input, builder, e.ModelResolver)
+	}
 	if err != nil {
 		return err
 	}
@@ -145,6 +157,12 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 			input.SourceModelCallContextID == uuid.Nil ||
 			input.SourceModelOutputID == uuid.Nil {
 			return errors.New("continue model work requires its source context and source output")
+		}
+	case executionstore.ModelWorkCollect:
+		if input.ModelCallContextID == uuid.Nil || input.BatchRequestID == uuid.Nil ||
+			input.SourceModelCallContextID != uuid.Nil ||
+			input.SourceModelOutputID != uuid.Nil {
+			return errors.New("collect model work requires its parked context and batch request")
 		}
 	default:
 		return fmt.Errorf("unsupported model work kind %q", input.Kind)

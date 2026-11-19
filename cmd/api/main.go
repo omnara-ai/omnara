@@ -496,6 +496,9 @@ func apiOptions(
 		opts = append(opts, httpapi.WithPublicURL(cfg.PublicURL))
 		opts = append(opts, httpapi.WithPublicAPIURL(cfg.PublicAPIURL))
 	}
+	if cfg.OpenRouterBatchWebhookSecret != "" {
+		opts = append(opts, httpapi.WithOpenRouterBatchWebhookSecret(cfg.OpenRouterBatchWebhookSecret))
+	}
 	if cfg.BillingURL != "" {
 		opts = append(opts, httpapi.WithBillingURL(cfg.BillingURL))
 	}

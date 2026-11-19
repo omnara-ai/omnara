@@ -66,6 +66,11 @@ func (b anthropicBeta) Apply(req *http.Request) error {
 	return nil
 }
 
+// RouteClient exposes the transport route so wrappers can reuse its protocol.
+func (c Client) RouteClient() route.Client {
+	return c.routeClient()
+}
+
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
 	if strings.TrimSpace(c.EndpointPath) == "" {
 		return model.PreparedRequest{}, route.SetupError{Err: errors.New("model endpoint path is required")}

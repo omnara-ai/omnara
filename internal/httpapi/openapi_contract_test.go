@@ -586,15 +586,18 @@ func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
 	}
 	if got := openAPIStringSlice(doc.Components.Schemas["ModelProviderAPIVariant"].Enum); !slices.Equal(
 		got,
-		[]string{"default", "openrouter", "bedrock"},
+		[]string{"default", "openrouter", "bedrock", "openrouter-batch"},
 	) {
-		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter/bedrock", got)
+		t.Fatalf("ModelProviderAPIVariant enum = %v, want default/openrouter/bedrock/openrouter-batch", got)
 	}
 	if got := openAPIStringSlice(doc.Components.Schemas["ModelProviderAPIVariantResponse"].ExtensibleEnum); !slices.Equal(
 		got,
-		[]string{"default", "openrouter", "bedrock"},
+		[]string{"default", "openrouter", "bedrock", "openrouter-batch"},
 	) {
-		t.Fatalf("ModelProviderAPIVariantResponse extensible enum = %v, want default/openrouter/bedrock", got)
+		t.Fatalf(
+			"ModelProviderAPIVariantResponse extensible enum = %v, want default/openrouter/bedrock/openrouter-batch",
+			got,
+		)
 	}
 	apiVariant := openAPIPropertySchema(
 		t,

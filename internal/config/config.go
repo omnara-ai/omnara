@@ -119,6 +119,7 @@ type Config struct {
 	OpenRouterSiteURL                 string
 	OpenRouterAppTitle                string
 	OpenRouterAppCategories           []string
+	OpenRouterBatchWebhookSecret      string
 	HostedAPIURL                      string
 	HostedAPIToken                    string
 	MCPRegistrySnapshotPath           string
@@ -349,6 +350,7 @@ func Load() (Config, error) {
 		OpenRouterSiteURL:                 openRouterSiteURL,
 		OpenRouterAppTitle:                openRouterAppTitle,
 		OpenRouterAppCategories:           openRouterAppCategories,
+		OpenRouterBatchWebhookSecret:      strings.TrimSpace(getenv("OMNARA_OPENROUTER_BATCH_WEBHOOK_SECRET", "")),
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),

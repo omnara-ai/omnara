@@ -73,7 +73,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e test-worker-image install-chroot-sandbox \
 	web-install web-generate web-generate-check build-sdk build-web build-api build-api-from-dist build-omnarad build-sandbox web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
-	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
+	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-openrouter-batch test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live-machine-providers test-live \
 	docs-openapi docs-openapi-check
 
@@ -344,7 +344,7 @@ tagged-packages-check:
 	$(GO) test -run '^$$' -tags='integration servicee2e' ./internal/e2e
 	$(GO) test -run '^$$' -tags='integration servicee2e webe2e' ./internal/e2e
 	$(GO) test -run '^$$' -tags='integration servicee2e live' ./internal/e2e
-	$(GO) test -run '^$$' -tags=live ./internal/model/openaichatcompletions ./internal/webaccess
+	$(GO) test -run '^$$' -tags=live ./internal/model/openaichatcompletions ./internal/model/openrouterbatch ./internal/webaccess
 	$(GO) test -run '^$$' -tags='integration live' ./internal/compaction
 	@tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		$(GO) test -c -tags=blackbox -o "$$tmp_dir/blackbox.test" ./internal/blackbox
@@ -522,6 +522,14 @@ test-live-openrouter:
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
+
+# Batch inference can take hours, so this single round trip is not part of
+# test-live. It waits OMNARA_LIVE_OPENROUTER_BATCH_WAIT (default 15m) and skips
+# if the batch is still pending. In CI it runs only for the live-batch-test label.
+test-live-openrouter-batch: ## Run the one slow live OpenRouter Batch API round trip
+	@$(LOAD_DOTENV); \
+	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for the live OpenRouter batch test}"; \
+	$(GO) test -count=1 -v -timeout=0 -tags=live ./internal/model/openrouterbatch -run '^TestLiveOpenRouterBatchRoundTrip$$'
 
 test-live-anthropic:
 	@$(LOAD_DOTENV); \
