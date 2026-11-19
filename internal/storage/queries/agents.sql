@@ -501,3 +501,31 @@ WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.parent_agent_id IS NULL
   AND agent.state = 'active'
 GROUP BY agent.agent_profile_id;
+
+-- name: ListAgentConfigEditProfileAgents :many
+SELECT agent.id, agent.created_at
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND agent.agent_profile_id = sqlc.arg(agent_profile_id)
+  AND agent.state = 'active'
+  AND agent.parent_agent_id IS NULL
+  AND agent.created_at <= sqlc.arg(created_before)::timestamptz
+  AND (agent.created_at, agent.id) > (sqlc.arg(after_created_at)::timestamptz, sqlc.arg(after_id)::uuid)
+ORDER BY agent.created_at, agent.id
+LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: CheckAgentConfigEditTargets :one
+SELECT
+    (SELECT count(*) FROM agent_profiles profile
+     WHERE profile.project_id = sqlc.arg(project_id)
+       AND profile.deleted_at IS NULL
+       AND profile.id = ANY(sqlc.arg(profile_ids)::uuid[]))::bigint AS profiles,
+    (SELECT count(*) FROM agents agent
+     WHERE agent.project_id = sqlc.arg(project_id)
+       AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]))::bigint AS agents,
+    least(statement_timestamp(), (
+        SELECT min(version.created_at) FROM agent_profile_versions version
+        WHERE version.project_id = sqlc.arg(project_id)
+          AND version.profile_id = ANY(sqlc.arg(profile_ids)::uuid[])
+          AND version.idempotency_key = ANY(sqlc.arg(profile_keys)::text[])
+    ))::timestamptz AS cutoff;
