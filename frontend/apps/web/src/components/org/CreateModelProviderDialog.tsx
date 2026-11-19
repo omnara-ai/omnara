@@ -54,9 +54,10 @@ function modelProviderRequest(
   if (values.provider !== 'bedrock') {
     const preset = modelProviderOption(values.provider).endpoint
     const baseUrl = values.baseUrl.trim()
-    // An untouched preset endpoint stays a preset; an edited one is sent explicitly.
+    // Only server-supported presets use shorthand; OpenLake sends its endpoint explicitly.
     if (
       values.provider !== 'custom' &&
+      values.provider !== 'openlake' &&
       preset?.baseUrl === baseUrl &&
       preset.apiFormat === values.apiFormat
     ) {

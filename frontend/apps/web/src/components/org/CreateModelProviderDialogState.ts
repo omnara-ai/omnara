@@ -22,6 +22,12 @@ export const modelProviderOptions = [
     endpoint: { baseUrl: 'https://openrouter.ai/api/v1', apiFormat: 'openai-chat-completions' },
   },
   {
+    value: 'openlake',
+    label: 'OpenLake',
+    keyPlaceholder: 'OpenLake API key',
+    endpoint: { baseUrl: 'https://api.theopenlake.com/v1', apiFormat: 'openai-chat-completions' },
+  },
+  {
     value: 'anthropic',
     label: 'Anthropic',
     keyPlaceholder: 'sk-ant-…',
@@ -43,7 +49,7 @@ export const modelProviderOptions = [
   value: string
   label: string
   keyPlaceholder: string
-  /** The endpoint a preset configures server-side; Bedrock and custom derive theirs from fields. */
+  /** The preset endpoint; Bedrock and custom derive theirs from fields. */
   endpoint: { baseUrl: string; apiFormat: ModelApiFormat } | undefined
 }[]
 
@@ -63,6 +69,7 @@ export function modelProviderKind(
   }
   const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`)
   if (matches('openrouter.ai')) return 'openrouter'
+  if (matches('theopenlake.com')) return 'openlake'
   if (matches('anthropic.com')) return 'anthropic'
   if (matches('openai.com')) return 'openai'
   if (host.startsWith('bedrock') && host.endsWith('.api.aws')) return 'bedrock'

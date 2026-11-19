@@ -73,6 +73,9 @@ describe('modelProviderKind', () => {
     expect(modelProviderKind({ ...config, base_url: 'https://openrouter.ai/api/v1' })).toBe(
       'openrouter',
     )
+    expect(modelProviderKind({ ...config, base_url: 'https://api.theopenlake.com/v1' })).toBe(
+      'openlake',
+    )
     expect(
       modelProviderKind({ ...config, base_url: 'https://bedrock-mantle.us-east-1.api.aws/v1' }),
     ).toBe('bedrock')
@@ -86,6 +89,12 @@ describe('modelProviderKind', () => {
   it('falls back to custom for unknown or lookalike hosts', () => {
     expect(modelProviderKind({ ...config, base_url: 'https://llm.example.com/v1' })).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'https://notopenai.com/v1' })).toBe('custom')
+    expect(modelProviderKind({ ...config, base_url: 'https://nottheopenlake.com/v1' })).toBe(
+      'custom',
+    )
+    expect(
+      modelProviderKind({ ...config, base_url: 'https://theopenlake.com.example.com/v1' }),
+    ).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'not a url' })).toBe('custom')
   })
 })

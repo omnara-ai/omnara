@@ -703,6 +703,36 @@ it('creates a preset provider and continues straight into the model picker', asy
   expect(button('Skip for now')).toBeDefined()
 })
 
+it.each(['https://api.theopenlake.com/v1', 'https://llm-proxy.example.com/v1'])(
+  'creates OpenLake with explicit endpoint settings at %s and continues to model selection',
+  async (baseUrl) => {
+    const api = providerApi()
+    await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+    await selectOption(element('#mp-provider'), 'OpenLake')
+    await clickButton('Advanced')
+
+    expect(element('#mp-base-url')).toHaveProperty('value', 'https://api.theopenlake.com/v1')
+    expect(element('#mp-api-format').textContent).toContain('OpenAI Chat Completions')
+    await type('#mp-base-url', baseUrl)
+    await type('#mp-name', 'production-openlake')
+    await selectOption(labeledControl('API key'), 'openai-api-key')
+    await clickButton('Add provider')
+
+    expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+      {
+        name: 'production-openlake',
+        credential_secret_id: credentialSecret.id,
+        api_format: 'openai-chat-completions',
+        base_url: baseUrl,
+      },
+    ])
+    await waitForUI(() => {
+      expect(modelRows()).toContain('model-one100K')
+    })
+    expect(api.requestsTo('GET', catalogPath)).toEqual([])
+  },
+)
+
 it('deletes the provider and returns to its settings when the catalog fails', async () => {
   const api = providerApi({ status: 'failed', error: 'unauthorized' })
   await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
