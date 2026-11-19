@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
 	"github.com/omnara-ai/omnara/internal/model/openrouterbatch"
@@ -105,7 +106,9 @@ func TestLiveOpenRouterBatchRoundTrip(t *testing.T) {
 
 	// No callback URL: a test process cannot receive one, so this exercises the
 	// polling path that also backs up lost callbacks in production.
-	customID := "omnara-live-" + token
+	// Providers restrict custom ids to [A-Za-z0-9_-]; the kernel sends the
+	// model call context UUID, so the test uses the same shape.
+	customID := uuid.NewString()
 	submission, err := client.SubmitDeferred(ctx, model.DeferredRequest{
 		ProviderRequest: prepared.Body,
 		CustomID:        customID,
