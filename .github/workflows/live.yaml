@@ -7,7 +7,7 @@ name: Live Tests
 # labels. Pull requests from forks never receive repository secrets, so the
 # jobs fail early with a clear message instead of silently skipping.
 #
-# The OpenRouter Batch API round trip is slow and is not part of the runs above.
+# The OpenRouter Batch API agent turn is slow and is not part of the runs above.
 # It runs only when someone with write access adds the `live-batch-test` label
 # to a PR, or on manual dispatch. It does not rerun on new commits or on pushes
 # to main: remove and re-add the label to run it again.
@@ -68,7 +68,7 @@ jobs:
       (github.event_name == 'pull_request' && github.event.action == 'labeled' &&
        github.event.label.name == 'live-batch-test')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: ${{ github.workflow }}-live-openrouter-batch-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: false
@@ -119,7 +119,9 @@ jobs:
             tools/goose/go.sum
             tools/omnaralint/go.sum
 
-      # The test receives OpenRouter's batch callback through a quick tunnel.
+      - uses: ./.github/actions/setup-test-db
+
+      # OpenRouter reaches the API's batch callback route through a quick tunnel.
       - name: Install cloudflared
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/cloudflared" \
@@ -131,9 +133,16 @@ jobs:
       - run: make test-live-openrouter-batch
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Per model call; the turn makes two.
           OMNARA_LIVE_OPENROUTER_BATCH_WAIT: 15m
-          # Optional: when set, the callback's signature is verified.
-          OMNARA_OPENROUTER_BATCH_WEBHOOK_SECRET: ${{ secrets.OPENROUTER_BATCH_WEBHOOK_SECRET }}
+
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always()
+        run: docker compose down -v
 
   live:
     name: Live Provider Tests

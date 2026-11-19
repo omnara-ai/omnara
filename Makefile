@@ -344,7 +344,7 @@ tagged-packages-check:
 	$(GO) test -run '^$$' -tags='integration servicee2e' ./internal/e2e
 	$(GO) test -run '^$$' -tags='integration servicee2e webe2e' ./internal/e2e
 	$(GO) test -run '^$$' -tags='integration servicee2e live' ./internal/e2e
-	$(GO) test -run '^$$' -tags=live ./internal/model/openaichatcompletions ./internal/model/openrouterbatch ./internal/webaccess
+	$(GO) test -run '^$$' -tags=live ./internal/model/openaichatcompletions ./internal/webaccess
 	$(GO) test -run '^$$' -tags='integration live' ./internal/compaction
 	@tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		$(GO) test -c -tags=blackbox -o "$$tmp_dir/blackbox.test" ./internal/blackbox
@@ -523,14 +523,15 @@ test-live-openrouter:
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
 
-# Batch inference can take hours, so this single round trip is not part of
-# test-live. It needs cloudflared on PATH to receive OpenRouter's callback, waits
-# OMNARA_LIVE_OPENROUTER_BATCH_WAIT (default 15m) for it, and skips if the batch
-# is still pending. In CI it runs only for the live-batch-test label.
-test-live-openrouter-batch: ## Run the one slow live OpenRouter Batch API round trip
+# Batch inference can take hours, so this one full agent turn is not part of
+# test-live. It runs the real API and worker against the OpenRouter Batch API
+# and needs cloudflared on PATH to receive OpenRouter's callbacks. It waits
+# OMNARA_LIVE_OPENROUTER_BATCH_WAIT (default 15m) per model call and skips if a
+# batch is still pending. In CI it runs only for the live-batch-test label.
+test-live-openrouter-batch: ## Run the one slow live OpenRouter Batch API agent turn
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for the live OpenRouter batch test}"; \
-	$(GO) test -count=1 -v -timeout=0 -tags=live ./internal/model/openrouterbatch -run '^TestLiveOpenRouterBatchRoundTrip$$'
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=0 -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouterBatchTurn$$'
 
 test-live-anthropic:
 	@$(LOAD_DOTENV); \

@@ -120,9 +120,12 @@ type Config struct {
 	OpenRouterAppTitle                string
 	OpenRouterAppCategories           []string
 	OpenRouterBatchWebhookSecret      string
-	HostedAPIURL                      string
-	HostedAPIToken                    string
-	MCPRegistrySnapshotPath           string
+	// ModelBatchPollInterval is how often a parked batch model call is checked
+	// when no callback arrives. Zero uses the kernel default.
+	ModelBatchPollInterval  time.Duration
+	HostedAPIURL            string
+	HostedAPIToken          string
+	MCPRegistrySnapshotPath string
 }
 
 type AuthConnectorConfig struct {
@@ -415,6 +418,16 @@ func Load() (Config, error) {
 		cfg.SkillDownloadSigningKey = base64.StdEncoding.EncodeToString(
 			[]byte("omnara-insecure-dev-skill-key!!!"),
 		)
+	}
+	if raw := os.Getenv("OMNARA_MODEL_BATCH_POLL_INTERVAL"); raw != "" {
+		duration, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_MODEL_BATCH_POLL_INTERVAL: %w", err)
+		}
+		if duration <= 0 {
+			return Config{}, fmt.Errorf("OMNARA_MODEL_BATCH_POLL_INTERVAL must be positive")
+		}
+		cfg.ModelBatchPollInterval = duration
 	}
 	if raw := os.Getenv("OMNARA_WORKER_DRAIN_TIMEOUT"); raw != "" {
 		duration, err := time.ParseDuration(raw)

@@ -220,7 +220,8 @@ func main() {
 		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
 	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
-		Store: store,
+		Store:                store,
+		DeferredPollInterval: cfg.ModelBatchPollInterval,
 		DeferredCallbackURL: func(batchRequestID uuid.UUID, token string) string {
 			return modelbatch.OpenRouterCallbackURL(cfg.PublicURL, batchRequestID, token)
 		},

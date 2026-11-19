@@ -109,29 +109,34 @@ SET state='parked',
  provider_batch_id=CASE WHEN $1::text='' THEN b.provider_batch_id ELSE $1::text END,
  deadline_at=coalesce(b.deadline_at,
   statement_timestamp()+$2::bigint*interval '1 microsecond'),
- resume_at=CASE WHEN b.wake_requested_at IS NOT NULL OR EXISTS(
-   SELECT 1 FROM agent_runtime_locks r WHERE r.id=b.runtime_lock_id AND r.cancel_requested_at IS NOT NULL)
+ resume_at=CASE
+  WHEN EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.id=b.runtime_lock_id AND r.cancel_requested_at IS NOT NULL)
+   OR (b.state='submitting' AND b.wake_requested_at IS NOT NULL)
   THEN statement_timestamp()
-  ELSE statement_timestamp()+$3::bigint*interval '1 microsecond' END,
+  WHEN b.wake_requested_at IS NOT NULL
+  THEN statement_timestamp()+least($3::bigint,$4::bigint)*interval '1 microsecond'
+  ELSE statement_timestamp()+$4::bigint*interval '1 microsecond' END,
  updated_at=statement_timestamp()
-WHERE b.id=$4 AND b.agent_id=$5 AND b.runtime_lock_id=$6
+WHERE b.id=$5 AND b.agent_id=$6 AND b.runtime_lock_id=$7
  AND b.state IN ('submitting','collecting')
 RETURNING b.resume_at
 `
 
 type ParkExecutionBatchRequestParams struct {
-	ProviderBatchID  string
-	HoldMicroseconds int64
-	PollMicroseconds int64
-	ID               uuid.UUID
-	AgentID          uuid.UUID
-	RuntimeID        uuid.UUID
+	ProviderBatchID     string
+	HoldMicroseconds    int64
+	RecheckMicroseconds int64
+	PollMicroseconds    int64
+	ID                  uuid.UUID
+	AgentID             uuid.UUID
+	RuntimeID           uuid.UUID
 }
 
 func (q *Queries) ParkExecutionBatchRequest(ctx context.Context, db DBTX, arg ParkExecutionBatchRequestParams) (*time.Time, error) {
 	row := db.QueryRow(ctx, parkExecutionBatchRequest,
 		arg.ProviderBatchID,
 		arg.HoldMicroseconds,
+		arg.RecheckMicroseconds,
 		arg.PollMicroseconds,
 		arg.ID,
 		arg.AgentID,
@@ -218,7 +223,7 @@ func (q *Queries) ReadExecutionBatchRequest(ctx context.Context, db DBTX, arg Re
 
 const resumeExecutionBatchRequest = `-- name: ResumeExecutionBatchRequest :one
 UPDATE model_batch_requests b
-SET state='collecting',wake_requested_at=NULL,updated_at=statement_timestamp()
+SET state='collecting',updated_at=statement_timestamp()
 FROM agents a
 WHERE b.id=$1 AND b.runtime_lock_id=$2 AND b.state='parked'
  AND b.resume_at<=statement_timestamp() AND a.id=b.agent_id

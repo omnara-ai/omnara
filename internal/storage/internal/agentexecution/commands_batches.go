@@ -44,6 +44,10 @@ type CreateBatchRequestInput struct {
 	InputFingerprint     string
 }
 
+// batchWokenRecheckDelay is how soon a batch is looked at again when its
+// callback has arrived but the result was not readable yet.
+const batchWokenRecheckDelay = 15 * time.Second
+
 type ParkBatchInput struct {
 	ID              uuid.UUID
 	RuntimeID       uuid.UUID
@@ -131,12 +135,13 @@ func (u *Unit) ParkRuntimeForBatch(ctx context.Context, route AgentRoute, input 
 	}
 	u.runtimeLocked = true
 	resumeAt, err := q.ParkExecutionBatchRequest(ctx, u.DB(), executiondb.ParkExecutionBatchRequestParams{
-		ProviderBatchID:  input.ProviderBatchID,
-		HoldMicroseconds: input.HoldFor.Microseconds(),
-		PollMicroseconds: input.PollDelay.Microseconds(),
-		ID:               input.ID,
-		AgentID:          route.AgentID,
-		RuntimeID:        input.RuntimeID,
+		ProviderBatchID:     input.ProviderBatchID,
+		HoldMicroseconds:    input.HoldFor.Microseconds(),
+		PollMicroseconds:    input.PollDelay.Microseconds(),
+		RecheckMicroseconds: batchWokenRecheckDelay.Microseconds(),
+		ID:                  input.ID,
+		AgentID:             route.AgentID,
+		RuntimeID:           input.RuntimeID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, storeerr.ErrStateTransitionConflict

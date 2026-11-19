@@ -1273,6 +1273,34 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		"service-e2e-openrouter",
 		modeltest.LiveOpenRouterProviderModelSlug,
 	)
+	// The same OpenRouter credential behind the Batch API variant. Its model
+	// must have a batch variant; only the live batch journey calls it.
+	openRouterBatchConfig := e.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		"/api/v1/orgs/"+orgID+"/model-provider-configs",
+		map[string]any{
+			"name":                 serviceE2EOpenRouterBatchProviderConfig,
+			"api_format":           "openai-chat-completions",
+			"api_variant":          "openrouter-batch",
+			"base_url":             "https://openrouter.ai/api/v1",
+			"credential_secret_id": testutil.RequireType[string](t, openRouterSecret["id"]),
+		},
+		"",
+		adminToken,
+		http.StatusCreated,
+	)
+	e.createServiceE2EConfiguredModels(
+		t,
+		ctx,
+		projectPath,
+		adminToken,
+		serviceE2EOpenRouterBatchProviderConfig,
+		serviceE2EProviderConfigID(t, openRouterBatchConfig),
+		modelOptions,
+		serviceE2EOpenRouterBatchModel(),
+	)
 	anthropicSecret := e.requestJSON(
 		t,
 		ctx,
@@ -1314,6 +1342,17 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		"service-e2e-claude",
 		modeltest.LiveAnthropicProviderModelSlug,
 	)
+}
+
+const serviceE2EOpenRouterBatchProviderConfig = "openrouter-batch"
+
+// serviceE2EOpenRouterBatchModel is the OpenRouter model used through the
+// Batch API. It must have a batch variant.
+func serviceE2EOpenRouterBatchModel() string {
+	if slug := strings.TrimSpace(os.Getenv("OMNARA_LIVE_OPENROUTER_BATCH_MODEL")); slug != "" {
+		return slug
+	}
+	return "anthropic/claude-haiku-5.5"
 }
 
 func serviceE2EProviderConfigID(t *testing.T, response map[string]any) string {
