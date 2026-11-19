@@ -32,7 +32,7 @@ function AgentConfigYamlEditorFallback({
       aria-live="polite"
     >
       <Spinner className="text-muted-foreground size-6" />
-      <span className="sr-only">Loading YAML editor</span>
+      <span className="sr-only">Loading source editor</span>
     </div>
   )
 }
@@ -43,7 +43,7 @@ function AgentConfigYamlEditorError() {
       role="alert"
       className="border-destructive/30 bg-destructive/5 flex items-center justify-between gap-3 rounded-md border px-3 py-2"
     >
-      <p className="text-destructive text-sm">Could not load the YAML editor.</p>
+      <p className="text-destructive text-sm">Could not load the source editor.</p>
       <Button
         type="button"
         size="sm"
@@ -61,6 +61,7 @@ function AgentConfigYamlEditorError() {
 
 export function AgentConfigYamlField({
   hideLabel = false,
+  format = 'yaml',
   id,
   className,
   ...editorProps
@@ -68,7 +69,7 @@ export function AgentConfigYamlField({
   const editor = (
     <CatchBoundary getResetKey={() => id} errorComponent={AgentConfigYamlEditorError}>
       <Suspense fallback={<AgentConfigYamlEditorFallback id={id} className={className} />}>
-        <LazyAgentConfigYamlEditor id={id} className={className} {...editorProps} />
+        <LazyAgentConfigYamlEditor format={format} id={id} className={className} {...editorProps} />
       </Suspense>
     </CatchBoundary>
   )
@@ -78,7 +79,7 @@ export function AgentConfigYamlField({
   return (
     <Field className="min-h-0 flex-1">
       <RequiredFieldLabel asChild>
-        <span>Config (YAML)</span>
+        <span>Config ({format.toUpperCase()})</span>
       </RequiredFieldLabel>
       {editor}
     </Field>

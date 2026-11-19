@@ -1,17 +1,14 @@
-import { useEffect, useReducer, useState } from 'react'
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
+import { useEffect, useState } from 'react'
 
-import {
-  type AgentConfigMode,
-  agentConfigModeReducer,
-  initialAgentConfigModeState,
-  yamlDiverged,
-} from '@/components/agents/agentConfigModeMachine'
-import { configProblems } from '@/components/agents/agentConfigProblems'
-import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
+import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { useMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
+  emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
+import { useAgentConfigMode } from '@/components/agents/useAgentConfigMode'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 import { useSubmitCheck } from '@/components/agents/useSubmitCheck'
 
@@ -21,6 +18,7 @@ export function useAgentConfigEditor({
   orgId,
   projectId,
   source,
+  sourceFormat,
   canManage,
   preferredMode,
   onModeChange,
@@ -29,43 +27,42 @@ export function useAgentConfigEditor({
   orgId: string
   projectId: string
   source: string
+  sourceFormat: ConfigSourceFormat
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const [session, setSession] = useState(() => createBasicConfigSession(source))
+  const restored = useMcpBuilderOAuthRestore()
+  const [session, setSession] = useState(() =>
+    createBasicConfigSession(restored?.draft.originalSource ?? source, sourceFormat),
+  )
   const builderSession = canManage && session.initialDraft != null ? session : null
-  const [restored] = useState(takeMcpBuilderOAuthRestore)
-  const form = useAgentBuilderForm(session, restored?.draft, { orgId, projectId })
-  const [mode, dispatchMode] = useReducer(
-    agentConfigModeReducer,
-    initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
+  const restoredSource = restored?.draft.savedSource ?? restored?.draft.originalSource
+  const restoreProblem =
+    restoredSource !== undefined && restoredSource !== source
+      ? 'The configuration changed during OAuth authorization. This restored draft cannot be saved. Review your pending changes, reload the latest configuration, and reapply only your intended edits.'
+      : null
+  const form = useAgentBuilderForm(
+    session,
+    {
+      ...(restored?.draft ?? session.initialDraft ?? emptyBasicConfig),
+      savedSource: restored?.draft.savedSource ?? source,
+    },
+    { orgId, projectId },
   )
-
-  const switchMode = (nextMode: AgentConfigMode) => {
-    if (nextMode === 'builder' && mode.editorYaml !== null) {
-      const adopted = createBasicConfigSession(mode.editorYaml)
-      if (adopted.initialDraft != null) {
-        setSession(adopted)
-        form.reset(adopted.initialDraft)
-        dispatchMode({ type: 'adopt-yaml-edits' })
-        return
-      }
-    }
-    dispatchMode({ type: 'switch-mode', mode: nextMode })
-  }
-
-  const showBuilder = mode.mode === 'builder'
-  const builderYaml = builderSession ? form.yaml : source
-  const editorYaml = mode.editorYaml ?? builderYaml
-  const yaml = showBuilder ? builderYaml : editorYaml
-  const dirty = yaml !== source
+  const controller = useAgentConfigMode({
+    session,
+    setSession,
+    form,
+    source,
+    builderAvailable: builderSession != null,
+    initialMode: builderSession ? preferredMode : 'yaml',
+  })
+  const { mode, yaml } = controller
+  const dirty = yaml !== source || form.dirty
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
-  const problems = configProblems(
-    yaml,
-    builderSession != null && (showBuilder || !yamlDiverged(mode)) ? form.problems : [],
-  )
+  const problems = [...controller.problems, ...(restoreProblem ? [restoreProblem] : [])]
   const saveCheck = useSubmitCheck(problems, !dirty)
 
   useEffect(() => {
@@ -78,18 +75,24 @@ export function useAgentConfigEditor({
 
   return {
     source,
+    ...controller,
+    problems,
+    compatibility: restoreProblem
+      ? [
+          ...controller.compatibility,
+          {
+            path: [],
+            kind: 'fatal' as const,
+            error: true,
+            message: restoreProblem,
+          },
+        ]
+      : controller.compatibility,
     canManage,
     builderSession,
     form,
-    mode,
-    dispatchMode,
-    switchMode,
-    builderYaml,
-    editorYaml,
-    yaml,
     dirty,
     suppressUnsavedChangesWarning,
     saveCheck,
-    showBuilder,
   }
 }

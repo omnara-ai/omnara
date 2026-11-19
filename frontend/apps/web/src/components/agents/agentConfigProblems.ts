@@ -31,19 +31,27 @@ export function basicConfigProblems(
   availability: BuilderAvailability = allAvailable,
 ): string[] {
   const problems: string[] = []
-  if (draft.providerConfig === '' || draft.modelName === '') {
-    problems.push('Choose a model.')
-  } else {
-    const modelError =
-      resourceNameError(draft.providerConfig, 'Model provider config name') ??
-      resourceNameError(draft.modelName, 'Model name')
-    if (modelError !== undefined) {
-      problems.push(modelError)
-    } else if (availability.modelUnavailable) {
-      problems.push('The selected model or reasoning effort can’t be used.')
+  const preservedFields = new Set(
+    (draft.advancedEntries ?? [])
+      .filter((entry) => entry.path.length === 1)
+      .map((entry) => entry.path[0]),
+  )
+  if (!preservedFields.has('model')) {
+    if (draft.providerConfig === '' || draft.modelName === '') {
+      problems.push('Choose a model.')
+    } else {
+      const modelError =
+        resourceNameError(draft.providerConfig, 'Model provider config name') ??
+        resourceNameError(draft.modelName, 'Model name')
+      if (modelError !== undefined) {
+        problems.push(modelError)
+      } else if (availability.modelUnavailable) {
+        problems.push('The selected model or reasoning effort can’t be used.')
+      }
     }
   }
-  if (draft.instruction.trim() === '') problems.push('Instructions are required.')
+  if (!preservedFields.has('instruction') && draft.instruction.trim() === '')
+    problems.push('Instructions are required.')
   const unavailableSourceIds = new Set(availability.unavailableSourceIds)
   draft.machineSources.forEach((source, index) => {
     const label = resourceNameValid(source.name)
@@ -57,7 +65,14 @@ export function basicConfigProblems(
   if (availability.unavailableSkillIds.length > 0) {
     problems.push('Remove skills that are no longer available to this project.')
   }
-  problems.push(...subagentsProblems(draft.subagents, draft.maxSubagents, draft.maxDepth))
+  problems.push(
+    ...subagentsProblems(
+      draft.subagents,
+      draft.maxSubagents,
+      draft.maxDepth,
+      (draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'subagents'),
+    ),
+  )
   problems.push(...mcpServersProblems(draft.mcpServers))
   return [...new Set(problems)]
 }
