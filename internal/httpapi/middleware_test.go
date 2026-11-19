@@ -13,6 +13,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -151,26 +152,39 @@ func TestRejectCanceledRequestsLogsCancellationAtInfo(t *testing.T) {
 	}
 }
 
-func TestMissingInjectedMachineTokenIsUnprocessable(t *testing.T) {
-	buf, log := newRequestEventCapture()
-	server := &Server{store: storage.NewStore(nil)}
-	handler := requestEvents(log, nil, nil)(server.auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("placeholder without an injected machine token reached the next handler")
-	})))
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
-	req.Header.Set("Authorization", "Bearer "+daemonprotocol.ProviderInjectedMachineToken)
-	rec := httptest.NewRecorder()
+func TestMachineTokenNotInjectedIsUnauthorizedWithDedicatedCode(t *testing.T) {
+	require.Equal(
+		t,
+		daemonprotocol.ErrorCodeMachineTokenNotInjected,
+		string(openapi.ErrorCodeMachineTokenNotInjected),
+	)
+	for path, wantChallenge := range map[string]string{
+		"/api/v1/me": "Bearer",
+		"/mcp":       `Bearer resource_metadata="http://example.com/.well-known/oauth-protected-resource/mcp"`,
+	} {
+		t.Run(path, func(t *testing.T) {
+			buf, log := newRequestEventCapture()
+			server := &Server{store: storage.NewStore(nil)}
+			handler := requestEvents(log, nil, nil)(server.auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("placeholder without an injected machine token reached the next handler")
+			})))
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Authorization", "Bearer "+daemonprotocol.ProviderInjectedMachineToken)
+			rec := httptest.NewRecorder()
 
-	handler.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
-	require.JSONEq(t, `{
-		"code": "unprocessable",
-		"error": "unprocessable request: provider-injected is a placeholder, not a credential; calling the Omnara API with it from agent commands is not supported"
-	}`, rec.Body.String())
-	event := decodeRequestEvent(t, buf)
-	require.Equal(t, string(logent.TokenKindMachineDaemon), event["auth.token_kind"])
-	require.Equal(t, string(logent.AuthResultMissingInjectedMachineToken), event["auth.result"])
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			require.Equal(t, wantChallenge, rec.Header().Get("WWW-Authenticate"))
+			require.JSONEq(t, `{
+				"code": "machine_token_not_injected",
+				"error": "provider-injected is a placeholder, not a credential"
+			}`, rec.Body.String())
+			event := decodeRequestEvent(t, buf)
+			require.Equal(t, string(logent.TokenKindMachineDaemon), event["auth.token_kind"])
+			require.Equal(t, string(logent.AuthResultMachineTokenNotInjected), event["auth.result"])
+		})
+	}
 }
 
 func TestRequestBodyLimitProviderRoutes(t *testing.T) {

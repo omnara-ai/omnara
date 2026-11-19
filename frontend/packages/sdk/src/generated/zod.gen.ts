@@ -280,7 +280,8 @@ export const zErrorCode = z.enum([
     'daemon_runtime_unregistered',
     'validation_failed',
     'csrf_check_failed',
-    'authentication_unavailable'
+    'authentication_unavailable',
+    'machine_token_not_injected'
 ]);
 
 /**

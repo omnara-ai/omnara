@@ -157,7 +157,7 @@ func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
 	if err := c.postJSON(ctx, daemonAPIPath+"/processes/"+processID+"/git-credentials", nil, &credentials); err != nil {
 		var status httpStatusError
 		if errors.As(err, &status) && status.StatusCode >= 400 && status.StatusCode < 500 &&
-			status.StatusCode != http.StatusUnprocessableEntity {
+			!status.machineTokenNotInjected() {
 			if status.RetryAfter != "" {
 				w.Header().Set("Retry-After", status.RetryAfter)
 			}
