@@ -30,6 +30,10 @@ const (
 	MaxProgramToolKeyBytes = 128
 )
 
+// programToolNamedLifetime is how long a named call stays open once the command that made it has
+// ended and no server is running it. Until then a rerun with its key picks it up.
+var programToolNamedLifetime = 24 * time.Hour
+
 type ProgramTool struct {
 	ID        uuid.UUID
 	ParentID  uuid.UUID
@@ -49,7 +53,10 @@ type ProgramToolRef struct {
 type CreateProgramToolInput struct {
 	ProcessID uuid.UUID
 	// Key identifies the call across the agent's commands. Reusing it returns the earlier call.
-	Key   string
+	Key string
+	// Named is set when the command chose the key. A named call outlives the command that made it,
+	// so a rerun gets the same execution, approval or result.
+	Named bool
 	Name  string
 	Type  string
 	Input json.RawMessage
@@ -75,12 +82,18 @@ func programCommand[T any](h *Handle, run func() (T, error)) (result T, err erro
 	return run()
 }
 
-func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executiondb.LockProgramProcessRow, error) {
+func (h *Handle) lockProgram(ctx context.Context, processID uuid.UUID) (executiondb.LockProgramProcessRow, error) {
 	row, err := executiondb.New().LockProgramProcess(ctx, h.unit.DB(),
 		executiondb.LockProgramProcessParams{AgentID: h.route.AgentID, ID: processID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return row, storeerr.ErrNotFound
 	}
+	return row, err
+}
+
+// fenceProgram requires a running command: only one can make calls.
+func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executiondb.LockProgramProcessRow, error) {
+	row, err := h.lockProgram(ctx, processID)
 	if err != nil {
 		return row, err
 	}
@@ -88,6 +101,12 @@ func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executi
 		return row, storeerr.ErrProcessTerminal
 	}
 	return row, nil
+}
+
+// programToolOpen reports whether a call can still make progress. A named call needs only its
+// agent to be active; any other call ends with the command that made it.
+func (h *Handle) programToolOpen(process executiondb.LockProgramProcessRow, row executiondb.ReadProgramToolRow) bool {
+	return h.identity.State == "active" && (process.Live || row.ProgramNamed)
 }
 
 func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (executiondb.ReadProgramToolRow, error) {
@@ -103,10 +122,18 @@ func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (exec
 }
 
 func (h *Handle) fencedProgramTool(ctx context.Context, ref ProgramToolRef) (executiondb.ReadProgramToolRow, error) {
-	if _, err := h.fenceProgram(ctx, ref.ProcessID); err != nil {
+	process, err := h.lockProgram(ctx, ref.ProcessID)
+	if err != nil {
 		return executiondb.ReadProgramToolRow{}, err
 	}
-	return h.programTool(ctx, ref.ID, ref.ProcessID)
+	row, err := h.programTool(ctx, ref.ID, ref.ProcessID)
+	if err != nil {
+		return row, err
+	}
+	if !h.programToolOpen(process, row) {
+		return row, storeerr.ErrProcessTerminal
+	}
+	return row, nil
 }
 
 func (h *Handle) transitionProgramTool(
@@ -152,8 +179,9 @@ func (h *Handle) resumeProgramTool(
 		return ProgramTool{}, false, storeerr.ErrIdempotencyConflict
 	}
 	if row.State != "completed" && row.ProcessID != processID {
-		// Another command made this call. If that command is gone, settle its call now rather than
-		// attaching to one the reaper is about to end.
+		// Another command made this call. A named call is picked up as it is, running or waiting for
+		// approval. Any other call ended with its command, so settle it now rather than attaching to
+		// one the reaper is about to end.
 		reaped, err := h.reapProgramTool(ctx, row)
 		if err != nil {
 			return ProgramTool{}, false, err
@@ -236,7 +264,7 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 			return ProgramTool{}, err
 		}
 		if _, err = q.InsertProgramTool(ctx, h.unit.DB(), executiondb.InsertProgramToolParams{
-			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: input.Key,
+			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: input.Key, Named: input.Named,
 			Name: input.Name, Type: input.Type, Input: callInput}); errors.Is(err, pgx.ErrNoRows) {
 			record, found, err := existing()
 			if err == nil && !found {
@@ -525,10 +553,16 @@ func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgra
 	switch {
 	case h.identity.State != "active":
 		code, message = "agent_inactive", "The agent is no longer active."
-	case process.Live && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
+	case (process.Live || row.ProgramNamed) && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
 		code, message = "server_lost", "The server running this call stopped before it completed."
 	case process.Live:
 		return false, nil
+	case row.ProgramNamed:
+		// A named call outlives its command so a rerun can pick it up. It ends only when none did.
+		if (row.ProgramClaimID != nil && !row.ClaimExpired) || time.Since(row.CreatedAt) < programToolNamedLifetime {
+			return false, nil
+		}
+		code, message = "expired", "No command picked this call up after the one that made it ended."
 	}
 	outcome, body, err := programToolStopped(row, code, message)
 	if err != nil {
@@ -591,8 +625,12 @@ func (h *Handle) resolveProgramInteraction(
 		if err != nil {
 			return Interaction{}, err
 		}
-		if _, err = h.fenceProgram(ctx, call.ProcessID); err != nil {
+		process, err := h.lockProgram(ctx, call.ProcessID)
+		if err != nil {
 			return Interaction{}, err
+		}
+		if !h.programToolOpen(process, call) {
+			return Interaction{}, storeerr.ErrProcessTerminal
 		}
 		if call.State != "awaiting_permission" {
 			return Interaction{}, storeerr.ErrStateTransitionConflict
@@ -672,7 +710,8 @@ func (c *AgentCell) ListProgramToolReapable(
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
 		rows, err = executiondb.New().ListProgramToolReapable(ctx, tx,
 			executiondb.ListProgramToolReapableParams{
-				AfterCreatedAt: after.CreatedAt, AfterID: after.ID, LimitCount: limit})
+				NamedLifetimeMicroseconds: programToolNamedLifetime.Microseconds(),
+				AfterCreatedAt:            after.CreatedAt, AfterID: after.ID, LimitCount: limit})
 		return err
 	}); err != nil {
 		return nil, err

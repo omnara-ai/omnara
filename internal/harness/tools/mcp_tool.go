@@ -94,6 +94,14 @@ func (e Executor) dispatchMCPTool(
 		}
 		return failed, cause
 	}
+	var lost *mcp.ResponseLostError
+	if errors.As(err, &lost) {
+		unknown, resultErr := mcpResponseLostToolResult(serverKey, remoteName, lost)
+		if resultErr != nil {
+			return toolResultContent{}, resultErr
+		}
+		return unknown, err
+	}
 	if err != nil {
 		return toolResultContent{}, err
 	}
@@ -134,6 +142,27 @@ func mcpConnectionServes(
 		return fmt.Errorf("mcp server \"%s\" is not ready for the agent's current configuration", server.ServerKey)
 	}
 	return nil
+}
+
+// mcpResponseLostToolResult is the result of a call that was sent but never answered. It keeps what
+// came back in place of an answer, so the caller can judge whether the call took effect.
+func mcpResponseLostToolResult(
+	serverKey, remoteName string,
+	lost *mcp.ResponseLostError,
+) (toolResultContent, error) {
+	result := map[string]any{
+		"error_code": "outcome_unknown",
+		"message": fmt.Sprintf("MCP tool \"%s\" on server \"%s\" was sent the call, but no usable response "+
+			"came back. The call may or may not have taken effect, so check before running it again.",
+			remoteName, serverKey),
+		"error":          lost.Error(),
+		"mcp_server_key": serverKey,
+		"mcp_tool_name":  remoteName,
+	}
+	if status, ok := mcp.HTTPStatus(lost); ok {
+		result["http_status"] = status
+	}
+	return structuredToolResultContent(result)
 }
 
 func mcpConnectionFailedToolResult(

@@ -15,7 +15,7 @@ import (
 
 const countOpenProgramTools = `-- name: CountOpenProgramTools :one
 SELECT count(*) FROM tool_calls WHERE agent_id=$1 AND caller='program'
- AND parent_tool_call_id=$2::uuid AND state<>'completed'
+ AND (parent_tool_call_id=$2::uuid OR program_named) AND state<>'completed'
 `
 
 type CountOpenProgramToolsParams struct {
@@ -23,6 +23,7 @@ type CountOpenProgramToolsParams struct {
 	ParentID uuid.UUID
 }
 
+// Named calls outlive their command, so every open one counts against each command of the agent.
 func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountOpenProgramToolsParams) (int64, error) {
 	row := db.QueryRow(ctx, countOpenProgramTools, arg.AgentID, arg.ParentID)
 	var count int64
@@ -31,10 +32,11 @@ func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountO
 }
 
 const insertProgramTool = `-- name: InsertProgramTool :one
-INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
+INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
+ program_named,created_at)
 SELECT $1,c.project_id,c.agent_id,$2,$3,$4::jsonb,$5,
- 'awaiting_authorization','program',c.id,statement_timestamp()
-FROM tool_calls c WHERE c.agent_id=$6 AND c.id=$7 AND c.caller='model'
+ 'awaiting_authorization','program',c.id,$6::boolean,statement_timestamp()
+FROM tool_calls c WHERE c.agent_id=$7 AND c.id=$8 AND c.caller='model'
 ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
 RETURNING id
 `
@@ -45,6 +47,7 @@ type InsertProgramToolParams struct {
 	Name     string
 	Input    json.RawMessage
 	Type     string
+	Named    bool
 	AgentID  uuid.UUID
 	ParentID uuid.UUID
 }
@@ -56,6 +59,7 @@ func (q *Queries) InsertProgramTool(ctx context.Context, db DBTX, arg InsertProg
 		arg.Name,
 		arg.Input,
 		arg.Type,
+		arg.Named,
 		arg.AgentID,
 		arg.ParentID,
 	)
@@ -67,17 +71,20 @@ func (q *Queries) InsertProgramTool(ctx context.Context, db DBTX, arg InsertProg
 const listProgramToolReapable = `-- name: ListProgramToolReapable :many
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
-WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active' OR p.execution_granted_at IS NULL
- OR p.state NOT IN ('starting','running')
+WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
+ OR ((p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
+  OR (c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond'
+   AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
- AND (c.created_at,c.id)>($1::timestamptz,$2::uuid)
-ORDER BY c.created_at,c.id LIMIT $3
+ AND (c.created_at,c.id)>($2::timestamptz,$3::uuid)
+ORDER BY c.created_at,c.id LIMIT $4
 `
 
 type ListProgramToolReapableParams struct {
-	AfterCreatedAt time.Time
-	AfterID        uuid.UUID
-	LimitCount     int32
+	NamedLifetimeMicroseconds int64
+	AfterCreatedAt            time.Time
+	AfterID                   uuid.UUID
+	LimitCount                int32
 }
 
 type ListProgramToolReapableRow struct {
@@ -88,7 +95,12 @@ type ListProgramToolReapableRow struct {
 }
 
 func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg ListProgramToolReapableParams) ([]ListProgramToolReapableRow, error) {
-	rows, err := db.Query(ctx, listProgramToolReapable, arg.AfterCreatedAt, arg.AfterID, arg.LimitCount)
+	rows, err := db.Query(ctx, listProgramToolReapable,
+		arg.NamedLifetimeMicroseconds,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +148,7 @@ func (q *Queries) LockProgramProcess(ctx context.Context, db DBTX, arg LockProgr
 }
 
 const readProgramTool = `-- name: ReadProgramTool :one
-SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
@@ -158,6 +170,7 @@ type ReadProgramToolRow struct {
 	State                 string
 	ParentToolCallID      *uuid.UUID
 	ProviderCallID        string
+	ProgramNamed          bool
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
@@ -179,6 +192,7 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 		&i.State,
 		&i.ParentToolCallID,
 		&i.ProviderCallID,
+		&i.ProgramNamed,
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
@@ -192,7 +206,7 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 }
 
 const readProgramToolByKey = `-- name: ReadProgramToolByKey :one
-SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
@@ -215,6 +229,7 @@ type ReadProgramToolByKeyRow struct {
 	State                 string
 	ParentToolCallID      *uuid.UUID
 	ProviderCallID        string
+	ProgramNamed          bool
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
@@ -236,6 +251,7 @@ func (q *Queries) ReadProgramToolByKey(ctx context.Context, db DBTX, arg ReadPro
 		&i.State,
 		&i.ParentToolCallID,
 		&i.ProviderCallID,
+		&i.ProgramNamed,
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
@@ -255,7 +271,8 @@ WHERE c.agent_id=$2 AND c.id=$3 AND c.caller='program'
  AND c.state IN ('awaiting_authorization','waiting') AND c.program_claim_id=$4
  AND c.program_claim_expires_at>statement_timestamp()
  AND EXISTS(SELECT 1 FROM processes p WHERE p.agent_id=c.agent_id AND p.id=$5
- AND p.tool_call_id=c.parent_tool_call_id AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
+ AND p.tool_call_id=c.parent_tool_call_id
+ AND (c.program_named OR (p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))))
 RETURNING c.program_claim_expires_at
 `
 

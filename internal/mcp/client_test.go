@@ -834,3 +834,79 @@ func extractID(body []byte) string {
 	}
 	return string(msg.ID)
 }
+
+func TestCallToolClassifiesLostResponses(t *testing.T) {
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refusedURL := refused.URL
+	refused.Close()
+	for _, test := range []struct {
+		name    string
+		handler http.HandlerFunc
+		url     string
+		lost    bool
+		want    string
+	}{
+		{
+			name: "connection dropped after the request",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				conn, _, err := http.NewResponseController(w).Hijack()
+				if err == nil {
+					_ = conn.Close()
+				}
+			},
+			lost: true,
+		},
+		{
+			name: "gateway error",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, "upstream timed out", http.StatusBadGateway)
+			},
+			lost: true,
+			want: "upstream timed out",
+		},
+		{
+			name: "unreadable body",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"result":{"content":`))
+			},
+			lost: true,
+		},
+		{
+			name: "request rejected",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, "bad arguments", http.StatusBadRequest)
+			},
+		},
+		{
+			name: "json-rpc error",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"nope"}}`))
+			},
+		},
+		{name: "never connected", url: refusedURL},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			url := test.url
+			if test.handler != nil {
+				ts := httptest.NewServer(test.handler)
+				defer ts.Close()
+				url = ts.URL
+			}
+			_, err := newClient(t).CallTool(context.Background(), mcp.Conn{EndpointURL: url}, 3,
+				mcp.ToolCall{Name: "send", Arguments: json.RawMessage(`{}`)})
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			var lost *mcp.ResponseLostError
+			if got := errors.As(err, &lost); got != test.lost {
+				t.Fatalf("response lost = %v, want %v (error %v)", got, test.lost, err)
+			}
+			if test.want != "" && !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error %q does not keep what the server returned (%q)", err, test.want)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -420,3 +422,33 @@ func TestToolSearchLoadsDeferredToolsInCodeMode(t *testing.T) {
 }
 
 func programKey(label string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)).String() }
+
+func TestProgramMCPToolCallKeepsUnknownOutcomeWhenResponseIsLost(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProgramToolFixture(t, ctx, "program-mcp-lost", true)
+	calls := 0
+	client := &ownedMCPToolClient{callTool: func(context.Context) (*sdkmcp.CallToolResult, error) {
+		calls++
+		return nil, &mcp.ResponseLostError{
+			Err: &mcp.HTTPError{Status: http.StatusBadGateway, Body: []byte("upstream closed the connection")}}
+	}}
+	executor := Executor{Store: fixture.Store, MCP: client}
+	name := toolcatalog.MCPRuntimeToolName("docs", "greet")
+	call := fixture.create(t, ctx, "lost", name, `{"name":"Ada"}`)
+	claim := fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseAuthorize)
+	scope := NewAsyncExecutionScope(nil)
+	require.NoError(t, executor.RunProgramToolCall(WithAsyncExecutionScope(ctx, scope), claim, time.Minute))
+	settleIntegrationAsyncDispatch(t, scope)
+
+	done := fixture.get(t, ctx, call.ID)
+	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
+	result := string(done.ResultContentParts)
+	require.Contains(t, result, `"error_code":"outcome_unknown"`)
+	require.Contains(t, result, "upstream closed the connection", "the result keeps what came back")
+	require.Contains(t, result, `"http_status":502`)
+
+	again := fixture.create(t, ctx, "lost", name, `{"name":"Ada"}`)
+	require.Equal(t, call.ID, again.ID, "a call whose outcome is unknown is not run again")
+	require.Equal(t, 1, calls)
+}

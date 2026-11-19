@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -33,6 +34,7 @@ type daemonProgramToolCallFixture struct {
 	base    daemonProcessFixture
 	process daemonProcessFixture
 	config  uuid.UUID
+	pool    *pgxpool.Pool
 }
 
 // programToolAgentYAML configures the named tools. storage_read is deferred and asks for approval;
@@ -131,7 +133,7 @@ func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture
 	fixture.ProcessUUID, fixture.ProcessID = process.ID, testPublicID(t, publicid.KindProcess, process.ID)
 	fixture.RuntimeLock, fixture.ToolCallUUID, fixture.ToolCall = claim.RuntimeLock, call.ID, call
 	return &daemonProgramToolCallFixture{server: server, handler: handler, project: project, base: base, process: fixture,
-		config: config.ID}
+		config: config.ID, pool: pool}
 }
 
 func (f *daemonProgramToolCallFixture) changeConfig(t *testing.T, sourceYAML string) {
@@ -229,7 +231,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 
 	optedOut := f.socket()
 	other := programToolOffer(f.base.ProcessID, "k", toolcatalog.ToolNameStorageList, `{}`)
-	optedOut.serveToolCall(ctx, other, nil)
+	optedOut.serveToolCall(ctx, other, newServedToolCall(other))
 	require.Equal(t, unavailable, nextToolCallReport(t, optedOut).ErrorCode)
 	require.Error(t, f.socket().handleToolCallOffer(ctx, daemonprotocol.Message{
 		ToolCallOffer: &daemonprotocol.ToolCallOffer{ProcessID: f.process.ProcessID}}), "an offer needs a key")
@@ -237,7 +239,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	badKey := programToolOffer(f.process.ProcessID, "", toolcatalog.ToolNameStorageList, `{}`)
 	badKey.Key = "has a space"
 	malformed := f.socket()
-	malformed.serveToolCall(ctx, badKey, nil)
+	malformed.serveToolCall(ctx, badKey, newServedToolCall(badKey))
 	require.Equal(t, invalid, nextToolCallReport(t, malformed).ErrorCode)
 	f.rejected(t, "k", toolcatalog.ToolNameStorageList, `[1]`, invalid)
 	f.rejected(t, "k", "no_such_tool", `{}`, unavailable)
@@ -362,7 +364,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.State)
 	require.NoError(t, retried.handleToolCallCancel(againCancel))
 	retried.workMu.Lock()
-	require.Empty(t, retried.toolCalls, "a canceled call frees its slot at once")
+	require.Empty(t, retried.toolCalls, "a canceled call stops answering for its key at once")
 	retried.workMu.Unlock()
 	require.NoError(t, retried.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &again}),
 		"the same key offered right after a cancel is served, not dropped")
@@ -461,4 +463,132 @@ func structuredResult(t *testing.T, result daemonprotocol.ProgramToolCallResult)
 	}
 	t.Fatalf("no structured content in %+v", result)
 	return nil
+}
+
+func (f *daemonProgramToolCallFixture) acceptProcess(t *testing.T) {
+	t.Helper()
+	_, found, err := acceptDaemonProcessOfferForTest(t.Context(), f.project.Store, f.process.authority(),
+		f.process.ProcessUUID)
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+// A key can be offered again while its call is still open. Each offer is checked against the
+// stored call and answered by its own offer ID, so an offer for a different input gets a conflict
+// and never the first call's result.
+func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	socket := f.socket()
+	offer := func(offerID, path string) daemonprotocol.ToolCallOffer {
+		t.Helper()
+		offer := programToolOffer(f.process.ProcessID, "job", toolcatalog.ToolNameStorageRead, `{"path":"`+path+`"}`)
+		offer.OfferID, offer.KeepOnDisconnect = offerID, true
+		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+		return offer
+	}
+	// The first request stops waiting while its call is held open, here by an approval.
+	offer("first", "/memory/engineering/notes.md")
+	first := nextToolCallReport(t, socket)
+	require.Equal(t, "first", first.OfferID)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.State)
+
+	offer("other-input", "/memory/engineering/other.md")
+	conflict := nextToolCallReport(t, socket)
+	require.Equal(t, "other-input", conflict.OfferID)
+	require.Equal(t, daemonprotocol.AckStatusPermanentReject, conflict.AckStatus)
+	require.Equal(t, daemonprotocol.ErrorCodeIdempotencyConflict, conflict.ErrorCode)
+	require.Empty(t, conflict.State)
+	require.Empty(t, conflict.Content)
+
+	offer("rerun", "/memory/engineering/notes.md")
+	rerun := nextToolCallReport(t, socket)
+	require.Equal(t, "rerun", rerun.OfferID)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, rerun.State)
+	require.Equal(t, first.ToolCallID, rerun.ToolCallID, "a rerun picks up the original approval")
+
+	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+	interactions := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions", "", "",
+		http.StatusOK, authHeaders(f.project.AdminToken))
+	open, ok := interactions["data"].([]any)
+	require.True(t, ok)
+	require.Len(t, open, 1, "the offers share one approval")
+	interaction, ok := open[0].(map[string]any)
+	require.True(t, ok)
+	interactionID, ok := interaction["id"].(string)
+	require.True(t, ok)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/interactions/"+interactionID+"/resolve",
+		httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	done := nextToolCallReport(t, socket)
+	require.Equal(t, "rerun", done.OfferID, "the result goes to the offer that asked for this call")
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+	require.Equal(t, first.ToolCallID, done.ToolCallID)
+	socket.toolCallsDone.Wait()
+	require.Empty(t, socket.send)
+
+	// The finished call answers the same way: its result for the same input, a conflict otherwise.
+	offer("after", "/memory/engineering/notes.md")
+	after := nextToolCallReport(t, socket)
+	require.Equal(t, []string{"after", first.ToolCallID}, []string{after.OfferID, after.ToolCallID})
+	offer("after-other", "/memory/engineering/other.md")
+	late := nextToolCallReport(t, socket)
+	require.Equal(t, []string{"after-other", daemonprotocol.ErrorCodeIdempotencyConflict},
+		[]string{late.OfferID, late.ErrorCode})
+	socket.toolCallsDone.Wait()
+}
+
+// A canceled call keeps its place in the connection's limit until its goroutine has exited, so
+// offering and canceling calls while storage is blocked cannot start more than the limit.
+func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	blocked, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = blocked.Rollback(context.WithoutCancel(ctx)) }()
+	_, err = blocked.Exec(ctx, `LOCK TABLE processes IN ACCESS EXCLUSIVE MODE`)
+	require.NoError(t, err)
+
+	socket := f.socket()
+	const over = 16
+	for i := range daemonToolCallLimit + over {
+		offer := programToolOffer(f.process.ProcessID, "k-"+strconv.Itoa(i), toolcatalog.ToolNameStorageList, `{}`)
+		offer.OfferID = strconv.Itoa(i)
+		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+		if i >= daemonToolCallLimit {
+			refused := nextToolCallReport(t, socket)
+			require.Equal(t, offer.OfferID, refused.OfferID)
+			require.Equal(t, daemonprotocol.ErrorCodeToolCallLimitReached, refused.ErrorCode)
+			continue
+		}
+		require.NoError(t, socket.handleToolCallCancel(daemonprotocol.Message{ToolCallCancel: &daemonprotocol.ToolCallCancel{
+			ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}}))
+	}
+	socket.workMu.Lock()
+	active, serving := socket.toolCallsActive, len(socket.toolCalls)
+	socket.workMu.Unlock()
+	require.Equal(t, daemonToolCallLimit, active, "canceled calls still blocked in storage count against the limit")
+	require.Zero(t, serving)
+
+	require.NoError(t, blocked.Rollback(ctx))
+	socket.toolCallsDone.Wait()
+	socket.workMu.Lock()
+	active = socket.toolCallsActive
+	socket.workMu.Unlock()
+	require.Zero(t, active)
+	room := programToolOffer(f.process.ProcessID, "room", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &room}))
+	for {
+		report := nextToolCallReport(t, socket)
+		if report.Key == room.Key {
+			require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, report.State)
+			break
+		}
+	}
+	socket.toolCallsDone.Wait()
 }

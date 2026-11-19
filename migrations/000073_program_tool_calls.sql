@@ -6,9 +6,13 @@ ALTER TABLE tool_calls
     ADD COLUMN parent_tool_call_id uuid,
     ADD COLUMN program_claim_id uuid,
     ADD COLUMN program_claim_expires_at timestamptz,
+    -- A named call was given its key by the command. It belongs to its agent and key rather than to
+    -- the command that made it, so it outlives that command; parent_tool_call_id records where it
+    -- came from.
+    ADD COLUMN program_named boolean NOT NULL DEFAULT false,
     ADD CONSTRAINT tool_calls_caller_shape CHECK (
         (caller = 'model' AND model_output_id IS NOT NULL AND parent_tool_call_id IS NULL
-            AND program_claim_id IS NULL AND program_claim_expires_at IS NULL)
+            AND program_claim_id IS NULL AND program_claim_expires_at IS NULL AND NOT program_named)
         OR (caller = 'program' AND model_output_id IS NULL AND parent_tool_call_id IS NOT NULL
             AND state <> 'running'
             AND (program_claim_id IS NULL) = (program_claim_expires_at IS NULL)
@@ -100,7 +104,7 @@ DROP TRIGGER tool_call_facts_immutable ON tool_calls;
 CREATE TRIGGER tool_call_facts_immutable
 BEFORE UPDATE OF
     id, project_id, agent_id, model_output_id, provider_call_id,
-    name, input, type, created_at, caller, parent_tool_call_id
+    name, input, type, created_at, caller, parent_tool_call_id, program_named
 OR DELETE ON tool_calls
 FOR EACH ROW EXECUTE FUNCTION prevent_tool_call_fact_mutation();
 
