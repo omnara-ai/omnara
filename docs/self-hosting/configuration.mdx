@@ -307,6 +307,7 @@ Scripted edits require a non-root worker with `SYS_CHROOT` available in its capa
 | `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL` | API-side fallback drain floor for connected daemon sockets when Redis wakeups are missed | `30s` | No |
 | `OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_JITTER` | Jitter added to the fallback drain; must not exceed the interval | `10s` | No |
 | `OMNARA_DAEMON_RELEASE_URL` | Platform-manifest directory embedded in the hosted `omnarad.sh` installer | `https://releases.omnara.com/omnarad/latest` | No |
+| `OMNARA_DOCKER_POOLS_ENABLED` | Set to `1` to let organizations create [Docker machine pools](/self-hosting/docker-machines) | `0` | No |
 | `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES` | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | — | No |
 | `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
 

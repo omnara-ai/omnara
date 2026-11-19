@@ -2,9 +2,9 @@ import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog 
 import type { SyntheticEvent } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
-import { yamlDiverged } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import type { AgentTemplate } from '@/components/agents/agentTemplates'
@@ -16,11 +16,12 @@ import {
   type SubmitAction,
   useCreateAgentSubmission,
 } from '@/components/agents/useCreateAgentSubmission'
+import { useSubmitCheck } from '@/components/agents/useSubmitCheck'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameValid } from '@/lib/resource-name'
+import { resourceNameError } from '@/lib/resource-name'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -40,6 +41,7 @@ export function CreateAgentFormView({
   const { activeOrg, project, projectId } = useProjectPage()
   const {
     submit: submitAgent,
+    clearErrors,
     status,
     pendingAction,
     launchError,
@@ -54,25 +56,29 @@ export function CreateAgentFormView({
     switchMode,
     applyTemplate,
     suppressUnsavedChangesWarning,
+    compatibility,
+    problems,
+    showBuilder,
+    yaml,
+    sourceFormat,
   } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
     orgId: activeOrg.id,
     projectId,
   })
 
+  const isSubmitting = status.phase === 'submitting'
+  const nameError = resourceNameError(name)
+  const submitCheck = useSubmitCheck([...(nameError === undefined ? [] : [nameError]), ...problems])
+
   if (project == null) return null
 
-  const showBuilder = mode.mode === 'builder'
-  const isSubmitting = status.phase === 'submitting'
-  const yaml = mode.editorYaml ?? form.yaml
-  const canSubmit =
-    !isSubmitting &&
-    resourceNameValid(name) &&
-    yaml.trim() !== '' &&
-    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
-
   async function submit(action: SubmitAction) {
-    if (!canSubmit) return
-    await submitAgent(name, yaml, action)
+    if (isSubmitting) return
+    if (!submitCheck.check()) {
+      clearErrors()
+      return
+    }
+    await submitAgent(name, yaml, action, sourceFormat)
   }
 
   return (
@@ -84,7 +90,6 @@ export function CreateAgentFormView({
         void submit('launch')
       }}
     >
-      {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
       <div className="surface-page relative z-10 -mx-4 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-bl-xl px-4 pt-6 sm:-mx-6 sm:-mt-9 sm:px-6 sm:pt-9">
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
@@ -114,7 +119,7 @@ export function CreateAgentFormView({
                 onValueChange={switchMode}
                 tabs={[
                   { value: 'builder', label: 'Builder' },
-                  { value: 'yaml', label: 'YAML' },
+                  { value: 'yaml', label: sourceFormat.toUpperCase() },
                 ]}
               />
             </div>
@@ -136,7 +141,7 @@ export function CreateAgentFormView({
                 />
                 <ResourceNameFieldError value={name} />
               </Field>
-              {showBuilder && (
+              {showBuilder && form.isManaged('model') && (
                 <AgentConfigModelField
                   orgId={activeOrg.id}
                   projectId={projectId}
@@ -160,6 +165,7 @@ export function CreateAgentFormView({
               <AgentConfigYamlField
                 id="agent-yaml"
                 value={yaml}
+                format={sourceFormat}
                 className="h-auto min-h-[24rem] flex-1"
                 issues={issues}
                 onChange={(value) => {
@@ -167,6 +173,7 @@ export function CreateAgentFormView({
                 }}
               />
             )}
+            <AgentConfigDiagnostics issues={compatibility} />
           </FieldGroup>
         </div>
       </div>
@@ -175,7 +182,7 @@ export function CreateAgentFormView({
         status={status}
         pendingAction={pendingAction}
         launchError={launchError}
-        canSubmit={canSubmit}
+        problems={submitCheck.problems}
         onCreateProfile={() => {
           void submit('profile')
         }}

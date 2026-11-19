@@ -1,5 +1,6 @@
 import {
   isAgentActive,
+  isScheduledBacklogInput,
   useAgent,
   useAgentChat,
   useAgentConfig,
@@ -117,7 +118,9 @@ export function AgentView() {
   async function cancelCurrent() {
     const steeringInputIDs: string[] = []
     for (const input of chat.inputBacklog.inputs) {
-      if (input.delivery_mode === 'steering') steeringInputIDs.push(input.id)
+      if (input.delivery_mode === 'steering' && !isScheduledBacklogInput(input)) {
+        steeringInputIDs.push(input.id)
+      }
     }
     const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
     try {
@@ -256,6 +259,7 @@ export function AgentView() {
         mcpConnections={data.mcp_connections}
         profile={profile}
         canManage={project?.access.can_manage ?? false}
+        canOperate={canOperate}
       />
     </SidebarProvider>
   )

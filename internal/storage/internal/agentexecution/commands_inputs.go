@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ type ReceiveContentInput struct {
 	IdempotencyKey      string
 	Metadata            json.RawMessage
 	Content             []Content
+	SourceScheduledFor  *time.Time
 }
 
 type ReceivedContent struct {
@@ -70,7 +72,29 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		if !input.capacityExempt {
+		if input.SourceScheduledFor != nil {
+			scheduled, err := q.CountScheduledExecutionContent(ctx, h.unit.DB(),
+				executiondb.CountScheduledExecutionContentParams{
+					AgentID: h.route.AgentID, Capacity: executionpolicy.MaxScheduledAgentContentInputs,
+				})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if scheduled >= executionpolicy.MaxScheduledAgentContentInputs {
+				return ReceivedContent{}, storeerr.ErrAgentScheduledInputsFull
+			}
+			// Released inputs free their scheduled slot, so bound what they can pile up as pending.
+			outstanding := int64(executionpolicy.MaxPendingAgentContentInputs + executionpolicy.MaxScheduledAgentContentInputs)
+			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
+				AgentID: h.route.AgentID, Capacity: outstanding,
+			})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if pending+scheduled >= outstanding {
+				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
+			}
+		} else if !input.capacityExempt {
 			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
 				AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
 			})
@@ -86,12 +110,16 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			TargetID: storeutil.IDFromNil(
 				input.IntegrationTargetID,
 			), Mode: input.DeliveryMode, Kind: "content", Metadata: metadata,
-			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey)})
+			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey),
+			ScheduledFor: input.SourceScheduledFor})
 		if err != nil {
 			return ReceivedContent{}, err
 		}
 		if err = h.writeContent(ctx, "agent_input", row.ID, input.Content); err != nil {
 			return ReceivedContent{}, err
+		}
+		if input.SourceScheduledFor != nil {
+			return ReceivedContent{ID: row.ID}, nil
 		}
 		if m.loaded != nil {
 			m.loaded.databaseNow = row.QueuedAt
@@ -107,6 +135,30 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			m.changed()
 		}
 		return ReceivedContent{ID: row.ID}, nil
+	})
+}
+
+func (h *Handle) ReleaseScheduledContent(ctx context.Context, id uuid.UUID) (bool, error) {
+	return executeCommand(ctx, h, func(m *executionMutation) (bool, error) {
+		row, err := executiondb.New().ReleaseScheduledExecutionInput(ctx, h.unit.DB(),
+			executiondb.ReleaseScheduledExecutionInputParams{AgentID: h.route.AgentID, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if m.loaded == nil {
+			m.changed()
+			return true, nil
+		}
+		m.loaded.databaseNow = row.ReleasedAt
+		if row.DeliveryMode == "steering" {
+			m.loaded.View.Inputs.Steering = true
+		} else {
+			m.loaded.View.Inputs.Queued = true
+		}
+		return true, m.updated(*m.loaded)
 	})
 }
 

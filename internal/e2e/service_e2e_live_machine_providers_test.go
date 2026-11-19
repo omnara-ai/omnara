@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -36,9 +37,10 @@ import (
 const liveMachineDaemonVersion = "999.0.0"
 
 type liveMachineProvider struct {
-	name string
-	env  []string
-	pool func(keys []string) (credential string, pool map[string]any)
+	name         string
+	env          []string
+	prepareStack func(t *testing.T, keys []string) error
+	pool         func(keys []string) (credential string, pool map[string]any)
 }
 
 type liveMachineStack struct {
@@ -80,6 +82,23 @@ func liveMachineProviders() []liveMachineProvider {
 				"max_total_memory_mb":              8192,
 			}
 		}},
+		{
+			name:         "docker",
+			env:          []string{"OMNARA_DOCKER_TEST_HOST", "OMNARA_DOCKER_TEST_CREDENTIAL"},
+			prepareStack: allowLiveDockerHost,
+			pool: func(keys []string) (string, map[string]any) {
+				return keys[1], map[string]any{
+					"provider_config":                  map[string]any{"api_base_url": keys[0]},
+					"default_machine_provider_options": map[string]any{"image": "buildpack-deps:24.04-curl"},
+					"default_machine_cpu":              2,
+					"default_machine_memory_mb":        2048,
+					"max_machine_cpu":                  2,
+					"max_machine_memory_mb":            2048,
+					"max_total_cpu":                    2,
+					"max_total_memory_mb":              2048,
+				}
+			},
+		},
 		{name: "e2b", env: []string{"E2B_API_KEY"}, pool: func(keys []string) (string, map[string]any) {
 			return keys[0], map[string]any{
 				"default_machine_provider_options": map[string]any{"template": "base"},
@@ -124,6 +143,12 @@ func TestServiceE2ELiveMachineProviders(t *testing.T) {
 	}) {
 		t.Skip("no machine provider credentials are configured")
 	}
+	prepareErrs := make(map[string]error)
+	for _, provider := range providers {
+		if keys, ok := liveMachineProviderKeys(provider.env); ok && provider.prepareStack != nil {
+			prepareErrs[provider.name] = provider.prepareStack(t, keys)
+		}
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	t.Cleanup(cancel)
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "live-machines")
@@ -142,10 +167,33 @@ func TestServiceE2ELiveMachineProviders(t *testing.T) {
 			if !ok {
 				t.Skipf("needs %s", strings.Join(provider.env, " and "))
 			}
+			require.NoError(t, prepareErrs[provider.name], "prepare the stack for %s", provider.name)
 			credential, pool := provider.pool(keys)
 			runLiveMachineProviderJourney(t, ctx, stack, provider.name, credential, pool)
 		})
 	}
+}
+
+func allowLiveDockerHost(t *testing.T, keys []string) error {
+	apiBaseURL, err := url.Parse(keys[0])
+	if err != nil {
+		return err
+	}
+	port := apiBaseURL.Port()
+	if port == "" {
+		port = "443"
+	}
+	addresses, err := net.DefaultResolver.LookupHost(t.Context(), apiBaseURL.Hostname())
+	if err != nil {
+		return err
+	}
+	cidrs := []string{os.Getenv("OMNARA_PRIVATE_ENDPOINT_CIDRS")}
+	for _, address := range addresses {
+		cidrs = append(cidrs, net.JoinHostPort(address, port))
+	}
+	t.Setenv("OMNARA_PRIVATE_ENDPOINT_CIDRS", strings.Join(cidrs, ","))
+	t.Setenv("OMNARA_DOCKER_POOLS_ENABLED", "1")
+	return nil
 }
 
 func liveMachineProviderKeys(names []string) ([]string, bool) {

@@ -482,7 +482,7 @@ func runCronTriggerFireLoop(
 		stats, err := runCronTriggerFireTick(ctx, log, service)
 		if err != nil && ctx.Err() == nil {
 			log.Error("fire due cron triggers", "error", err)
-		} else if stats.Claimed > 0 || stats.Disabled > 0 {
+		} else if stats.Claimed > 0 || stats.Disabled > 0 || stats.ScheduledInputs > 0 {
 			log.Info(
 				"fired due cron triggers",
 				"claimed", stats.Claimed,
@@ -491,6 +491,7 @@ func runCronTriggerFireLoop(
 				"inputs", stats.Inputs,
 				"disabled", stats.Disabled,
 				"failures", stats.Failures,
+				"scheduled_inputs", stats.ScheduledInputs,
 			)
 		}
 		return stats.Claimed == crontrigger.FireBatchSize

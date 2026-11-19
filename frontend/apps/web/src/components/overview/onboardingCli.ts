@@ -36,7 +36,7 @@ export function profileCreateSpec(input: {
   config: BasicConfig
 }): ProfileCreateSpec {
   const definition = zDefinitionObject.parse(
-    parse(createBasicConfigSession('').apply(input.config)) ?? {},
+    parse(createBasicConfigSession('', 'yaml').apply(input.config)) ?? {},
   )
   const json = JSON.stringify(definition, null, 1).replaceAll(/\n\s*/g, ' ')
   const shellJson = json.replaceAll("'", "'\\''")

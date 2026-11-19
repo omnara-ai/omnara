@@ -2,6 +2,8 @@ package machinepool
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -622,6 +624,7 @@ func TestConnectionCheckFailure(t *testing.T) {
 		notFound    = "The provider couldn't find the configured workspace, environment, or API."
 		rateLimited = "The provider is rate limiting requests. Try again in a minute."
 		unreachable = "Couldn't reach the provider. Try again in a moment."
+		tlsFailed   = "The TLS handshake failed. Check that the certificates match and haven't expired."
 	)
 	httpStatus := func(code int) error {
 		return fmt.Errorf("check: %w", providers.WithResponse(
@@ -674,6 +677,18 @@ func TestConnectionCheckFailure(t *testing.T) {
 			request(&net.DNSError{Err: "i/o timeout", Name: "api.example", IsTimeout: true}),
 			unreachable,
 			true,
+		},
+		{
+			"untrusted server certificate",
+			request(&tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}),
+			tlsFailed,
+			false,
+		},
+		{
+			"client certificate rejected",
+			request(&net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}),
+			tlsFailed,
+			false,
 		},
 		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable, true},
 		{"connection refused", request(errors.New("connection refused")), unreachable, true},

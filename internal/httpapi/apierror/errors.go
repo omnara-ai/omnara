@@ -63,6 +63,7 @@ type sentinelMapping struct {
 // to 401/unauthorized before requests reach handlers.
 var sentinelCodes = []sentinelMapping{
 	{storeerr.ErrAgentBacklogFull, openapi.ErrorCodeAgentBacklogFull, true},
+	{storeerr.ErrAgentScheduledInputsFull, openapi.ErrorCodeAgentBacklogFull, true},
 	{storeerr.ErrNotFound, openapi.ErrorCodeNotFound, false},
 	{storeerr.ErrInvalidRequest, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrNoClaimableAgentWakeup, openapi.ErrorCodeInvalidRequest, false},

@@ -2,7 +2,13 @@ import { type AgentInput, createOmnaraClient, type ListAgentInputsResponse } fro
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
-import { agentInputBacklogQueryKey, optimisticBacklogUpdate } from './agent-input-backlog'
+import {
+  agentInputBacklogQueryKey,
+  cacheAgentInputBacklog,
+  isScheduledBacklogInput,
+  optimisticBacklogUpdate,
+  reorderAgentInputBacklog,
+} from './agent-input-backlog'
 
 const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 
@@ -48,5 +54,44 @@ describe('optimisticBacklogUpdate', () => {
       input('input-3'),
     ])
     expect(invalidate).toHaveBeenCalledWith({ queryKey })
+  })
+})
+
+describe('scheduled backlog inputs', () => {
+  const scheduled: AgentInput = {
+    ...input('scheduled'),
+    state: 'scheduled',
+    scheduled_for: '2026-12-01T09:00:00Z',
+  }
+
+  it('identifies scheduled inputs', () => {
+    expect(isScheduledBacklogInput(scheduled)).toBe(true)
+    expect(isScheduledBacklogInput(input('queued'))).toBe(false)
+  })
+
+  it('keeps scheduled inputs out of reordering', () => {
+    const inputs = [input('queued'), scheduled]
+    expect(
+      reorderAgentInputBacklog(inputs, {
+        inputID: 'scheduled',
+        anchorInputID: 'queued',
+        position: 'before',
+      }),
+    ).toBe(inputs)
+  })
+
+  it('caches new waiting inputs ahead of scheduled ones', () => {
+    const queryClient = new QueryClient()
+    const client = createOmnaraClient({ baseUrl: 'http://localhost' })
+    const queryKey = agentInputBacklogQueryKey(client, scope)
+    queryClient.setQueryData(queryKey, response([input('input-1'), scheduled]))
+
+    cacheAgentInputBacklog(queryClient, client, scope, input('input-2'))
+
+    expect(queryClient.getQueryData<ListAgentInputsResponse>(queryKey)?.data).toEqual([
+      input('input-1'),
+      input('input-2'),
+      scheduled,
+    ])
   })
 })

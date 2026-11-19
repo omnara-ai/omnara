@@ -342,6 +342,8 @@ func (s strictOpenAPIServer) CreateAgentInput(
 	return s.createAgentInput(ctx, request, scope.project, scope.agent)
 }
 
+const maxScheduledInputDelay = 90 * 24 * time.Hour
+
 func (s strictOpenAPIServer) createAgentInput(
 	ctx context.Context,
 	request openapi.CreateAgentInputRequestObject,
@@ -375,6 +377,13 @@ func (s strictOpenAPIServer) createAgentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		)
 	}
+	scheduledFor := request.Body.ScheduledFor
+	if scheduledFor != nil && cancelOpenInteractions {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"cancel_open_interactions is not allowed for scheduled inputs",
+		)
+	}
 	contentBlocks, err := rawJSONFromContentBlocks(request.Body.ContentBlocks)
 	if err != nil {
 		return nil, err
@@ -395,6 +404,8 @@ func (s strictOpenAPIServer) createAgentInput(
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
+			SourceScheduledFor:     scheduledFor,
+			MaxScheduledDelay:      maxScheduledInputDelay,
 		},
 	)
 	if err != nil || !created {

@@ -1,0 +1,89 @@
+---
+title: Docker machines
+description: Run each machine as a container on a Docker host you operate
+icon: "docker"
+---
+
+On a self-hosted deployment, a Docker pool runs each machine as a container on a [Docker](https://www.docker.com) host you operate. Omnara connects to the host's Docker API over TLS, with a client certificate that proves it's allowed in.
+
+<Warning>
+  Docker pools are for demos and testing only. Machines are containers that share the host's kernel, so they're much less isolated than on the VM and sandbox providers, and code that escapes a container has root on the host. Don't use them for production or untrusted work.
+</Warning>
+
+## How Docker machines differ
+
+Other providers run machines on infrastructure they manage. Docker machines are containers on your own host, so:
+
+- **Disk is shared.** One machine can fill the host's disk and break every machine on it, and most Docker hosts can't cap a container's disk. Size the disk for your images plus your agents' work.
+- **Docker doesn't stop overcommitting.** Machine sizes can add up past the host's CPU and memory. Set the pool's `max_total_cpu` and `max_total_memory_mb` to fit the host, counting every pool that uses it.
+- **Machines can reach your network,** including the host itself and the cloud metadata service. On a host that only runs Omnara machines, block both, and save the rules so they survive a reboot:
+
+  ```bash
+  sudo iptables -I INPUT -i br-+ -j DROP
+  sudo iptables -I DOCKER-USER -d 169.254.169.254 -j DROP
+  ```
+
+- **A process that escapes its container is root on the host.** For stronger isolation, install [gVisor](https://gvisor.dev/docs/user_guide/install/) on the host with `sudo runsc install -- --network=host` and set `runtime` to `runsc`, or turn on Docker's [user namespace remapping](https://docs.docker.com/engine/security/userns-remap/). The flag lets machines under gVisor resolve domain names, and each machine still keeps its own network.
+- **A host reboot ends its machines.** Their containers don't start again.
+
+## Set up a Docker pool
+
+<Steps>
+  <Step title="Turn on TLS">
+    You need a Linux host running Docker Engine 25 or later with cgroup v2, the default on current Linux distributions. Follow Docker's guide to [protect the Docker daemon socket with TLS](https://docs.docker.com/engine/security/protect-access/#use-tls-https-to-protect-the-docker-daemon-socket), and [make Docker listen](https://docs.docker.com/engine/daemon/remote-access/) on port 2376 with `tlsverify` turned on. Never open the port without `tlsverify`: anyone who can reach an unauthenticated Docker API controls the host.
+
+    Omnara creates a Docker network for every machine, and Docker's default address pools run out at about 30 networks. Add a larger pool to `/etc/docker/daemon.json`, in a range your network doesn't use:
+
+    ```json
+    { "default-address-pools": [{ "base": "10.200.0.0/16", "size": 28 }] }
+    ```
+
+    Store the CA certificate, client certificate, and client key as an org-owned [secret](/organization/secrets) whose value is a JSON object. With the file names from Docker's guide, this `jq` command prints it:
+
+    ```bash
+    jq -n --rawfile ca ca.pem --rawfile cert cert.pem --rawfile key key.pem '{ca: $ca, cert: $cert, key: $key}'
+    ```
+  </Step>
+  <Step title="Choose an image">
+    Pick an image with a versioned tag that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements). Omnara pulls a public image onto the host the first time a machine needs it and reuses that copy after that, so a newer image pushed under the same tag isn't picked up.
+
+    Pull private images, and large ones that take more than a couple of minutes to download, on the host yourself with `docker pull`.
+  </Step>
+  <Step title="Create the pool">
+    Docker pools are off by default. Set `OMNARA_DOCKER_POOLS_ENABLED=1` on the API service. If the Docker host has a private address, also add it with the port to `OMNARA_PRIVATE_ENDPOINT_CIDRS` on the API, worker, and maintenance services, for example `10.0.5.21:2376`. Restart the services after changing these.
+
+    Machines can't reach `localhost`. If `OMNARA_PUBLIC_URL` is on `localhost`, also set `OMNARA_PUBLIC_API_URL` on those services to the host's IP address, for example `http://10.0.5.21:8000/api/v1`. This needs `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1`, which compose sets by default.
+
+    On the **Machines** page, click **New pool** and choose **Docker**. Enter the Docker API URL, the credential, image, CPU and memory, and capacity limits. To set `runtime` or `allowed_images`, or to use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "docker-pool",
+  "provider": "docker",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "api_base_url": "https://docker-host.internal:2376"
+  },
+  "default_machine_provider_options": {
+    "image": "buildpack-deps:24.04-curl"
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 16,
+  "max_total_memory_mb": 32768,
+  "max_total_machines": 8
+}
+```
+
+- `api_base_url` is the Docker host's HTTPS address, the one you'd use as `DOCKER_HOST=tcp://docker-host.internal:2376`, written with `https://`. The server certificate must include that host name or IP address.
+- `image` is a public registry image, or any image already on the host.
+- CPU is in vCPU. Memory is a hard limit with no swap.
+- Optional: `runtime` in `provider_config` runs machines under another Docker runtime, such as `runsc` for gVisor. `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts. `allowed_images` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

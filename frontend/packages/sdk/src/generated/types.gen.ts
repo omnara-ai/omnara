@@ -2835,10 +2835,15 @@ export type AgentInputDeliveryMode = 'queued' | 'steering' | 'immediate';
 
 export type CreateAgentInputDeliveryMode = 'queued' | 'steering';
 
+/**
+ * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
+ */
+export type AgentInputState = 'scheduled' | 'received' | 'resolved' | 'canceled';
+
 export type AgentInput = {
     id: AgentInputId;
     agent_id: AgentId;
-    state: string;
+    state: AgentInputState;
     delivery_mode: AgentInputDeliveryMode;
     input_kind: AgentInputKind;
     /**
@@ -2851,6 +2856,10 @@ export type AgentInput = {
     input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
+    /**
+     * Time this input was scheduled to join the agent's backlog. Present only for content inputs created with scheduled_for; it stays set after the input is released.
+     */
+    scheduled_for?: Timestamp;
 };
 
 export type AgentMachineBindingState = 'attached' | 'released';
@@ -2965,7 +2974,11 @@ export type CreateAgentInputRequest = {
      */
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
-     * Only valid when delivery_mode is steering. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
+     * Future time at which the message joins the agent's backlog. Until then the input has state scheduled and can be canceled. An agent holds at most 25 scheduled inputs. Delivery follows within about a minute of this time, using delivery_mode. Must be in the future and at most 90 days away.
+     */
+    scheduled_for?: Timestamp;
+    /**
+     * Only valid when delivery_mode is steering and scheduled_for is omitted. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
      */
     cancel_open_interactions?: boolean;
     /**
@@ -4166,7 +4179,7 @@ export type Artifact = {
  * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
+    provider: 'agent37' | 'arker' | 'docker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;

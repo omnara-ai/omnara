@@ -5,7 +5,7 @@ import {
 } from '@/components/agents/agentConfigBasicExtract'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import { optionalPositiveInt32Valid } from '@/components/machines/machineOverrides'
-import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
+import { normalizeResourceName, resourceNameError } from '@/lib/resource-name'
 
 export type SubagentType = 'profile' | 'self'
 
@@ -81,18 +81,28 @@ export function subagentKeyError(key: string): string | undefined {
   return undefined
 }
 
-export function subagentValid(subagent: BasicSubagent) {
-  return (
-    subagentKeyError(subagent.key) === undefined &&
-    (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&
-    optionalPositiveInt32Valid(subagent.maxInstances) &&
-    optionalPositiveInt32Valid(subagent.archiveAfterIdleMinutes)
-  )
+function subagentFieldProblems(subagent: BasicSubagent): string[] {
+  const problems: string[] = []
+  const keyError = subagentKeyError(subagent.key)
+  if (keyError !== undefined) problems.push(keyError)
+  if (subagent.type === 'profile') {
+    const profileError =
+      subagent.profileName === ''
+        ? 'Choose an agent profile.'
+        : resourceNameError(subagent.profileName, 'Agent profile name')
+    if (profileError !== undefined) problems.push(profileError)
+  }
+  if (!optionalPositiveInt32Valid(subagent.maxInstances)) {
+    problems.push('Max instances must be a whole number of 1 or more.')
+  }
+  if (!optionalPositiveInt32Valid(subagent.archiveAfterIdleMinutes)) {
+    problems.push('Archive after idle must be a whole number of minutes, 1 or more.')
+  }
+  return problems
 }
 
-function subagentKeysUnique(subagents: BasicSubagent[]) {
-  const keys = subagents.map((subagent) => subagent.key)
-  return new Set(keys).size === keys.length
+export function subagentValid(subagent: BasicSubagent) {
+  return subagentFieldProblems(subagent).length === 0
 }
 
 export const maxSubagentDepth = 8
@@ -104,14 +114,34 @@ export function maxDepthValid(maxDepth: string) {
   )
 }
 
-export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string, maxDepth: string) {
-  return (
-    subagentKeysUnique(subagents) &&
-    subagents.every(subagentValid) &&
-    optionalPositiveInt32Valid(maxSubagents) &&
-    maxDepthValid(maxDepth) &&
-    (maxSubagents === '' || subagents.length > 0)
-  )
+export function subagentsProblems(
+  subagents: BasicSubagent[],
+  maxSubagents: string,
+  maxDepth: string,
+  preservedSubagents = false,
+): string[] {
+  const problems: string[] = []
+  const keys = subagents.map((subagent) => subagent.key)
+  const duplicateKeys = keys.filter((key, index) => key !== '' && keys.indexOf(key) !== index)
+  for (const key of new Set(duplicateKeys)) {
+    problems.push(`Subagent names must be unique: “${key}”.`)
+  }
+  subagents.forEach((subagent, index) => {
+    const label =
+      subagentKeyError(subagent.key) === undefined
+        ? `Subagent “${subagent.key}”`
+        : `Subagent ${index + 1}`
+    for (const problem of subagentFieldProblems(subagent)) problems.push(`${label}: ${problem}`)
+  })
+  if (!optionalPositiveInt32Valid(maxSubagents)) {
+    problems.push('Max active subagents must be a whole number of 1 or more.')
+  } else if (maxSubagents !== '' && subagents.length === 0 && !preservedSubagents) {
+    problems.push('Max active subagents needs at least one subagent.')
+  }
+  if (!maxDepthValid(maxDepth)) {
+    problems.push(`Max depth must be a whole number from 1 to ${maxSubagentDepth}.`)
+  }
+  return problems
 }
 
 export function subagentWire(subagent: BasicSubagent): SubagentEntry {

@@ -1,9 +1,9 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import {
   createOmnaraClient,
   type MachinePoolSummary,
+  schemas,
   type ToolCatalog,
   type ToolPermissionProfile,
 } from '@omnara/sdk'
@@ -18,6 +18,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -434,7 +435,7 @@ function IncludedToolsHarness({
   source?: string
   catalog?: ToolCatalog
 }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
+  const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
   })
@@ -516,7 +517,13 @@ it('shows the Git credentials tool from the preview and saves its permission', a
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: (request) => {
-        previewed = request.body
+        previewed = z
+          .json()
+          .parse(
+            parse(
+              z.string().parse(schemas.zResolveAgentConfigToolsRequest.parse(request.body).source),
+            ),
+          )
         return jsonResponse({
           tools: [{ name, enabled: true, permission: { mode: 'always_allow', parameters: {} } }],
         })
@@ -528,7 +535,7 @@ it('shows the Git credentials tool from the preview and saves its permission', a
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  expect(previewed).toMatchObject({ source: { git_credentials: { integration: 'reviews' } } })
+  expect(previewed).toMatchObject({ git_credentials: { integration: 'reviews' } })
   click('[data-slot="collapsible-trigger"]')
   expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
     'Always allow',
@@ -549,16 +556,15 @@ it.each(['run_command', 'skill', 'list_agents'])(
     const saved = container.querySelector('output')?.textContent ?? ''
     expect(parse(saved)).toHaveProperty('tools', {
       web_search: { permission: { mode: 'always_ask' } },
-      [name]: { type: 'built_in', enabled: false },
+      [name]: { enabled: false },
     })
-    expect(createBasicConfigSession(saved).initialDraft).not.toBeNull()
+    expect(createBasicConfigSession(saved, 'yaml').initialDraft).not.toBeNull()
     expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
       'Disabled',
     )
     await selectIncludedPermission(name, 'Always allow')
     const enabled = container.querySelector('output')?.textContent ?? ''
     expect(parse(enabled)).toHaveProperty(`tools.${name}`, {
-      type: 'built_in',
       permission: { mode: 'always_allow' },
     })
     expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
@@ -582,7 +588,9 @@ it.each([false, true])(
     const saved = container.querySelector('output')?.textContent ?? ''
     expect(parse(saved)).toHaveProperty('tools', {
       web_search: { permission: { mode: 'always_ask' } },
-      run_command: { type: 'built_in', permission: { mode: 'always_allow' } },
+      run_command: disabled
+        ? { permission: { mode: 'always_allow' } }
+        : { enabled: true, permission: { mode: 'always_allow' } },
     })
   },
 )
@@ -812,4 +820,20 @@ it('preserves an inherited MCP permission when its profile loads', async () => {
     (label) => label.textContent === 'Authentication',
   )
   expect(authLabel?.control?.getAttribute('role')).toBe('combobox')
+})
+
+it('does not offer preserved names as managed tools or implicit permission controls', async () => {
+  await renderAndFlush(
+    <AgentConfigToolsField
+      catalog={catalog}
+      tools={[]}
+      reservedNames={['web_search']}
+      resolvedTools={[{ name: 'web_search', enabled: true }]}
+      onToolsChange={() => undefined}
+    />,
+  )
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Add tools"]')?.disabled).toBe(
+    true,
+  )
+  expect(container.querySelector('[aria-label="web_search permission"]')).toBeNull()
 })

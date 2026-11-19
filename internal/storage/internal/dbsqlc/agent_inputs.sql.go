@@ -52,33 +52,109 @@ func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeu
 	return i, err
 }
 
+const listDueScheduledAgentInputs = `-- name: ListDueScheduledAgentInputs :many
+SELECT input.id, input.project_id, input.agent_id, input.scheduled_for
+FROM agent_inputs input
+JOIN agents agent ON agent.id = input.agent_id
+WHERE input.state = 'scheduled'
+  AND input.scheduled_for <= statement_timestamp()
+  AND agent.state <> 'archived'
+  AND (
+    $1::uuid IS NULL
+    OR (input.scheduled_for, input.id) > ($2::timestamptz, $1::uuid)
+  )
+ORDER BY input.scheduled_for ASC, input.id ASC
+LIMIT $3::bigint
+`
+
+type ListDueScheduledAgentInputsParams struct {
+	AfterID           *uuid.UUID
+	AfterScheduledFor *time.Time
+	RowLimit          int64
+}
+
+type ListDueScheduledAgentInputsRow struct {
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	AgentID      uuid.UUID
+	ScheduledFor *time.Time
+}
+
+func (q *Queries) ListDueScheduledAgentInputs(ctx context.Context, arg ListDueScheduledAgentInputsParams) ([]ListDueScheduledAgentInputsRow, error) {
+	rows, err := q.db.Query(ctx, listDueScheduledAgentInputs, arg.AfterID, arg.AfterScheduledFor, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDueScheduledAgentInputsRow{}
+	for rows.Next() {
+		var i ListDueScheduledAgentInputsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.ScheduledFor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedBacklogInputs = `-- name: ListQueuedBacklogInputs :many
-SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, input.metadata
+SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, input.metadata, input.scheduled_for
 FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
-  AND input.state = 'received'
   AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
   AND (
-    $3::text IS NULL
-    OR input.delivery_mode < $3::text
+    (
+      input.state = 'received'
+      AND (
+        $3::uuid IS NULL
+        OR (
+          $4::timestamptz IS NULL
+          AND (
+            input.delivery_mode < $5::text
+            OR (
+              input.delivery_mode = $5::text
+              AND (input.input_rank, input.queued_at, input.id) > ($6::bigint, $7::timestamptz, $3::uuid)
+            )
+          )
+        )
+      )
+    )
     OR (
-      input.delivery_mode = $3::text
-      AND (input.input_rank, input.queued_at, input.id) > ($4::bigint, $5::timestamptz, $6::uuid)
+      input.state = 'scheduled'
+      AND (
+        $3::uuid IS NULL
+        OR $4::timestamptz IS NULL
+        OR (input.scheduled_for, input.id) > ($4::timestamptz, $3::uuid)
+      )
     )
   )
-ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
-LIMIT $7::bigint
+ORDER BY
+  (input.state = 'scheduled') ASC,
+  CASE WHEN input.state = 'scheduled' THEN '' ELSE input.delivery_mode END DESC,
+  CASE WHEN input.state = 'scheduled' THEN 0 ELSE input.input_rank END ASC,
+  CASE WHEN input.state = 'scheduled' THEN input.scheduled_for ELSE input.queued_at END ASC,
+  input.id ASC
+LIMIT $8::bigint
 `
 
 type ListQueuedBacklogInputsParams struct {
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
+	CursorID           *uuid.UUID
+	CursorScheduledFor *time.Time
 	CursorDeliveryMode *string
 	CursorInputRank    *int64
 	CursorQueuedAt     *time.Time
-	CursorID           *uuid.UUID
 	RowLimit           int64
 }
 
@@ -102,16 +178,18 @@ type ListQueuedBacklogInputsRow struct {
 	TargetInteractionID *uuid.UUID
 	ResolvedAt          *time.Time
 	Metadata            json.RawMessage
+	ScheduledFor        *time.Time
 }
 
 func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBacklogInputsParams) ([]ListQueuedBacklogInputsRow, error) {
 	rows, err := q.db.Query(ctx, listQueuedBacklogInputs,
 		arg.ProjectID,
 		arg.AgentID,
+		arg.CursorID,
+		arg.CursorScheduledFor,
 		arg.CursorDeliveryMode,
 		arg.CursorInputRank,
 		arg.CursorQueuedAt,
-		arg.CursorID,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -141,7 +219,57 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 			&i.TargetInteractionID,
 			&i.ResolvedAt,
 			&i.Metadata,
+			&i.ScheduledFor,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduledAgentInputsByActor = `-- name: ListScheduledAgentInputsByActor :many
+SELECT input.id, input.queued_at, input.scheduled_for
+FROM agent_inputs input
+WHERE input.project_id = $1
+  AND input.agent_id = $2
+  AND input.state = 'scheduled'
+  AND input.actor_id = $3::uuid
+ORDER BY input.scheduled_for ASC, input.id ASC
+LIMIT $4::bigint
+`
+
+type ListScheduledAgentInputsByActorParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ActorID   uuid.UUID
+	RowLimit  int64
+}
+
+type ListScheduledAgentInputsByActorRow struct {
+	ID           uuid.UUID
+	QueuedAt     time.Time
+	ScheduledFor *time.Time
+}
+
+func (q *Queries) ListScheduledAgentInputsByActor(ctx context.Context, arg ListScheduledAgentInputsByActorParams) ([]ListScheduledAgentInputsByActorRow, error) {
+	rows, err := q.db.Query(ctx, listScheduledAgentInputsByActor,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ActorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListScheduledAgentInputsByActorRow{}
+	for rows.Next() {
+		var i ListScheduledAgentInputsByActorRow
+		if err := rows.Scan(&i.ID, &i.QueuedAt, &i.ScheduledFor); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -24,6 +24,7 @@ export interface ResourceComboboxQuery {
 export interface ResourceComboboxSearch {
   search: string
   setSearch: (value: string) => void
+  debouncing?: boolean
 }
 
 export interface ResourceComboboxBaseProps<TItem> {

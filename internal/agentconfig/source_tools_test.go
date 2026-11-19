@@ -1,12 +1,10 @@
 package agentconfig
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"github.com/google/uuid"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -33,12 +31,11 @@ func TestRuntimeDoesNotAddSourceDefaultTools(t *testing.T) {
 		{"no runtime machine defaults", Compiled{MachineSources: []MachineSourceCompiled{{MachinePoolID: uuid.New()}}}, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			raw, err := json.Marshal(test.compiled)
+			encoded, err := EncodeCompiled(test.compiled)
 			if err != nil {
 				t.Fatal(err)
 			}
-			sum := sha256.Sum256(canonicalizeJSON(raw))
-			contract, err := RuntimeContractFromCompiled(raw, hex.EncodeToString(sum[:]))
+			contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 			if err != nil || len(contract.Tools) != test.want {
 				t.Fatalf("runtime tools: %+v, %v", contract.Tools, err)
 			}

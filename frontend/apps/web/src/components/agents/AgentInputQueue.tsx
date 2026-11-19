@@ -18,6 +18,7 @@ import {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
   backlogInputPreview,
+  isScheduledBacklogInput,
   reorderAgentInputBacklog,
   type UseAgentChatResult,
 } from '@omnara/react'
@@ -42,7 +43,10 @@ export function AgentInputQueue({
   const [inputs, moveOptimistically] = useOptimistic<
     AgentInputBacklogItem[],
     AgentInputBacklogMove
-  >(backlog.inputs, reorderAgentInputBacklog)
+  >(
+    backlog.inputs.filter((input) => !isScheduledBacklogInput(input)),
+    reorderAgentInputBacklog,
+  )
   const queuedInputs = inputs.filter((input) => input.delivery_mode === 'queued')
   const waitingInputs = inputs.filter((input) => input.delivery_mode !== 'steering')
   const queuedIndexes = new Map(waitingInputs.map((input, index) => [input.id, index]))

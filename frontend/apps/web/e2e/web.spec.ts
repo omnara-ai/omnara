@@ -1,5 +1,6 @@
 import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
+import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
 import { exerciseProjectWebhooks } from './event-webhooks'
@@ -16,7 +17,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { replaceConfigEditor, signIn, signInThroughLoginForm, typeInConfigEditor } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -71,29 +72,6 @@ async function createProfile(page: Page, name: string, instruction: string) {
 function uniqueName(base: string) {
   const retry = test.info().retry
   return retry === 0 ? base : `${base} (retry ${retry})`
-}
-
-async function typeInConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  await page.keyboard.insertText(text)
-}
-
-async function replaceConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  // Desktop Chrome uses a Windows user agent, which selects Monaco's Ctrl
-  // bindings even on macOS. Paste avoids typing auto-closing extra JSON quotes.
-  await page.keyboard.press('Control+A')
-  await editor.evaluate((element, value) => {
-    const clipboardData = new DataTransfer()
-    clipboardData.setData('text/plain', value)
-    element.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
-    )
-  }, text)
 }
 
 async function visitAgentsTabAndReturn(page: Page) {
@@ -177,33 +155,50 @@ test('opens and answers pending invitations outside onboarding', async ({ page }
   expect(failures).toEqual([])
 })
 
-test('creates an agent from YAML', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, createAgentPath)
+for (const format of ['YAML', 'JSON']) {
+  test(`creates an agent from ${format} text`, async ({ page }) => {
+    const failures = installFailureTracking(page)
+    await signIn(page, adminEmail, createAgentPath)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'YAML' }).click()
-  await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
-    'aria-required',
-    'true',
-  )
+    await page.getByRole('button', { name: 'YAML' }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
+      'aria-required',
+      'true',
+    )
 
-  const agentName = uniqueName('YAML E2E Agent')
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
-  const yamlLines = [
-    'instruction: Test agent creation from YAML.',
-    `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
-  ]
-  await replaceConfigEditor(page, yamlLines.join('\n'))
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+    const agentName = uniqueName(`${format} E2E Agent`)
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
+    const definition = {
+      instruction: 'Test agent creation from source.',
+      model: { provider_config: providerConfig, name: modelName },
+      tools: {
+        lookup_item: {
+          type: 'custom',
+          description: 'Look up an example item.',
+          input_schema: { type: 'object' },
+        },
+      },
+    }
+    await replaceConfigEditor(
+      page,
+      format === 'YAML' ? stringify(definition) : JSON.stringify(definition, null, 2),
+    )
+    await page.getByRole('button', { name: 'Builder', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit lookup_item' })).toBeVisible()
+    await page.getByRole('button', { name: 'YAML', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toBeVisible()
+    await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
-  expect(failures).toEqual([])
-})
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
+    await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(
+      agentName,
+    )
+    expect(failures).toEqual([])
+  })
+}
 
 test('creates an agent with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
@@ -241,10 +236,10 @@ test('creates an agent with the Builder', async ({ page }) => {
 
   await page.getByRole('button', { name: `Clear ${modelName} · ${providerConfig}` }).click()
   await expect(modelPicker).not.toContainText(modelName)
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+  await expect(page.getByText('Choose a model.', { exact: true })).toBeVisible()
   await selectConfiguredModel(page)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -396,7 +391,8 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(page.getByText('# draft edit')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('No changes to save.', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Launch' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -442,7 +438,7 @@ test('keeps the save pending across tab switches while the revision uploads', as
   releaseSave()
   expect((await saveResponse).ok()).toBe(true)
 
-  await expect(saveButton).toBeDisabled()
+  await expect(saveButton).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
   expect(failures).toEqual([])
 })
@@ -495,21 +491,34 @@ test('deletes a profile from its detail page', async ({ page }) => {
 
 test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
+  const helperName = uniqueName('Builder Edit Helper')
+  await createProfile(page, helperName, 'Help the parent agent.')
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
-  const save = page.getByRole('button', { name: 'Save revision' })
-  await expect(save).toBeDisabled()
 
   await instruction.fill('Updated instruction.')
-  await expect(save).toBeEnabled()
-  await save.click()
-  await expect(save).toBeDisabled()
+  await page.getByRole('button', { name: 'Add subagent' }).click()
+  await page.getByRole('textbox', { name: 'Subagent name' }).fill('helper')
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toBeVisible()
+  await page.getByRole('combobox').filter({ hasText: 'Search agent profiles…' }).click()
+  const profileResults = page.waitForResponse(
+    (response) => new URL(response.url()).searchParams.get('name') === `*${helperName}*`,
+  )
+  await page.getByPlaceholder('Search agent profiles…').fill(helperName)
+  await profileResults
+  await expect(page.getByRole('option', { name: helperName })).toBeVisible()
+  await page.getByPlaceholder('Search agent profiles…').press('Enter')
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Version 2', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
+  await expect(page.locator('.monaco-editor')).toContainText(`profile: ${helperName}`)
 
   expect(failures).toEqual([])
 })
@@ -537,7 +546,6 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await page.getByRole('button', { name: 'or set up manually' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'active')
   await expect(step(1)).toContainText('npx omnara login')
-  // The browser can create the profile without the CLI login.
   await expect(step(2)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
 
@@ -721,7 +729,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
       previewResponse.request().postDataJSON(),
     )
-    expect(previewRequest.source).toMatchObject({
+    expect(previewRequest.source_format).toBe('yaml')
+    expect(parse(z.string().parse(previewRequest.source))).toMatchObject({
       tools: { [selectedTool]: {} },
       interaction_handlers: selectedHandlers,
     })
@@ -740,7 +749,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     )
     await page.getByRole('button', { name: 'Save revision', exact: true }).click()
     expect((await savedRevision).status()).toBe(200)
-    await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
 
     const conversation = await exerciseIntegrationConversations(
       page,
@@ -813,7 +821,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
-    // The Conversations tab stays selected through reconnecting; the profile lives on the launcher tab.
     await openIntegrationTab(page, integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions')
     await expect(selectedProfile).toBeVisible()
     if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)

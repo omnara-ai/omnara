@@ -5,6 +5,7 @@ import {
   type AgentInputBacklogItem,
   backlogInputPreview,
   blockText,
+  isScheduledBacklogInput,
   type OmnaraUIMessage,
   useAgentChat,
   useAgentInteractions,
@@ -246,6 +247,7 @@ function StatusLine({
 }
 
 function backlogState(input: AgentInputBacklogItem, queueIndex: number): string {
+  if (isScheduledBacklogInput(input)) return 'scheduled'
   if (input.delivery_mode === 'steering') return 'sending'
   if (input.delivery_mode === 'optimistic') return 'pending'
   return queueIndex === 0 ? 'next' : `queued #${String(queueIndex + 1)}`
@@ -254,7 +256,9 @@ function backlogState(input: AgentInputBacklogItem, queueIndex: number): string 
 function BacklogView({ inputs }: { inputs: AgentInputBacklogItem[] }) {
   const queueIndexes = new Map<string, number>()
   for (const input of inputs) {
-    if (input.delivery_mode !== 'steering') queueIndexes.set(input.id, queueIndexes.size)
+    if (input.delivery_mode !== 'steering' && !isScheduledBacklogInput(input)) {
+      queueIndexes.set(input.id, queueIndexes.size)
+    }
   }
   return (
     <Box flexDirection="column">

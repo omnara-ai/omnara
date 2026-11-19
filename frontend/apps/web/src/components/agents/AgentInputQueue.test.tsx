@@ -88,6 +88,27 @@ describe('AgentInputQueue', () => {
     expect(html.match(/title="Drag to reorder"/g)).toHaveLength(3)
   })
 
+  it('leaves scheduled inputs out of the queue', () => {
+    const scheduled: AgentInput = {
+      ...input('input-2', 'Later message'),
+      state: 'scheduled',
+      scheduled_for: '2026-12-01T09:00:00Z',
+    }
+
+    const html = renderToStaticMarkup(
+      <AgentInputQueue
+        {...queueProps}
+        backlog={backlog([input('input-1', 'Queued message'), scheduled])}
+      />,
+    )
+
+    expect(html).toContain('Queued message')
+    expect(html).not.toContain('Later message')
+    expect(
+      renderToStaticMarkup(<AgentInputQueue {...queueProps} backlog={backlog([scheduled])} />),
+    ).toBe('')
+  })
+
   it('preserves the send-action width when sending state changes', () => {
     const queued = renderToStaticMarkup(
       <AgentInputQueue {...queueProps} backlog={backlog([input('input-1', 'Message')])} />,

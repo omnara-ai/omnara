@@ -23,6 +23,17 @@ func (q *Queries) DBNow(ctx context.Context) (time.Time, error) {
 	return column_1, err
 }
 
+const dBStatementNow = `-- name: DBStatementNow :one
+SELECT statement_timestamp()::timestamptz
+`
+
+func (q *Queries) DBStatementNow(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, dBStatementNow)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const failQueuedProcessActionsForRuntimeEnd = `-- name: FailQueuedProcessActionsForRuntimeEnd :many
 UPDATE process_actions action
 SET state = 'failed',

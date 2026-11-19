@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +33,15 @@ var ErrResponseTooLarge = errors.New("provider response exceeds the byte limit")
 var providerHTTPClient = NewSharedHTTPClient(nil)
 
 func NewSharedHTTPClient(endpointAllowlist *ssrf.Allowlist) *http.Client {
-	return outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout, Allowlist: endpointAllowlist},
-	)
+	return NewTLSHTTPClient(endpointAllowlist, nil)
+}
+
+func NewTLSHTTPClient(endpointAllowlist *ssrf.Allowlist, tlsConfig *tls.Config) *http.Client {
+	return outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+		Timeout:         HTTPClientTimeout,
+		Allowlist:       endpointAllowlist,
+		TLSClientConfig: tlsConfig,
+	})
 }
 
 func NewHTTPClient(recorder *metrics.HTTPClientRecorder, provider string) *http.Client {

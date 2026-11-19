@@ -10,13 +10,13 @@ model:
 `
 
 function mustDeserialize(source: string): BasicConfig {
-  const config = createBasicConfigSession(source).initialDraft
+  const config = createBasicConfigSession(source, 'yaml').initialDraft
   if (config == null) throw new Error('expected the config to deserialize')
   return config
 }
 
 function applyToSource(source: string, config: BasicConfig): string {
-  return createBasicConfigSession(source).apply(config)
+  return createBasicConfigSession(source, 'yaml').apply(config)
 }
 
 describe('createBasicConfigSession deferred tools', () => {
@@ -58,8 +58,8 @@ mcp:
     })
     expect(parse(cleared)).toEqual({
       ...parse(minimalYaml),
-      tools: { web_search: {}, web_fetch: { type: 'built_in' } },
-      mcp: { search: { url: 'https://mcp.example.com', default_enabled: true } },
+      tools: { web_search: {}, web_fetch: {} },
+      mcp: { search: { url: 'https://mcp.example.com' } },
     })
   })
 })

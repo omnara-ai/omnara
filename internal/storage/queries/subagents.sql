@@ -171,6 +171,7 @@ WITH candidate AS (
 SELECT candidate.project_id, candidate.id
 FROM candidate
 WHERE NOT agent_subtree_has_work(candidate.project_id, candidate.id)
+  AND NOT agent_subtree_has_schedule(candidate.project_id, candidate.id)
 ORDER BY candidate.created_at, candidate.id
 LIMIT sqlc.arg(row_limit)::integer;
 
@@ -191,6 +192,7 @@ SELECT EXISTS (
     ), agent.created_at) < coalesce(sqlc.narg(as_of)::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
     AND NOT agent_subtree_has_work(agent.project_id, agent.id)
+    AND NOT agent_subtree_has_schedule(agent.project_id, agent.id)
 )::boolean AS idle;
 
 -- name: ListAgentTreeStates :many

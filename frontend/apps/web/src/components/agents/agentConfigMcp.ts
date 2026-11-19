@@ -134,18 +134,34 @@ export function unexposableMcpTools(
   })
 }
 
-export function mcpServerValid(server: BasicMcpServer) {
-  return (
-    mcpServerNameError(server.name) === undefined &&
-    server.url.trim() !== '' &&
-    (server.authType === 'none' ||
-      (server.secretId.trim() !== '' &&
-        (server.authType !== 'sigv4' ||
-          (server.service.trim() !== '' && server.region.trim() !== ''))))
-  )
+function mcpServerFieldProblems(server: BasicMcpServer): string[] {
+  const problems: string[] = []
+  const nameError = mcpServerNameError(server.name)
+  if (nameError !== undefined) problems.push(nameError)
+  if (server.url.trim() === '') problems.push('URL is required.')
+  if (server.authType !== 'none' && server.secretId.trim() === '') problems.push('Choose a secret.')
+  if (
+    server.authType === 'sigv4' &&
+    (server.service.trim() === '' || server.region.trim() === '')
+  ) {
+    problems.push('Signing service and signing region are required.')
+  }
+  return problems
 }
 
-export function mcpServerNamesUnique(servers: BasicMcpServer[]) {
+export function mcpServersProblems(servers: BasicMcpServer[]): string[] {
+  const problems: string[] = []
   const names = servers.map((server) => server.name)
-  return new Set(names).size === names.length
+  const duplicateNames = names.filter((name, index) => name !== '' && names.indexOf(name) !== index)
+  for (const name of new Set(duplicateNames)) {
+    problems.push(`MCP server names must be unique: “${name}”.`)
+  }
+  servers.forEach((server, index) => {
+    const label =
+      mcpServerNameError(server.name) === undefined
+        ? `MCP server “${server.name}”`
+        : `MCP server ${index + 1}`
+    for (const problem of mcpServerFieldProblems(server)) problems.push(`${label}: ${problem}`)
+  })
+  return problems
 }
