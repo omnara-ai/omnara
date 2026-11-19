@@ -57,8 +57,7 @@ type RuntimeTool struct {
 	Description  string
 	InputSchema  json.RawMessage
 	OutputSchema json.RawMessage
-	// CodeMode reports whether commands can call the tool: it supports code mode and the agent's
-	// config allows it. It says nothing about whether the model can call the tool.
+	// CodeMode is whether commands can call the tool, not whether the model can.
 	CodeMode bool
 }
 

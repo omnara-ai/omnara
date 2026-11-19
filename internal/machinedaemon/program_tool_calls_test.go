@@ -559,8 +559,7 @@ func TestProgramToolCallServerCancelsAbandonedCall(t *testing.T) {
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 }
 
-// A cancel that entered the send queue may never have been written. It is kept, and sent again on
-// every connection without offering the call again, until the server acknowledges it.
+// A queued cancel may never have been written, so it is sent again until acknowledged.
 func TestProgramToolCallServerRepeatsCancelUntilAcknowledged(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	handler := client.newProgramToolCallHandler()

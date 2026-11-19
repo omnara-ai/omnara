@@ -25,8 +25,7 @@ const (
 )
 
 const (
-	MaxOpenProgramTools = 128
-	// MaxProgramToolKeyBytes bounds the idempotency key a command supplies for a call.
+	MaxOpenProgramTools    = 128
 	MaxProgramToolKeyBytes = 128
 )
 
@@ -209,9 +208,8 @@ func programToolInput(input CreateProgramToolInput) (json.RawMessage, error) {
 	return callInput, nil
 }
 
-// ResumeProgramTool returns the call input.Key already names, if it should be reused. It checks only
-// that the calling process may make calls, so a finished call is returned even when a new one could
-// no longer be started.
+// ResumeProgramTool checks only that the calling process may make calls, so a finished call is
+// returned even when a new one could no longer be started.
 func (h *Handle) ResumeProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, bool, error) {
 	type resumed struct {
 		tool  ProgramTool
@@ -582,8 +580,7 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 	})
 }
 
-// CancelProgramTool ends a call whose command stopped waiting for it. A call a server is still running
-// is ended too: that server loses its claim and stops, and whatever it reports later is dropped.
+// CancelProgramTool also ends a call a server is still running: that server loses its claim and stops.
 func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.fencedProgramTool(ctx, ref)
@@ -594,8 +591,7 @@ func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (boo
 	})
 }
 
-// CancelProgramToolByKey cancels the call key names for the process, if it made one. A named call is
-// left alone: it outlives the command that stopped waiting.
+// CancelProgramToolByKey leaves a named call alone: it outlives the command that stopped waiting.
 func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID, key string) error {
 	_, err := programCommand(h, func() (struct{}, error) {
 		process, err := h.lockProgram(ctx, processID)

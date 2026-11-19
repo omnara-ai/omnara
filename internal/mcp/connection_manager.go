@@ -34,9 +34,8 @@ type Manager struct {
 	Client               Client
 	Backoff              func(attempt int) time.Duration
 	SigV4CredentialCache *sigv4.CredentialCache
-	// BindConfig requires every connection row to have been reconciled for the server config it is
-	// used with. Set it when that config is not the one the caller first read the row under, so a
-	// row reconciled to another endpoint meanwhile is never sent this config's credential.
+	// BindConfig refuses a connection row reconciled for another server config, so this config's
+	// credential is never sent to a different endpoint.
 	BindConfig bool
 
 	OAuthHTTPClient *http.Client

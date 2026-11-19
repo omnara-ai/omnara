@@ -55,9 +55,8 @@ func (e Executor) resolveIntegrationToolAuthority(
 	if agent.State != executionstore.AgentStateActive {
 		return integrationToolAccess{}, integrationToolPreparationFailure(errors.New("agent is inactive"))
 	}
-	// A model call is pinned to the config its model context ran under. A call from a command is
-	// pinned to the config captured when the call was claimed, so a tool enabled while the command
-	// runs can be called. Both are still checked against the agent's current config below.
+	// A model call is pinned to its model context's config, a call from a command to the config
+	// captured for its turn. Both are still checked against the agent's current config below.
 	var original, current agentconfig.RuntimeContract
 	if turn.contract != nil {
 		original = *turn.contract

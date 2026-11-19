@@ -14,17 +14,12 @@ const (
 
 	ProgramToolCallMaxInputBytes  = MaxMessageBytes - 16*1024
 	ProgramToolCallMaxResultBytes = MaxMessageBytes - 16*1024
-	// ProgramToolCallMaxKeyBytes bounds a call's idempotency key.
-	ProgramToolCallMaxKeyBytes = 128
-	// ProgramToolCallMaxNameBytes bounds a tool name. Names are echoed in errors, so an unbounded one
-	// could push a report past the message limit.
-	ProgramToolCallMaxNameBytes = 256
-	// ProgramToolCallMaxErrorBytes bounds the error text of a report.
+	ProgramToolCallMaxKeyBytes    = 128
+	// Names are echoed in errors, so an unbounded one could push a report past the message limit.
+	ProgramToolCallMaxNameBytes  = 256
 	ProgramToolCallMaxErrorBytes = 4096
 )
 
-// ValidProgramToolCallKey reports whether key can identify a call: 1 to 128 printable ASCII
-// characters with no spaces.
 func ValidProgramToolCallKey(key string) bool {
 	if key == "" || len(key) > ProgramToolCallMaxKeyBytes {
 		return false

@@ -70,8 +70,7 @@ func (e Executor) dispatchMCPTool(
 		Backoff:              e.MCPInitializationBackoff,
 		SigV4CredentialCache: e.SigV4CredentialCache,
 		OAuthHTTPClient:      e.MCPAuthHTTPClient,
-		// A call from a command runs under the agent's current config, which can change while the
-		// call is outstanding. The check above covers only the row read here; this covers every row
+		// The agent's config can change while a command's call is outstanding; this covers the rows
 		// the manager reloads to recover.
 		BindConfig: turn.contract != nil,
 	}
@@ -148,8 +147,6 @@ func mcpConnectionServes(
 	return nil
 }
 
-// mcpResponseLostToolResult is the result of a call that was sent but never answered. It keeps what
-// came back in place of an answer, so the caller can judge whether the call took effect.
 func mcpResponseLostToolResult(
 	serverKey, remoteName string,
 	lost *mcp.ResponseLostError,

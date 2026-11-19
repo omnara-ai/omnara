@@ -37,10 +37,9 @@ type daemonSocket struct {
 	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
-	// toolCalls holds the calls being served. A canceled call moves to toolCallsCanceling until
-	// its serving loop ends, so an offer that reuses its key waits for the cancel to finish instead
-	// of being dropped. toolCallsActive counts the goroutines serving calls, canceled ones included:
-	// a canceled call keeps its place in the limit until its goroutine exits.
+	// A canceled call moves from toolCalls to toolCallsCanceling until its serving loop ends, so an
+	// offer that reuses its key waits for the cancel. toolCallsActive counts serving goroutines,
+	// canceled ones included.
 	toolCalls          map[string]*servedToolCall
 	toolCallsCanceling map[string]*servedToolCall
 	toolCallsActive    int

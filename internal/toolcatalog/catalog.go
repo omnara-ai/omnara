@@ -139,7 +139,6 @@ type Entry struct {
 	CodeMode bool
 }
 
-// codeModeEntry marks a tool as callable from commands and attaches its output schema.
 func codeModeEntry(outputSchema func() (json.RawMessage, error)) func(Entry, error) (Entry, error) {
 	return func(entry Entry, err error) (Entry, error) {
 		if err != nil {

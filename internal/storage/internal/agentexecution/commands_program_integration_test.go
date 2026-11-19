@@ -659,8 +659,8 @@ func TestProgramToolKeyResumesAcrossCommands(t *testing.T) {
 	require.Equal(t, retry.ID, replay.ID)
 }
 
-// A call the command named with its own key belongs to the agent and that key. It keeps running,
-// or waiting for approval, after the command that made it has ended, and a rerun picks it up.
+// A named call keeps running, or waiting for approval, after its command ends, and a rerun picks it
+// up.
 func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	f := newProgramFixture(t)
 	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)

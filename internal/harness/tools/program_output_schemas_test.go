@@ -109,7 +109,6 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 	}
 }
 
-// Only tools whose definition says so can be called from commands.
 func TestCodeModeToolsAreListedExplicitly(t *testing.T) {
 	catalog, err := toolcatalog.Default()
 	require.NoError(t, err)

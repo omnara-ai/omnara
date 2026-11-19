@@ -2,7 +2,6 @@ package agentconfig
 
 import "errors"
 
-// CodeModeSource turns on calling tools from commands with `omnarad call`.
 type CodeModeSource struct {
 	Enabled        *bool `json:"enabled"`
 	DefaultAllowed *bool `json:"default_allowed,omitempty"`
@@ -44,8 +43,7 @@ func validateCompiledCodeMode(compiled *CodeModeCompiled) error {
 	return nil
 }
 
-// allows reports whether commands can call a tool that supports code mode. override is the
-// tool's own setting; nil falls back to the agent default.
+// A nil override falls back to the agent default.
 func (compiled *CodeModeCompiled) allows(override *bool) bool {
 	if compiled == nil || !compiled.Enabled {
 		return false
@@ -56,13 +54,10 @@ func (compiled *CodeModeCompiled) allows(override *bool) bool {
 	return compiled.DefaultAllowed == nil || *compiled.DefaultAllowed
 }
 
-// CodeModeEnabled reports whether commands the agent runs can call its tools.
 func (contract RuntimeContract) CodeModeEnabled() bool {
 	return contract.CodeMode != nil && contract.CodeMode.Enabled
 }
 
-// CodeModeAllows reports whether commands can call a tool that supports code mode, given the
-// tool's own setting.
 func (contract RuntimeContract) CodeModeAllows(override *bool) bool {
 	return contract.CodeMode.allows(override)
 }

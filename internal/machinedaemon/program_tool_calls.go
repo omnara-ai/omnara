@@ -28,8 +28,7 @@ const (
 	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
 	programToolCallCancelTimeout = 10 * time.Second
-	// programToolCallCancelLimit bounds the cancels kept until the server acknowledges them. One is a
-	// few hundred bytes, and they clear on acknowledgment or when their process ends.
+	// Bounds the cancels kept until the server acknowledges them.
 	programToolCallCancelLimit = 4096
 )
 
@@ -53,8 +52,8 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
 	assignment.ProgramToolHelper = helper
 }
 
-// programToolBinDir returns a private directory that contains only a link to the daemon executable.
-// Putting the daemon's own directory on PATH would also expose whatever else is installed beside it.
+// The directory holds only a link to the daemon executable: the daemon's own directory would expose
+// whatever else is installed beside it.
 func (c *Client) programToolBinDir(executable string) (string, error) {
 	machine, err := c.machineStore()
 	if err != nil {
@@ -135,8 +134,8 @@ type programToolCallHandler struct {
 	mu       sync.Mutex
 	inFlight map[string]int
 	calls    map[string]*programToolCall
-	// cancels are the cancels the server has not acknowledged, oldest first. Entering the send queue
-	// is not delivery, so each stays here and is sent again on every connection until it is.
+	// Unacknowledged cancels, oldest first. Entering the send queue is not delivery, so each is
+	// sent again on every connection.
 	cancels []daemonprotocol.ToolCallCancel
 }
 
@@ -343,8 +342,7 @@ func (h *programToolCallHandler) resume(ctx context.Context, transport *daemonSo
 	}
 }
 
-// pendingCancels returns the cancels still to deliver, dropping those of processes that have ended:
-// the server ends such a process's calls itself.
+// Cancels of ended processes are dropped: the server ends those calls itself.
 func (h *programToolCallHandler) pendingCancels(ctx context.Context) []daemonprotocol.ToolCallCancel {
 	h.mu.Lock()
 	pending := append([]daemonprotocol.ToolCallCancel(nil), h.cancels...)
