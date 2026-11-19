@@ -1037,6 +1037,7 @@ type serviceE2EConfiguredModelOptions struct {
 	DefaultMaxOutputTokens    int
 	DefaultReasoningEffort    string
 	SupportedReasoningEfforts []string
+	InputModalities           []string
 	APIVariantOptions         map[string]any
 }
 
@@ -1272,6 +1273,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		modelOptions,
 		"service-e2e-openrouter",
 		modeltest.LiveOpenRouterProviderModelSlug,
+		modeltest.LiveOpenRouterAudioProviderModelSlug,
 	)
 	anthropicSecret := e.requestJSON(
 		t,
@@ -1379,6 +1381,9 @@ func (e *serviceE2EEnvironment) createServiceE2EConfiguredModel(
 	}
 	if options.APIVariantOptions != nil {
 		body["api_variant_options"] = options.APIVariantOptions
+	}
+	if len(options.InputModalities) > 0 {
+		body["input_modalities"] = options.InputModalities
 	}
 	if options.DefaultReasoningEffort != "" || len(options.SupportedReasoningEfforts) > 0 {
 		body["supports_reasoning"] = true
