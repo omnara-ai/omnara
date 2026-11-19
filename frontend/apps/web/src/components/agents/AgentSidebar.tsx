@@ -1,4 +1,11 @@
-import { useAgents, useAgentUsage, useMachine, useServerInfo } from '@omnara/react'
+import {
+  isScheduledBacklogInput,
+  useAgentInputBacklog,
+  useAgents,
+  useAgentUsage,
+  useMachine,
+  useServerInfo,
+} from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile, UsageReport } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
@@ -396,6 +403,8 @@ function AgentCronGroup({
   canManage: boolean
   onAdd: () => void
 }) {
+  const backlog = useAgentInputBacklog({ orgID: orgId, projectID: projectId, agentID: agentId })
+  const hasScheduledMessages = (backlog.query.data?.data ?? []).some(isScheduledBacklogInput)
   return (
     <SidebarGroup>
       <div className="flex items-center justify-between">
@@ -425,7 +434,9 @@ function AgentCronGroup({
           canManage={canManage}
           filters={{ agent_id: agentId }}
           emptyMessage="No schedules"
-          emptyState={<SidebarEmptyText>No schedules</SidebarEmptyText>}
+          emptyState={
+            hasScheduledMessages ? <></> : <SidebarEmptyText>No schedules</SidebarEmptyText>
+          }
         />
       </SidebarGroupContent>
     </SidebarGroup>
