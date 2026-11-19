@@ -243,17 +243,6 @@ func failScheduledMessageTransaction(code string, cause error) (transactionalPha
 	return failInTransaction(content, cause), nil
 }
 
-func failScheduledMessageAsync(code string, cause error) (asyncPhaseResult, error) {
-	content, handled, err := scheduledMessageFailureContent(code, cause)
-	if err != nil {
-		return nil, err
-	}
-	if !handled {
-		return nil, cause
-	}
-	return failAsynchronously(content, cause), nil
-}
-
 func getCurrentTime(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 	now, err := call.Reader.DatabaseNow(ctx)
 	if err != nil {
@@ -323,7 +312,7 @@ func createScheduledMessage(_ context.Context, call transactionalToolContext) (t
 		return nil, err
 	}
 	if input.cron != "" {
-		return continueAsync(), nil
+		return createSchedule(input), nil
 	}
 	command := executionstore.CreateScheduledMessageForToolCall(
 		executionstore.CreateScheduledMessageInput{
@@ -359,14 +348,16 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 	if err != nil {
 		return nil, err
 	}
-	if _, err := publicid.Decode(publicid.KindCronTrigger, input.ID); err == nil {
-		return continueAsync(), nil
-	}
-	inputID, err := publicid.Decode(publicid.KindAgentInput, input.ID)
-	if err != nil {
+	result := map[string]any{"id": input.ID, "deleted": true}
+	triggerID, triggerErr := publicid.Decode(publicid.KindCronTrigger, input.ID)
+	inputID, inputErr := publicid.Decode(publicid.KindAgentInput, input.ID)
+	if triggerErr != nil && inputErr != nil {
 		return failScheduledMessageTransaction("delete_scheduled_message_failed", storeerr.ErrNotFound)
 	}
-	content, err := structuredToolResultContent(map[string]any{"id": input.ID, "deleted": true})
+	if triggerErr == nil {
+		result["recurring"] = true
+	}
+	content, err := structuredToolResultContent(result)
 	if err != nil {
 		return nil, err
 	}
@@ -375,74 +366,41 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 		return nil, err
 	}
 	command := executionstore.CancelScheduledMessageForToolCall(inputID, completion)
+	if triggerErr == nil {
+		command = executionstore.DeleteAgentScheduleForToolCall(triggerID, completion)
+	}
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failScheduledMessageTransaction("delete_scheduled_message_failed", err)
 	}), nil
 }
 
-func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	input, err := resolveCreateScheduledMessageRequest(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	if input.cron == "" {
-		return nil, errors.New("create_scheduled_message reached the schedule phase without a cron expression")
-	}
-	trigger, err := call.Executor.Store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
-		ProjectID: call.Turn.ProjectID,
-		Name:      "agent-schedule-" + call.ToolCallID.String(),
-		Target: executionstore.CronTriggerTarget{
-			Kind:         executionstore.CronTriggerTargetAgent,
-			ID:           call.Turn.AgentID,
-			DeliveryMode: executionstore.CronTriggerDeliveryModeQueued,
+func createSchedule(input resolvedScheduledMessageRequest) transactionalPhaseResult {
+	command := executionstore.CreateAgentScheduleForToolCall(
+		executionstore.CreateAgentScheduleInput{
+			CronExpression: input.cron, Timezone: input.timezone, MessageTemplate: scheduleMessageTemplate(input),
 		},
-		CronExpression:  input.cron,
-		Timezone:        input.timezone,
-		MessageTemplate: scheduleMessageTemplate(input),
-		Enabled:         true,
-		IdempotencyKey:  "tool_call:" + call.ToolCallID.String(),
-
-		CreatedByAgentID:          call.Turn.AgentID,
-		MaxTriggersCreatedByAgent: executionstore.MaxAgentSchedules,
+		func(schedule executionstore.AgentSchedule) (executionstore.ToolCallCompletionInput, error) {
+			id, err := publicid.Encode(publicid.KindCronTrigger, schedule.ID)
+			if err != nil {
+				return executionstore.ToolCallCompletionInput{}, fmt.Errorf("encode schedule id: %w", err)
+			}
+			result := map[string]any{
+				"id": id, "cron": schedule.CronExpression, "timezone": schedule.Timezone,
+				"scheduled": true, "recurring": true,
+			}
+			if schedule.NextFireAfter != nil {
+				result["next_run_at"] = formatScheduledMessageTime(*schedule.NextFireAfter)
+			}
+			content, err := structuredToolResultContent(result)
+			if err != nil {
+				return executionstore.ToolCallCompletionInput{}, err
+			}
+			return successfulToolCallCompletion(content)
+		},
+	)
+	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
+		return failScheduledMessageTransaction("create_scheduled_message_failed", err)
 	})
-	if err != nil {
-		return failScheduledMessageAsync("create_scheduled_message_failed", err)
-	}
-	id, err := publicid.Encode(publicid.KindCronTrigger, trigger.ID)
-	if err != nil {
-		return nil, fmt.Errorf("encode schedule id: %w", err)
-	}
-	result := map[string]any{
-		"id": id, "cron": trigger.CronExpression, "timezone": trigger.Timezone, "scheduled": true, "recurring": true,
-	}
-	if trigger.NextFireAfter != nil {
-		result["next_run_at"] = formatScheduledMessageTime(*trigger.NextFireAfter)
-	}
-	content, err := structuredToolResultContent(result)
-	if err != nil {
-		return nil, err
-	}
-	return completeAsynchronously(content), nil
-}
-
-func deleteSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	input, err := resolveDeleteScheduledMessageRequest(call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	triggerID, err := publicid.Decode(publicid.KindCronTrigger, input.ID)
-	if err != nil {
-		return nil, errors.New("delete_scheduled_message reached the schedule phase without a schedule id")
-	}
-	err = call.Executor.Store.Execution().DeleteCronTriggerCreatedByAgent(ctx, call.Turn.ProjectID, call.Turn.AgentID, triggerID)
-	if err != nil {
-		return failScheduledMessageAsync("delete_scheduled_message_failed", err)
-	}
-	content, err := structuredToolResultContent(map[string]any{"id": input.ID, "deleted": true, "recurring": true})
-	if err != nil {
-		return nil, err
-	}
-	return completeAsynchronously(content), nil
 }
 
 func pageSlice[T any](items []T, start, end int) []T {

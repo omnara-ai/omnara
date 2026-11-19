@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -210,16 +211,12 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	}
 	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
 	turn := scheduledMessageToolTurn(&fixture)
-	executor := Executor{Store: fixture.Store}
-	dispatchAsync := func(call model.ToolCall) map[string]any {
+	dispatch := func(call model.ToolCall) map[string]any {
 		t.Helper()
-		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, call)
-		require.NoError(t, err)
-		require.Equal(t, DispatchCompleted, result.Disposition)
-		return toolResultMapFromTestParts(t, result.ContentParts)
+		return dispatchScheduledMessageTool(t, ctx, &fixture, turn, call)
 	}
 
-	created := dispatchAsync(calls[0])
+	created := dispatch(calls[0])
 	require.Equal(t, true, created["recurring"])
 	require.Equal(t, "0 9 * * 1-5", created["cron"])
 	require.Equal(t, "America/New_York", created["timezone"])
@@ -242,18 +239,149 @@ func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
 	require.Equal(t, created["id"], own["id"])
 	require.Equal(t, "0 9 * * 1-5", own["cron"])
 
-	denied := dispatchAsync(calls[2])
+	denied := dispatch(calls[2])
 	require.Equal(t, "delete_scheduled_message_failed", denied["error_code"])
 	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, existing.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, fixture.Store.Execution().DeleteCronTriggerCreatedByAgent(
-		ctx, toolsTestProjectID, fixture.Agent.ID, createdID))
-	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, createdID)
+	missing := dispatch(calls[3])
+	require.Equal(t, "delete_scheduled_message_failed", missing["error_code"])
+}
+
+func agentScheduleCount(t *testing.T, ctx context.Context, f *integrationToolFixture) int {
+	t.Helper()
+	var count int
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM cron_triggers WHERE agent_id=$1 AND deleted_at IS NULL`, f.Agent.ID).Scan(&count))
+	return count
+}
+
+func executeScheduleCommand(
+	ctx context.Context,
+	f *integrationToolFixture,
+	toolCallID uuid.UUID,
+	command executionstore.ToolCallCommand,
+) (executionstore.ExecuteToolCallResult, error) {
+	return f.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ToolCallID: toolCallID, RuntimeLockID: f.Lock.ID,
+	}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) { return command, nil })
+}
+
+func TestAgentScheduleChangesCommitOnlyWithTheirToolResult(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixture(t, ctx, "scheduled-message-cron-cancel")
+	calls := []model.ToolCall{
+		{ID: "call_keep", Name: toolcatalog.ToolNameCreateScheduledMessage,
+			Input: json.RawMessage(`{"message":"Keep.","cron":"0 9 * * *"}`)},
+		{ID: "call_remove", Name: toolcatalog.ToolNameCreateScheduledMessage,
+			Input: json.RawMessage(`{"message":"Remove.","cron":"0 8 * * *"}`)},
+		{ID: "call_delete", Name: toolcatalog.ToolNameDeleteScheduledMessage, Input: json.RawMessage(`{}`)},
+		{ID: "call_unfinished", Name: toolcatalog.ToolNameCreateScheduledMessage,
+			Input: json.RawMessage(`{"message":"Unfinished.","cron":"0 10 * * *"}`)},
+		{ID: "call_create_late", Name: toolcatalog.ToolNameCreateScheduledMessage,
+			Input: json.RawMessage(`{"message":"Late.","cron":"0 11 * * *"}`)},
+		{ID: "call_delete_late", Name: toolcatalog.ToolNameDeleteScheduledMessage, Input: json.RawMessage(`{}`)},
+	}
+	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
+	turn := scheduledMessageToolTurn(&fixture)
+	kept := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[0])
+	keptID, err := publicid.Decode(publicid.KindCronTrigger, testutil.RequireType[string](t, kept["id"]))
+	require.NoError(t, err)
+	removed := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[1])
+	removedID, err := publicid.Decode(publicid.KindCronTrigger, testutil.RequireType[string](t, removed["id"]))
+	require.NoError(t, err)
+
+	create := executionstore.CreateAgentScheduleInput{CronExpression: "0 10 * * *", MessageTemplate: "Later."}
+	content, err := structuredToolResultContent(map[string]any{"scheduled": true})
+	require.NoError(t, err)
+	completion, err := successfulToolCallCompletion(content)
+	require.NoError(t, err)
+	complete := func(executionstore.AgentSchedule) (executionstore.ToolCallCompletionInput, error) {
+		return completion, nil
+	}
+
+	_, err = executeScheduleCommand(ctx, &fixture, fixture.toolCallID(t, ctx, "call_delete"),
+		executionstore.DeleteAgentScheduleForToolCall(removedID, completion))
+	require.NoError(t, err)
+	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, removedID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	missing := dispatchAsync(calls[3])
-	require.Equal(t, "delete_scheduled_message_failed", missing["error_code"])
+	resultFailed := errors.New("result could not be built")
+	_, err = executeScheduleCommand(ctx, &fixture, fixture.toolCallID(t, ctx, "call_unfinished"),
+		executionstore.CreateAgentScheduleForToolCall(create,
+			func(executionstore.AgentSchedule) (executionstore.ToolCallCompletionInput, error) {
+				return executionstore.ToolCallCompletionInput{}, resultFailed
+			}))
+	require.ErrorIs(t, err, resultFailed)
+	require.Equal(t, 1, agentScheduleCount(t, ctx, &fixture), "a schedule must not outlive its failed tool result")
+
+	// The runtime loses authority after dispatch checked it but before the schedule change runs.
+	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	_, err = executeScheduleCommand(ctx, &fixture, fixture.toolCallID(t, ctx, "call_create_late"),
+		executionstore.CreateAgentScheduleForToolCall(create, complete))
+	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+	_, err = executeScheduleCommand(ctx, &fixture, fixture.toolCallID(t, ctx, "call_delete_late"),
+		executionstore.DeleteAgentScheduleForToolCall(keptID, completion))
+	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+	require.Equal(t, 1, agentScheduleCount(t, ctx, &fixture))
+	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, keptID)
+	require.NoError(t, err)
+}
+
+func TestScheduledMessageDelayStartsAfterTheAgentLockWait(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixture(t, ctx, "scheduled-message-lock-wait")
+	call := model.ToolCall{ID: "call_delay", Name: toolcatalog.ToolNameCreateScheduledMessage,
+		Input: json.RawMessage(`{"message":"Soon.","delay_seconds":1}`)}
+	fixture.recordToolCalls(t, ctx, []model.ToolCall{call}, fixture.Now.Add(20*time.Second))
+	toolCallID := fixture.toolCallID(t, ctx, call.ID)
+	content, err := structuredToolResultContent(map[string]any{"scheduled": true})
+	require.NoError(t, err)
+	completion, err := successfulToolCallCompletion(content)
+	require.NoError(t, err)
+
+	holder, err := fixture.Pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = holder.Rollback(ctx) }()
+	_, err = holder.Exec(ctx, `SELECT 1 FROM agents WHERE id = $1 FOR UPDATE`, fixture.Agent.ID)
+	require.NoError(t, err)
+
+	type outcome struct {
+		result executionstore.ExecuteToolCallResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := executeScheduleCommand(ctx, &fixture, toolCallID,
+			executionstore.CreateScheduledMessageForToolCall(
+				executionstore.CreateScheduledMessageInput{
+					Delay: time.Second, Message: "Soon.", Note: scheduledMessageNote,
+				},
+				func(executionstore.ScheduledMessage) (executionstore.ToolCallCompletionInput, error) {
+					return completion, nil
+				},
+			))
+		done <- outcome{result: result, err: err}
+	}()
+	// Hold the agent lock for longer than the delay, so a delay measured from the transaction start has elapsed.
+	require.Eventually(t, func() bool {
+		var waiting int
+		require.NoError(t, fixture.Pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+			 AND wait_event_type = 'Lock' AND clock_timestamp() - xact_start > interval '1500 milliseconds'`,
+		).Scan(&waiting))
+		return waiting > 0
+	}, 10*time.Second, 50*time.Millisecond)
+	var releasedAt time.Time
+	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&releasedAt))
+	require.NoError(t, holder.Rollback(ctx))
+
+	finished := <-done
+	require.NoError(t, finished.err)
+	message := testutil.RequireType[executionstore.ScheduledMessage](t, finished.result.CommandResult)
+	require.True(t, message.ScheduledFor.After(releasedAt),
+		"scheduled_for %s must fall after the lock was released at %s", message.ScheduledFor, releasedAt)
 }
 
 func TestAgentScheduleLimitRejectsOnlyNewSchedules(t *testing.T) {

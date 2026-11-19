@@ -238,7 +238,11 @@ func TestScheduledAgentInputWindowAppliesOnlyToNewInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create soon input: %v", err)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	if _, err := f.pool.Exec(f.t.Context(),
+		`SELECT pg_sleep(greatest(0, extract(epoch FROM $1::timestamptz - clock_timestamp())) + 0.05)`, soon,
+	); err != nil {
+		t.Fatalf("wait for the scheduled time to pass: %v", err)
+	}
 	replay, err := create("soon", soon)
 	if err != nil || replay.ID != created.ID {
 		t.Fatalf("replay after scheduled time = %+v, %v; want input %s", replay, err, created.ID)

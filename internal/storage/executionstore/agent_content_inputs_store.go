@@ -175,7 +175,8 @@ func admitAgentContentInputTx(
 		}
 	}
 	if input.SourceScheduledFor != nil && input.MaxScheduledDelay > 0 {
-		now, err := qtx.DBNow(ctx)
+		// The transaction clock predates the wait for the agent lock.
+		now, err := qtx.DBStatementNow(ctx)
 		if err != nil {
 			return createAgentContentInputTxResult{}, fmt.Errorf("read database time: %w", err)
 		}

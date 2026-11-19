@@ -112,30 +112,27 @@ type CronTriggerFailureReport struct {
 	FailedAt  time.Time `json:"failed_at"`
 }
 
-func (s *Store) CreateCronTrigger(
-	ctx context.Context,
-	input CreateCronTriggerInput,
-) (CronTriggerRecord, error) {
+func normalizeCreateCronTriggerInput(input CreateCronTriggerInput) (CreateCronTriggerInput, error) {
 	if input.ProjectID == uuid.Nil {
-		return CronTriggerRecord{}, errors.New("project id is required")
+		return CreateCronTriggerInput{}, errors.New("project id is required")
 	}
 	if input.Name == "" {
-		return CronTriggerRecord{}, errors.New("cron trigger name is required")
+		return CreateCronTriggerInput{}, errors.New("cron trigger name is required")
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", input.Name)
 	if err != nil {
-		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
+		return CreateCronTriggerInput{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
 	if input.Target.ID == uuid.Nil {
-		return CronTriggerRecord{}, errors.New("cron trigger target is required")
+		return CreateCronTriggerInput{}, errors.New("cron trigger target is required")
 	}
 	if input.Target.Kind != CronTriggerTargetAgent && input.Target.Kind != CronTriggerTargetAgentProfile &&
 		input.Target.Kind != CronTriggerTargetIntegration {
-		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("unsupported cron trigger target kind"))
+		return CreateCronTriggerInput{}, storeerr.InvalidRequest(errors.New("unsupported cron trigger target kind"))
 	}
 	if input.Target.Kind != CronTriggerTargetIntegration && input.MessageTemplate == "" {
-		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("cron trigger message template is required"))
+		return CreateCronTriggerInput{}, storeerr.InvalidRequest(errors.New("cron trigger message template is required"))
 	}
 	if input.Timezone == "" {
 		input.Timezone = "UTC"
@@ -144,16 +141,26 @@ func (s *Store) CreateCronTrigger(
 		input.Target.DeliveryMode = CronTriggerDeliveryModeQueued
 	}
 	if err := validateCronTriggerDeliveryMode(input.Target.Kind, input.Target.DeliveryMode); err != nil {
-		return CronTriggerRecord{}, err
+		return CreateCronTriggerInput{}, err
 	}
 	if err := cronschedule.Validate(input.CronExpression, input.Timezone); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
+		return CreateCronTriggerInput{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
 	if err := validateCronTriggerContent(input.Target, input.MessageTemplate); err != nil {
-		return CronTriggerRecord{}, err
+		return CreateCronTriggerInput{}, err
 	}
 	input.IdempotencyKey = cronTriggerCreateIdempotencyKey(input.IdempotencyKey)
+	return input, nil
+}
 
+func (s *Store) CreateCronTrigger(
+	ctx context.Context,
+	input CreateCronTriggerInput,
+) (CronTriggerRecord, error) {
+	input, err := normalizeCreateCronTriggerInput(input)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("begin create cron trigger: %w", err)
@@ -205,14 +212,27 @@ func (s *Store) CreateCronTrigger(
 			)
 		}
 	}
+	record, err := createCronTriggerTx(ctx, qtx, input)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CronTriggerRecord{}, fmt.Errorf("commit create cron trigger: %w", err)
+	}
+	return record, nil
+}
+
+// createCronTriggerTx inserts the trigger and enforces its quotas; the caller holds the project and target locks.
+func createCronTriggerTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateCronTriggerInput,
+) (CronTriggerRecord, error) {
 	record, inserted, err := insertCronTriggerTx(ctx, qtx, input)
 	if err != nil {
 		return CronTriggerRecord{}, err
 	}
 	if !inserted {
-		if err := tx.Commit(ctx); err != nil {
-			return CronTriggerRecord{}, fmt.Errorf("commit idempotent create cron trigger: %w", err)
-		}
 		return record, nil
 	}
 	if err := lockResourceCreation(ctx, qtx, resourceCronTriggers, input.ProjectID.String()); err != nil {
@@ -248,9 +268,6 @@ func (s *Store) CreateCronTrigger(
 				input.MaxTriggersCreatedByAgent,
 			))
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("commit create cron trigger: %w", err)
 	}
 	return record, nil
 }

@@ -56,12 +56,8 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{toolcatalog.ToolNameGetCurrentTime, toolcatalog.ToolNameListScheduledMessages},
+		toolcatalog.ScheduledMessageToolNames(),
 		expectedTopology{transactional: true},
-	)
-	add(
-		[]string{toolcatalog.ToolNameCreateScheduledMessage, toolcatalog.ToolNameDeleteScheduledMessage},
-		expectedTopology{transactional: true, async: true},
 	)
 	add(
 		[]string{

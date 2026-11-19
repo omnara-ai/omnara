@@ -21,11 +21,12 @@ var (
 		"This agent already has %d pending messages. "+
 			"Wait for messages to be processed or cancel a pending message, then try again.",
 		executionpolicy.MaxPendingAgentContentInputs)
-	ErrAgentBacklogFull         = errors.New(AgentBacklogFullMessage)
-	ErrAgentScheduledInputsFull = fmt.Errorf(
+	ErrAgentBacklogFull             = errors.New(AgentBacklogFullMessage)
+	AgentScheduledInputsFullMessage = fmt.Sprintf(
 		"This agent already has %d scheduled messages. "+
 			"Wait for one to be delivered or cancel one, then try again.",
 		executionpolicy.MaxScheduledAgentContentInputs)
+	ErrAgentScheduledInputsFull      = errors.New(AgentScheduledInputsFullMessage)
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")

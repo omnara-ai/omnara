@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -175,7 +176,8 @@ func (t *toolCallTransaction) createScheduledMessage(
 	if (input.SourceScheduledFor == nil) == (input.Delay == 0) {
 		return ScheduledMessage{}, storeerr.InvalidRequest(errors.New("provide exactly one of timestamp or delay_seconds"))
 	}
-	now, err := t.q.DBNow(ctx)
+	// The transaction clock predates the wait for the agent lock.
+	now, err := t.q.DBStatementNow(ctx)
 	if err != nil {
 		return ScheduledMessage{}, fmt.Errorf("read database time: %w", err)
 	}
@@ -295,18 +297,97 @@ func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedul
 	return schedules, nil
 }
 
-func (s *Store) DeleteCronTriggerCreatedByAgent(ctx context.Context, projectID, agentID, id uuid.UUID) error {
-	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
-		return errors.New("project, agent, and cron trigger are required")
-	}
-	rows, err := s.q.DeleteCronTriggerCreatedByAgent(ctx, dbsqlc.DeleteCronTriggerCreatedByAgentParams{
-		ProjectID: projectID, AgentID: agentID, ID: id,
+type CreateAgentScheduleInput struct {
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+}
+
+func CreateAgentScheduleForToolCall(
+	input CreateAgentScheduleInput,
+	completion ToolCallCompletionBuilder[AgentSchedule],
+) ToolCallCommand {
+	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+		if completion == nil {
+			return nil, errors.New("agent schedule completion builder is required")
+		}
+		schedule, err := tx.createAgentSchedule(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		toolCompletion, err := completion(schedule)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.completeToolCall(ctx, toolCompletion); err != nil {
+			return nil, err
+		}
+		return schedule, nil
+	})
+}
+
+func (t *toolCallTransaction) createAgentSchedule(
+	ctx context.Context,
+	input CreateAgentScheduleInput,
+) (AgentSchedule, error) {
+	create, err := normalizeCreateCronTriggerInput(CreateCronTriggerInput{
+		ProjectID: t.input.ProjectID,
+		Name:      "agent-schedule-" + t.input.ToolCallID.String(),
+		Target: CronTriggerTarget{
+			Kind: CronTriggerTargetAgent, ID: t.input.AgentID, DeliveryMode: CronTriggerDeliveryModeQueued,
+		},
+		CronExpression:  input.CronExpression,
+		Timezone:        input.Timezone,
+		MessageTemplate: input.MessageTemplate,
+		Enabled:         true,
+		IdempotencyKey:  "tool_call:" + t.input.ToolCallID.String(),
+
+		CreatedByAgentID:          t.input.AgentID,
+		MaxTriggersCreatedByAgent: MaxAgentSchedules,
 	})
 	if err != nil {
-		return fmt.Errorf("delete agent cron trigger: %w", err)
+		return AgentSchedule{}, err
 	}
-	if rows == 0 {
-		return storeerr.ErrNotFound
+	project, err := loadProjectTx(ctx, t.q, t.input.ProjectID)
+	if err != nil {
+		return AgentSchedule{}, err
 	}
-	return nil
+	create.OrgID = project.OrgID
+	// Project before agent, the order CreateCronTrigger takes these locks in.
+	if err := lifecyclelock.EnterActiveProject(ctx, t.tx, project.OrgID, t.input.ProjectID); err != nil {
+		return AgentSchedule{}, err
+	}
+	if err := t.lockForMutation(ctx); err != nil {
+		return AgentSchedule{}, err
+	}
+	record, err := createCronTriggerTx(ctx, t.q, create)
+	if err != nil {
+		return AgentSchedule{}, err
+	}
+	return AgentSchedule{
+		ID: record.ID, Name: record.Name, CronExpression: record.CronExpression, Timezone: record.Timezone,
+		MessageTemplate: record.MessageTemplate, Enabled: record.Enabled, LastFiredAt: record.LastFiredAt,
+		NextFireAfter: record.NextFireAfter, CreatedAt: record.CreatedAt,
+	}, nil
+}
+
+func DeleteAgentScheduleForToolCall(triggerID uuid.UUID, completion ToolCallCompletionInput) ToolCallCommand {
+	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+		if err := tx.lockForMutation(ctx); err != nil {
+			return nil, err
+		}
+		rows, err := tx.q.DeleteCronTriggerCreatedByAgent(ctx, dbsqlc.DeleteCronTriggerCreatedByAgentParams{
+			ProjectID: tx.input.ProjectID, AgentID: tx.input.AgentID, ID: triggerID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("delete agent cron trigger: %w", err)
+		}
+		if rows == 0 {
+			return nil, storeerr.ErrNotFound
+		}
+		if _, err := tx.completeToolCall(ctx, completion); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
 }
