@@ -1582,7 +1582,7 @@ export type McpoAuthStartRequest = {
 };
 
 /**
- * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
+ * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL when the metadata has room for it, so the key is reserved and at most 15 user pairs are accepted.
  */
 export type McpoAuthStartMetadata = {
     [key: string]: string;
