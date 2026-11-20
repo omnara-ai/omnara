@@ -998,7 +998,7 @@ export type CreateConfiguredModelRequest = {
      */
     supported_reasoning_efforts?: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities?: Array<string>;
     /**
@@ -1050,7 +1050,7 @@ export type UpdateConfiguredModelRequest = {
      */
     supported_reasoning_efforts?: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities?: Array<string>;
     /**
@@ -1104,7 +1104,7 @@ export type ConfiguredModel = {
      */
     supported_reasoning_efforts: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities: Array<string>;
     /**
@@ -2726,7 +2726,7 @@ export type TextContentBlock = {
 };
 
 /**
- * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents. Audio (WAV, MP3, M4A, FLAC) is sent directly only to Chat Completions models whose input modalities explicitly include audio, and M4A and FLAC only through OpenRouter; otherwise the model receives the artifact ID and the filename.
  */
 export type InlineMediaContentBlock = {
     /**
@@ -2736,7 +2736,7 @@ export type InlineMediaContentBlock = {
     /**
      * MIME type of the file in data.
      */
-    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'audio/wav' | 'audio/mpeg' | 'audio/mp4' | 'audio/flac' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     /**
      * Filename saved with the stored file and shown to models that can't read the file directly.
      */

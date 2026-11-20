@@ -34,6 +34,7 @@ type compat struct {
 	reportsNativeFinishReason    bool
 	parsesPDFDocuments           bool
 	routesFallbackModels         bool
+	acceptsM4AAndFLACAudio       bool
 }
 
 func compatFor(route model.ProviderRoute) compat {
@@ -49,6 +50,7 @@ func compatFor(route model.ProviderRoute) compat {
 			reportsNativeFinishReason:    true,
 			parsesPDFDocuments:           true,
 			routesFallbackModels:         true,
+			acceptsM4AAndFLACAudio:       true,
 		}
 	case modelprotocol.APIVariantBedrock:
 		return compat{

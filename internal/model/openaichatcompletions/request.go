@@ -35,8 +35,10 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		return nil, err
 	}
 	compat := c.compat()
+	bundle := input.Context
+	bundle.ResolvedMedia = c.renderableMedia(compat, bundle.ResolvedMedia)
 	messages, err := buildMessages(
-		input.Context,
+		bundle,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		input.Policy,
 		c.effortSteering(compat, input.Policy),
@@ -270,7 +272,6 @@ func buildMessages(
 	if err != nil {
 		return nil, fmt.Errorf("build openai-chat-completions history: %w", err)
 	}
-	bundle.ResolvedMedia = renderableMedia(bundle.ResolvedMedia)
 	capacity := 1 + len(bundle.Messages) + len(bundle.ToolResults)*2
 	if bundle.ContextCheckpoint != nil {
 		capacity++

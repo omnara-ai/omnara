@@ -88,7 +88,20 @@ describe('selectAgentAttachment', () => {
         }),
         model(),
       ),
-    ).rejects.toThrow('not a supported image, document, or UTF-8 text file')
+    ).rejects.toThrow('not a supported image, audio, document, or UTF-8 text file')
+  })
+
+  it.each([
+    ['take.wav', 'audio/x-wav', 'audio/wav'],
+    ['take.mp3', 'audio/mp3', 'audio/mpeg'],
+    ['take.m4a', 'audio/x-m4a', 'audio/mp4'],
+    ['take', 'audio/x-flac', 'audio/flac'],
+  ])('accepts audio file %s declared as %s', async (filename, type, mediaType) => {
+    const selected = await selectAgentAttachment(
+      new File([new Uint8Array([0xff])], filename, { type }),
+      model({ input_modalities: ['text'] }),
+    )
+    expect(selected).toMatchObject({ kind: 'audio', mediaType })
   })
 
   it.each([

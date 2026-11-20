@@ -389,6 +389,12 @@ func (c Capabilities) AllowsInputModality(modality string) bool {
 	return len(c.InputModalities) == 0 || containsModality(c.InputModalities, modality)
 }
 
+// DeclaresInputModality reports whether the modality is listed explicitly;
+// unspecified modalities do not count.
+func (c Capabilities) DeclaresInputModality(modality string) bool {
+	return containsModality(c.InputModalities, modality)
+}
+
 type RequestPolicy struct {
 	MaxOutputTokens                   int            `json:"max_output_tokens,omitempty"`
 	CacheRetention                    CacheRetention `json:"cache_retention,omitempty"`
