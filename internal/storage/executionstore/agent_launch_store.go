@@ -41,6 +41,7 @@ type LaunchAgentInput struct {
 	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
 	Budgets                 []identitystore.BudgetAttachment
 	admission               *launchAdmission
+	spawnSourceToolCallID   uuid.UUID
 }
 
 type LaunchAgentResult struct {

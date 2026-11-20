@@ -43,7 +43,9 @@ const (
 type Store interface {
 	ClaimOtelExportDelivery(ctx context.Context, perOrgLimit int) (executionstore.OtelExportDelivery, error)
 	CompleteOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID) error
-	RetryOtelExportDelivery(ctx context.Context, id, claimToken uuid.UUID, delay time.Duration) error
+	RetryOtelExportDelivery(
+		ctx context.Context, id, claimToken uuid.UUID, delay time.Duration,
+	) (executionstore.OtelExportDeliveryRetryResult, error)
 	GetOtelExportDestination(
 		ctx context.Context, orgID, exporterID uuid.UUID,
 	) (executionstore.OtelExportDestination, error)
@@ -124,25 +126,31 @@ func (s *Sender) deliver(ctx context.Context, delivery executionstore.OtelExport
 	outcome, err := s.send(attemptCtx, delivery)
 	cancel()
 	if ctx.Err() != nil {
-		logent.OtelExportDeliveryResult(ctx, "canceled", "none", ctx.Err())
+		logent.OtelExportDeliveryResult(ctx, "canceled", "none", ctx.Err(), time.Time{})
 		return
 	}
 	updateCtx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+	var retryAt time.Time
 	if outcome == outcomeRetry {
-		if retryErr := s.store.RetryOtelExportDelivery(
-			updateCtx, delivery.ID, delivery.ClaimToken, retryDelay(delivery.AttemptCount)); retryErr != nil {
+		retry, retryErr := s.store.RetryOtelExportDelivery(
+			updateCtx, delivery.ID, delivery.ClaimToken, retryDelay(delivery.AttemptCount))
+		if retryErr != nil {
 			logent.OtelExportStoreFailed(ctx, "retry", retryErr)
-			logent.OtelExportDeliveryResult(ctx, "retry_failed", "local", err)
+			logent.OtelExportDeliveryResult(ctx, "retry_failed", "local", err, time.Time{})
 			return
+		}
+		retryAt = retry.NextAttemptAt
+		if retry.GaveUp {
+			outcome = outcomeGaveUp
 		}
 	} else if completeErr := s.store.CompleteOtelExportDelivery(
 		updateCtx, delivery.ID, delivery.ClaimToken); completeErr != nil {
 		logent.OtelExportStoreFailed(ctx, "complete", completeErr)
-		logent.OtelExportDeliveryResult(ctx, "complete_failed", "local", err)
+		logent.OtelExportDeliveryResult(ctx, "complete_failed", "local", err, time.Time{})
 		return
 	}
-	logent.OtelExportDeliveryResult(ctx, outcome, failureCause(err), err)
+	logent.OtelExportDeliveryResult(ctx, outcome, failureCause(err), err, retryAt)
 }
 
 func failureCause(err error) string {
@@ -181,6 +189,7 @@ const (
 	// counted as delivered.
 	outcomeUnacknowledged = "unacknowledged"
 	outcomeRetry          = "retry_scheduled"
+	outcomeGaveUp         = "gave_up"
 )
 
 func (s *Sender) send(ctx context.Context, delivery executionstore.OtelExportDelivery) (string, error) {

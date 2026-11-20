@@ -28,6 +28,7 @@ type fakeStore struct {
 	destination    executionstore.OtelExportDestination
 	destinationErr error
 	turns          map[uuid.UUID]oteltrace.Turn
+	retryResult    executionstore.OtelExportDeliveryRetryResult
 	completed      []uuid.UUID
 	retried        []uuid.UUID
 }
@@ -41,9 +42,11 @@ func (s *fakeStore) CompleteOtelExportDelivery(_ context.Context, id, _ uuid.UUI
 	return nil
 }
 
-func (s *fakeStore) RetryOtelExportDelivery(_ context.Context, id, _ uuid.UUID, _ time.Duration) error {
+func (s *fakeStore) RetryOtelExportDelivery(
+	_ context.Context, id, _ uuid.UUID, _ time.Duration,
+) (executionstore.OtelExportDeliveryRetryResult, error) {
 	s.retried = append(s.retried, id)
-	return nil
+	return s.retryResult, nil
 }
 
 func (s *fakeStore) GetOtelExportDestination(
@@ -319,4 +322,32 @@ func TestSenderDoesNotCountUnreadableAcknowledgmentAsDelivered(t *testing.T) {
 			require.NotContains(t, output.String(), "secret-page-content")
 		})
 	}
+}
+
+func TestSenderLogsGaveUpWhenRetryExceedsWindow(t *testing.T) {
+	turn := testTurn()
+	retryAt := time.Now().Add(time.Minute).UTC()
+	store := &fakeStore{
+		destination: protobufDestination,
+		turns:       map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn},
+		retryResult: executionstore.OtelExportDeliveryRetryResult{NextAttemptAt: retryAt, GaveUp: true},
+	}
+	sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	var output bytes.Buffer
+	sender.log = slog.New(slog.NewJSONHandler(&output, nil))
+	delivery := testDelivery(turn.TurnID)
+	delivery.CreatedAt = time.Now().Add(-time.Hour)
+	sender.deliver(t.Context(), delivery)
+
+	var record map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(output.Bytes()), &record))
+	require.Equal(t, "otel_export.delivery_attempt", record["event.name"])
+	require.Equal(t, "gave_up", record["otel_export.outcome"])
+	require.Equal(t, true, record["otel_export.gave_up"])
+	require.Equal(t, "recipient", record["otel_export.cause"])
+	require.Equal(t, "WARN", record["level"])
+	require.Equal(t, turn.TurnID.String(), record["turn.id"])
+	require.NotEmpty(t, record["otel_export.retry_at"])
 }

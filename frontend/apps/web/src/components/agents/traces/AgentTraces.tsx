@@ -1,4 +1,5 @@
 import { useAgentTurns, useTurnTrace } from '@omnara/react'
+import type { AgentTurn } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -22,26 +23,82 @@ interface Scope {
   agentID: string
 }
 
+function TurnPicker({
+  activeTurnId,
+  turns,
+  hasNextPage,
+  isFetchingNextPage,
+  onSelect,
+  onLoadOlder,
+}: {
+  activeTurnId: string
+  turns: AgentTurn[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  onSelect: (turnId: string) => void
+  onLoadOlder: () => void
+}) {
+  const activeTurn = turns.find((item) => item.id === activeTurnId)
+  const label = activeTurn ? `Turn ${String(activeTurn.turn_sequence)}` : 'Linked turn'
+  return (
+    <>
+      <Select value={activeTurnId} onValueChange={onSelect}>
+        <SelectTrigger aria-label="Turn" size="sm" className="w-auto shrink-0">
+          <SelectValue>{label}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {!activeTurn && <SelectItem value={activeTurnId}>Linked turn</SelectItem>}
+          {turns.map((item) => (
+            <SelectItem key={item.id} value={item.id}>
+              Turn {item.turn_sequence}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {hasNextPage && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          loading={isFetchingNextPage}
+          onClick={onLoadOlder}
+        >
+          Load older turns
+        </Button>
+      )}
+    </>
+  )
+}
+
 /** The chosen turn's trace: its spans above the selected span's details. */
 export function AgentTraces({
   orgID,
   projectID,
   agentID,
   toolbar,
+  initialTurnId,
+  initialSpanId,
 }: Scope & {
   /** Where the turn picker goes: the page header, beside the view tabs. */
   toolbar: HTMLElement | null
+  /** Turn ID requested via URL search (e.g. from a linked agent trace). */
+  initialTurnId?: string
+  /** Span ID requested via URL search (e.g. from a linked agent trace). */
+  initialSpanId?: string
 }) {
   const scope = { orgID, projectID, agentID }
   const turnsQuery = useAgentTurns(scope)
   const turns = turnsQuery.data?.turns ?? []
-  const [chosenTurnId, setChosenTurnId] = useState<string>()
-  // Until a turn is picked, the latest one is shown.
-  const turn = turns.find((item) => item.id === chosenTurnId) ?? turns.at(0)
+  const [picked, setPicked] = useState<{ forInitial?: string; turnId: string }>()
+  const chosenTurnId =
+    picked !== undefined && picked.forInitial === initialTurnId ? picked.turnId : undefined
+  // Prefer an explicit picker choice, then a linked turn from search params, then the latest turn.
+  const activeTurnId = chosenTurnId ?? initialTurnId ?? turns.at(0)?.id
+  const linkedSpanId = activeTurnId === initialTurnId ? initialSpanId : undefined
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-3">
-      {turnsQuery.isPending && <Spinner className="text-muted-foreground size-4" />}
+      {turnsQuery.isPending && !activeTurnId && <Spinner className="text-muted-foreground size-4" />}
       {turnsQuery.isError && (
         <div className="flex items-center gap-2">
           <p role="alert" className="text-destructive text-sm">
@@ -58,43 +115,29 @@ export function AgentTraces({
           </Button>
         </div>
       )}
-      {turnsQuery.isSuccess && !turn && (
+      {turnsQuery.isSuccess && !activeTurnId && (
         <p className="text-muted-foreground text-sm">This agent has no turns yet.</p>
       )}
-      {turn && (
+      {activeTurnId && (
         <TurnTrace
-          key={turn.id}
+          key={`${activeTurnId}:${linkedSpanId ?? ''}`}
           scope={scope}
-          turnId={turn.id}
+          turnId={activeTurnId}
+          initialSpanId={linkedSpanId}
           toolbar={toolbar}
           picker={
-            <>
-              <Select value={turn.id} onValueChange={setChosenTurnId}>
-                <SelectTrigger aria-label="Turn" size="sm" className="w-auto shrink-0">
-                  <SelectValue>Turn {turn.turn_sequence}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {turns.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      Turn {item.turn_sequence}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {turnsQuery.hasNextPage && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0"
-                  loading={turnsQuery.isFetchingNextPage}
-                  onClick={() => {
-                    void turnsQuery.fetchNextPage()
-                  }}
-                >
-                  Load older turns
-                </Button>
-              )}
-            </>
+            <TurnPicker
+              activeTurnId={activeTurnId}
+              turns={turns}
+              hasNextPage={turnsQuery.hasNextPage}
+              isFetchingNextPage={turnsQuery.isFetchingNextPage}
+              onSelect={(turnId) => {
+                setPicked({ forInitial: initialTurnId, turnId })
+              }}
+              onLoadOlder={() => {
+                void turnsQuery.fetchNextPage()
+              }}
+            />
           }
         />
       )}
@@ -105,19 +148,21 @@ export function AgentTraces({
 function TurnTrace({
   scope,
   turnId,
+  initialSpanId,
   toolbar,
   picker,
 }: {
   scope: Scope
   turnId: string
+  initialSpanId?: string
   toolbar: HTMLElement | null
   /** The turn selector, which heads the trace in every state. */
   picker: ReactNode
 }) {
   const query = useTurnTrace(scope, turnId)
   const trace = query.data ? parseTrace(query.data) : undefined
-  const [chosenSpanId, setChosenSpanId] = useState<string>()
-  // Until a span is picked, the turn's root span is shown.
+  const [chosenSpanId, setChosenSpanId] = useState<string | undefined>(initialSpanId)
+  // Until a span is picked, the requested linked span (or the turn's root span) is shown.
   const selected = trace?.spans.find((span) => span.id === chosenSpanId) ?? trace?.spans.at(0)
   const truncated = trace?.spans.some((span) =>
     span.attributes.some(

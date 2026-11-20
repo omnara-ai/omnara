@@ -16,7 +16,6 @@ import { useProjectDirectory } from '@/hooks/use-project-directory'
 
 function scopeLabels(inProject: boolean) {
   return {
-    org: 'All agents in the organization',
     project: inProject ? 'All agents in this project' : 'All agents in one project',
     agent: 'One agent',
   }
@@ -41,7 +40,7 @@ export function OtelExporterScopeField({
   const id = useId()
   const labels = scopeLabels(projectId !== undefined)
   const [agent, setAgent] = useState<{ id: string; name: string }>()
-  const selectedProjectId = value.type === 'org' ? '' : value.project_id
+  const selectedProjectId = value.project_id
   return (
     <>
       <Field>
@@ -51,7 +50,6 @@ export function OtelExporterScopeField({
           onValueChange={(type) => {
             setAgent(undefined)
             const project_id = projectId ?? selectedProjectId
-            if (type === 'org') onChange({ type })
             if (type === 'project') onChange({ type, project_id })
             if (type === 'agent') onChange({ type, project_id, agent_id: '' })
           }}
@@ -60,13 +58,12 @@ export function OtelExporterScopeField({
             <SelectValue>{labels[value.type]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {projectId === undefined && <SelectItem value="org">{labels.org}</SelectItem>}
             <SelectItem value="project">{labels.project}</SelectItem>
             <SelectItem value="agent">{labels.agent}</SelectItem>
           </SelectContent>
         </Select>
       </Field>
-      {projectId === undefined && value.type !== 'org' && (
+      {projectId === undefined && (
         <ProjectPicker
           orgId={orgId}
           value={value.project_id}
@@ -139,7 +136,6 @@ export function OtelExporterScopeLabel({
   scope: OtelExporterScope
 }) {
   const { loaded } = useProjectDirectory(orgId)
-  if (scope.type === 'org') return <>All agents in the organization</>
   if (scope.type === 'agent')
     return (
       <span className="flex min-w-0 items-center gap-1">

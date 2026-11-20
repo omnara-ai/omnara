@@ -23,9 +23,10 @@ func (h *Handle) exportTurn(turnID uuid.UUID) {
 }
 
 // exportReplacedTurn exports the current turn when a new turn is about to
-// replace it while it still waits to continue after tools or an output limit.
+// replace it while it is still continuable (for example waiting on tools,
+// an output limit, a pending config change, or a retryable model attempt).
 func (h *Handle) exportReplacedTurn(m *executionMutation) {
-	if m.head.PendingToolOutputID != uuid.Nil || m.head.PendingOutputLimitID != uuid.Nil {
+	if m.loaded != nil && m.loaded.Selection.TurnContinuable {
 		h.exportTurn(m.head.CurrentTurnID)
 	}
 }

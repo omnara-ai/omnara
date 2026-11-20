@@ -223,7 +223,8 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				kind,
 				strings.TrimSpace(input.Response.Text()),
 				"model_output:"+output.ID.String(),
-				uuid.Nil); err != nil {
+				uuid.Nil,
+				output.ID); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
@@ -303,7 +304,10 @@ func applyAcceptedOutput(
 		snapshot.View.Turn.LatestSemantic = event.EventBoundary
 	}
 	snapshot.databaseNow = event.Time
-	return !tools && !limit, m.updated(snapshot)
+	if err := m.updated(snapshot); err != nil {
+		return false, err
+	}
+	return !m.loaded.Selection.TurnContinuable, nil
 }
 
 func (h *Handle) rejectProposal(ctx context.Context, m *executionMutation, call outputProposal) error {

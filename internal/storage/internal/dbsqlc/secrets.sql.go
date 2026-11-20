@@ -1392,6 +1392,10 @@ SELECT EXISTS (
   WHERE install.org_id = $1 AND install.credential_secret_id = $2::uuid
   UNION ALL
   SELECT 1 FROM otel_exporters exporter
+  WHERE exporter.org_id = $1 AND exporter.deleted_at IS NULL
+    AND exporter.credential_secret_id = $2::uuid
+  UNION ALL
+  SELECT 1 FROM otel_exporters exporter
   CROSS JOIN LATERAL jsonb_each_text(exporter.secret_headers) header
   WHERE exporter.org_id = $1 AND exporter.deleted_at IS NULL
     AND header.value = $2::uuid::text

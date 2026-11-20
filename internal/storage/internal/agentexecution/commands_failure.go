@@ -291,6 +291,7 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	}
 	sourceContext := attemptRecord(row).Context
 	sourceContext.State = ContextFailed
+	sourceContext.Recovery = RecoveryNone
 	finished, err := applyAcceptedOutput(m,
 		snapshot,
 		sourceContext,
@@ -308,7 +309,8 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 		"failed",
 		text,
 		"model_output:"+output.ID.String(),
-		uuid.Nil); err != nil {
+		uuid.Nil,
+		output.ID); err != nil {
 		return false, err
 	}
 	return true, nil

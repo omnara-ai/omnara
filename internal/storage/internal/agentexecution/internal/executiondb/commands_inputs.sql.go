@@ -347,7 +347,8 @@ func (q *Queries) RebalanceExecutionBacklog(ctx context.Context, db DBTX, arg Re
 
 const receiveExecutionInput = `-- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
- integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for)
+ integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for,
+ source_link_kind,source_tool_call_id,source_model_output_id)
 SELECT $1,a.project_id,a.id,
  CASE WHEN $2::timestamptz IS NULL THEN 'received' ELSE 'scheduled' END,CASE WHEN $3::text='content' THEN coalesce((
  SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
@@ -355,24 +356,28 @@ SELECT $1,a.project_id,a.id,
  ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
  $5,$3,$4,$6,$7,
  $8,$9,statement_timestamp(),$10::jsonb,
- $2::timestamptz
-FROM agents a WHERE a.id=$11 AND a.project_id=$12 AND a.state='active'
+ $2::timestamptz,
+ $11,$12,$13
+FROM agents a WHERE a.id=$14 AND a.project_id=$15 AND a.state='active'
 RETURNING id,queued_at
 `
 
 type ReceiveExecutionInputParams struct {
-	ID           uuid.UUID
-	ScheduledFor *time.Time
-	Kind         string
-	Mode         string
-	ActorID      *uuid.UUID
-	TargetID     *uuid.UUID
-	ConfigID     *uuid.UUID
-	Scope        *string
-	Key          *string
-	Metadata     json.RawMessage
-	AgentID      uuid.UUID
-	ProjectID    uuid.UUID
+	ID                  uuid.UUID
+	ScheduledFor        *time.Time
+	Kind                string
+	Mode                string
+	ActorID             *uuid.UUID
+	TargetID            *uuid.UUID
+	ConfigID            *uuid.UUID
+	Scope               *string
+	Key                 *string
+	Metadata            json.RawMessage
+	SourceLinkKind      *string
+	SourceToolCallID    *uuid.UUID
+	SourceModelOutputID *uuid.UUID
+	AgentID             uuid.UUID
+	ProjectID           uuid.UUID
 }
 
 type ReceiveExecutionInputRow struct {
@@ -392,6 +397,9 @@ func (q *Queries) ReceiveExecutionInput(ctx context.Context, db DBTX, arg Receiv
 		arg.Scope,
 		arg.Key,
 		arg.Metadata,
+		arg.SourceLinkKind,
+		arg.SourceToolCallID,
+		arg.SourceModelOutputID,
 		arg.AgentID,
 		arg.ProjectID,
 	)

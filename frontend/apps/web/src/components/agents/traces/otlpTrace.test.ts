@@ -43,6 +43,7 @@ it('orders spans under their parent by start time and measures them against the 
                     attributes: [
                       { key: 'omnara.link.kind', value: { stringValue: 'spawned' } },
                       { key: 'omnara.link.agent.id', value: { stringValue: 'agt_child' } },
+                      { key: 'omnara.link.turn.id', value: { stringValue: 'trn_child' } },
                     ],
                   },
                 ],
@@ -80,7 +81,15 @@ it('orders spans under their parent by start time and measures them against the 
   expect([tool?.error, tool?.statusMessage, root?.error]).toEqual([true, 'timed out', false])
   expect([root?.links, tool?.links]).toEqual([
     [],
-    [{ kind: 'spawned', agentId: 'agt_child', traceId: 'b'.repeat(32), spanId: 'c'.repeat(16) }],
+    [
+      {
+        kind: 'spawned',
+        agentId: 'agt_child',
+        turnId: 'trn_child',
+        traceId: 'b'.repeat(32),
+        spanId: 'c'.repeat(16),
+      },
+    ],
   ])
 })
 

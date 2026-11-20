@@ -203,7 +203,7 @@ export const listOtelExportersQueryKey = (options: Options<ListOtelExportersData
 /**
  * List OpenTelemetry exporters
  *
- * Lists the organization's exporters at every scope, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+ * Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
  */
 export const listOtelExportersOptions = (options: Options<ListOtelExportersData>): UnusedSkipTokenOptions<ListOtelExportersResponse2, ListOtelExportersError, ListOtelExportersResponse2, ReturnType<typeof listOtelExportersQueryKey>> & { queryKey: DataTag<ReturnType<typeof listOtelExportersQueryKey>, ListOtelExportersResponse2, ListOtelExportersError> } => queryOptions<ListOtelExportersResponse2, ListOtelExportersError, ListOtelExportersResponse2, ReturnType<typeof listOtelExportersQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -223,7 +223,7 @@ export const listOtelExportersInfiniteQueryKey = (options: Options<ListOtelExpor
 /**
  * List OpenTelemetry exporters
  *
- * Lists the organization's exporters at every scope, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+ * Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
  */
 export const listOtelExportersInfiniteOptions = (options: Options<ListOtelExportersData>): Omit<UnusedSkipTokenInfiniteOptions<ListOtelExportersResponse2, ListOtelExportersError, InfiniteData<ListOtelExportersResponse2>, QueryKey<Options<ListOtelExportersData>>, string | Pick<QueryKey<Options<ListOtelExportersData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListOtelExportersData>>, InfiniteData<ListOtelExportersResponse2>, ListOtelExportersError> }, 'initialData'> => {
     const opts = infiniteQueryOptions<ListOtelExportersResponse2, ListOtelExportersError, InfiniteData<ListOtelExportersResponse2>, QueryKey<Options<ListOtelExportersData>>, string | Pick<QueryKey<Options<ListOtelExportersData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -253,7 +253,7 @@ export const listOtelExportersInfiniteOptions = (options: Options<ListOtelExport
 /**
  * Create an OpenTelemetry exporter
  *
- * Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions and are sent in batches as OTLP JSON or protobuf. The scope selects every agent in the organization, every agent in one project, or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
+ * Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions, and each finished turn is sent as one OTLP/HTTP request in protobuf or JSON encoding. The scope selects every agent in one project or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
  */
 export const createOtelExporterMutation = (options?: Partial<Options<CreateOtelExporterData>>): UseMutationOptions<CreateOtelExporterResponse, CreateOtelExporterError, Options<CreateOtelExporterData>> => {
     const mutationOptions: UseMutationOptions<CreateOtelExporterResponse, CreateOtelExporterError, Options<CreateOtelExporterData>> = {
@@ -3230,7 +3230,7 @@ export const getTurnTraceQueryKey = (options: Options<GetTurnTraceData>) => crea
 /**
  * Get a turn as an OpenTelemetry trace
  *
- * Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
+ * Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
  */
 export const getTurnTraceOptions = (options: Options<GetTurnTraceData>): UnusedSkipTokenOptions<GetTurnTraceResponse, GetTurnTraceError, GetTurnTraceResponse, ReturnType<typeof getTurnTraceQueryKey>> & { queryKey: DataTag<ReturnType<typeof getTurnTraceQueryKey>, GetTurnTraceResponse, GetTurnTraceError> } => queryOptions<GetTurnTraceResponse, GetTurnTraceError, GetTurnTraceResponse, ReturnType<typeof getTurnTraceQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

@@ -658,14 +658,7 @@ export type OtelTrace = {
     }>;
 };
 
-export type OtelExporterScopeType = 'org' | 'project' | 'agent';
-
-/**
- * Exports every agent in the organization.
- */
-export type OrgOtelExporterScope = {
-    type: 'org';
-};
+export type OtelExporterScopeType = 'project' | 'agent';
 
 /**
  * Exports every agent in one project.
@@ -685,12 +678,29 @@ export type AgentOtelExporterScope = {
 };
 
 export type OtelExporterScope = ({
-    type: 'org';
-} & OrgOtelExporterScope) | ({
     type: 'project';
 } & ProjectOtelExporterScope) | ({
     type: 'agent';
 } & AgentOtelExporterScope);
+
+/**
+ * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
+ */
+export type OtelExporterAuthKind = 'none' | 'bearer_token' | 'api_key_header' | 'basic';
+
+/**
+ * Non-secret authentication settings. Must be empty for none and bearer_token. With api_key_header, set {"header_name":"..."}. With basic, set {"username":"..."} (for Langfuse, use the public key).
+ */
+export type OtelExporterAuthOptions = {
+    /**
+     * Header that carries the API key when auth_kind is api_key_header.
+     */
+    header_name?: string;
+    /**
+     * Non-secret username for HTTP Basic auth when auth_kind is basic (for Langfuse, the public key).
+     */
+    username?: string;
+};
 
 /**
  * Plain request headers sent with every export, by header name.
@@ -700,7 +710,7 @@ export type OtelExporterHeaders = {
 };
 
 /**
- * Request headers whose values come from organization-owned generic secrets, by header name. Use these for credentials such as Authorization.
+ * Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
  */
 export type OtelExporterSecretHeaders = {
     [key: string]: SecretId;
@@ -719,6 +729,12 @@ export type CreateOtelExporterRequest = {
     scope: OtelExporterScope;
     variant?: OtelTraceVariant;
     encoding?: OtelExporterEncoding;
+    auth_kind?: OtelExporterAuthKind;
+    auth_options?: OtelExporterAuthOptions;
+    /**
+     * Organization-owned generic secret required when auth_kind is bearer_token, api_key_header, or basic.
+     */
+    credential_secret_id?: SecretId;
     headers?: OtelExporterHeaders;
     secret_headers?: OtelExporterSecretHeaders;
     sample_percent?: OtelExporterSamplePercent;
@@ -731,6 +747,12 @@ export type UpdateOtelExporterRequest = {
     endpoint?: string;
     variant?: OtelTraceVariant;
     encoding?: OtelExporterEncoding;
+    auth_kind?: OtelExporterAuthKind;
+    auth_options?: OtelExporterAuthOptions;
+    /**
+     * Organization-owned generic secret for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
+     */
+    credential_secret_id?: SecretId | null;
     headers?: OtelExporterHeaders;
     secret_headers?: OtelExporterSecretHeaders;
     sample_percent?: OtelExporterSamplePercent;
@@ -746,6 +768,12 @@ export type OtelExporter = {
     scope: OtelExporterScope;
     variant: OtelTraceVariant;
     encoding: OtelExporterEncoding;
+    auth_kind: OtelExporterAuthKind;
+    auth_options: OtelExporterAuthOptions;
+    /**
+     * Organization-owned generic secret used for authentication. Omitted when auth_kind is none.
+     */
+    credential_secret_id?: SecretId;
     headers: OtelExporterHeaders;
     secret_headers: OtelExporterSecretHeaders;
     sample_percent: OtelExporterSamplePercent;

@@ -1,9 +1,15 @@
 import { type Actor, AgentEventStreamError } from '@omnara/sdk'
-import { getActorQueryKey, getAgentUsageQueryKey, listBudgetsQueryKey } from '@omnara/sdk/tanstack'
+import {
+  getActorQueryKey,
+  getAgentUsageQueryKey,
+  getTurnTraceQueryKey,
+  listBudgetsQueryKey,
+} from '@omnara/sdk/tanstack'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { AgentChatSession } from './agent-chat'
 import { agentChatHistoryQueryKey } from './agent-chat-history'
 import {
   chatTransport,
@@ -22,6 +28,7 @@ import {
   userInputEvent,
   waitForSnapshot,
 } from './agent-chat-test-support'
+import { agentTurnsQueryKey } from './agent-traces'
 
 const transport = chatTransport()
 
@@ -774,6 +781,66 @@ describe('AgentChatSession streaming', () => {
       'Agent event stream received data that does not match the API contract',
     )
     expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
+    session.disconnect()
+  })
+
+  it('coalesces trace and turn invalidations while a turn executes', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const turnTraceKey = getTurnTraceQueryKey({
+      client: sessionClient,
+      path: { ...scope, turnID: 'turn' },
+    })
+    queryClient.setQueryData(agentTurnsQueryKey(scope), { pages: [], pageParams: [0] })
+    queryClient.setQueryData(turnTraceKey, { resourceSpans: [] })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+
+    const session = new AgentChatSession({
+      client: sessionClient,
+      queryClient,
+      ...scope,
+      traceInvalidationDelayMs: 25,
+      transport,
+    })
+    const unsubscribe = session.subscribe(vi.fn())
+    session.start(0)
+    const stream = await connection(0)
+
+    // Burst of events for one turn should coalesce into a single turns-list
+    // invalidation and a single turn-trace invalidation.
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+    stream.push({
+      event: 'model_output',
+      data: event({ sequence: 12, content_blocks: [toolCallBlock()] }),
+    })
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({
+        sequence: 13,
+        tool_call_id: 'call',
+        content_blocks: [{ type: 'text', text: 'ok' }],
+      }),
+    })
+    await waitForSnapshot(session, (s) => s.messages.length > 0)
+
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: agentTurnsQueryKey(scope) })
+    })
+    const turnsCalls = invalidate.mock.calls.filter(
+      ([filters]) =>
+        Array.isArray(filters?.queryKey) &&
+        filters.queryKey.join(':') === agentTurnsQueryKey(scope).join(':'),
+    )
+    expect(turnsCalls).toHaveLength(1)
+
+    const tracePredicateCalls = invalidate.mock.calls.filter(([filters]) => {
+      if (!filters?.predicate) return false
+      const matchingQuery = queryClient.getQueryCache().find({ queryKey: turnTraceKey })
+      return matchingQuery !== undefined && filters.predicate(matchingQuery)
+    })
+    expect(tracePredicateCalls).toHaveLength(1)
+
+    unsubscribe()
     session.disconnect()
   })
 })

@@ -27,6 +27,9 @@ type Turn struct {
 	// Truncated is set when the turn has more events or calls than were
 	// loaded, so the trace holds only the most recent ones.
 	Truncated bool
+	// ContentTruncated is set when tool arguments or event content blocks were
+	// clipped or omitted during bounded loading before trace rendering.
+	ContentTruncated bool
 }
 
 type ModelCall struct {
@@ -85,6 +88,8 @@ type Link struct {
 	AgentID string
 	// TurnID is the linked turn, whose ID is also its trace ID.
 	TurnID uuid.UUID
+	// PublicTurnID is the public trn_... ID of the linked turn.
+	PublicTurnID string
 	// ToolCallID is set when the link points at a tool call's span; otherwise
 	// it points at the turn's root span.
 	ToolCallID uuid.UUID
@@ -99,6 +104,7 @@ func putLinks(span ptrace.Span, links []Link) {
 	type linkAttribute struct {
 		Kind    string `json:"kind"`
 		AgentID string `json:"agent_id"`
+		TurnID  string `json:"turn_id,omitempty"`
 		TraceID string `json:"trace_id"`
 		SpanID  string `json:"span_id"`
 	}
@@ -113,8 +119,12 @@ func putLinks(span ptrace.Span, links []Link) {
 		spanLink.SetSpanID(target)
 		spanLink.Attributes().PutStr("omnara.link.kind", link.Kind)
 		spanLink.Attributes().PutStr("omnara.link.agent.id", link.AgentID)
+		if link.PublicTurnID != "" {
+			spanLink.Attributes().PutStr("omnara.link.turn.id", link.PublicTurnID)
+		}
 		summary = append(summary, linkAttribute{
-			Kind: link.Kind, AgentID: link.AgentID, TraceID: TraceID(link.TurnID).String(), SpanID: target.String(),
+			Kind: link.Kind, AgentID: link.AgentID, TurnID: link.PublicTurnID,
+			TraceID: TraceID(link.TurnID).String(), SpanID: target.String(),
 		})
 	}
 	if encoded, err := json.Marshal(summary); err == nil {
@@ -166,7 +176,8 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	for _, call := range turn.ToolCalls {
 		content.providerCallIDs[call.ID.String()] = call.ProviderCallID
 	}
-	var opening, lastOutput *Event
+	var openings []*Event
+	var lastOutput *Event
 	// The root spans everything the trace holds, so no child falls outside it.
 	var start, end time.Time
 	extend := func(times ...time.Time) {
@@ -193,8 +204,8 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 		extend(event.CreatedAt)
 		switch event.Kind {
 		case events.KindAgentInput:
-			if event.IsOpening && opening == nil {
-				opening = event
+			if event.IsOpening {
+				openings = append(openings, event)
 			}
 		case events.KindModelOutput:
 			outputs[event.ModelCallID] = *event
@@ -231,8 +242,11 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	attributes.PutStr("gen_ai.conversation.id", turn.AgentID)
 	turn.putCommonAttributes(attributes)
 	rootContent := spanContent{}
-	if opening != nil {
-		rootContent.input = []message{{Role: "user", Parts: content.parts(opening.ContentBlocks)}}
+	if len(openings) > 0 {
+		rootContent.input = make([]message, 0, len(openings))
+		for _, opening := range openings {
+			rootContent.input = append(rootContent.input, message{Role: "user", Parts: content.parts(opening.ContentBlocks)})
+		}
 	}
 	// The turn's answer is its last output, unless the turn goes on from it:
 	// an output that calls tools or was cut off at the output limit is
@@ -296,7 +310,7 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	if turn.Truncated {
 		root.Attributes().PutBool("omnara.trace.truncated", true)
 	}
-	if content.clipped {
+	if turn.ContentTruncated || content.clipped {
 		root.Attributes().PutBool("omnara.trace.content_truncated", true)
 	}
 	return traces

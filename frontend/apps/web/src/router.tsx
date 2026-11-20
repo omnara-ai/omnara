@@ -403,9 +403,15 @@ const agentChatRoute = createRoute({
   path: '/chat',
 })
 
+const agentTracesSearch = z.object({
+  turn: z.string().optional().catch(undefined),
+  span: z.string().optional().catch(undefined),
+})
+
 const agentTracesRoute = createRoute({
   getParentRoute: () => agentRoute,
   path: '/traces',
+  validateSearch: agentTracesSearch,
 })
 
 const deviceAuthRoute = createRoute({

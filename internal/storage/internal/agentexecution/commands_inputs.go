@@ -24,6 +24,9 @@ type ReceiveContentInput struct {
 	Metadata            json.RawMessage
 	Content             []Content
 	SourceScheduledFor  *time.Time
+	SourceLinkKind      string
+	SourceToolCallID    uuid.UUID
+	SourceModelOutputID uuid.UUID
 }
 
 type ReceivedContent struct {
@@ -111,7 +114,10 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 				input.IntegrationTargetID,
 			), Mode: input.DeliveryMode, Kind: "content", Metadata: metadata,
 			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey),
-			ScheduledFor: input.SourceScheduledFor})
+			ScheduledFor:        input.SourceScheduledFor,
+			SourceLinkKind:      storeutil.TextFromEmpty(input.SourceLinkKind),
+			SourceToolCallID:    storeutil.IDFromNil(input.SourceToolCallID),
+			SourceModelOutputID: storeutil.IDFromNil(input.SourceModelOutputID)})
 		if err != nil {
 			return ReceivedContent{}, err
 		}

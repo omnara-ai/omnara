@@ -73,6 +73,8 @@ function AgentViewBody({
   projectId,
   agentId,
   tracesToolbar,
+  initialTurnId,
+  initialSpanId,
 }: {
   view: AgentViewMode
   chat: ReturnType<typeof useAgentChat>
@@ -81,12 +83,21 @@ function AgentViewBody({
   projectId: string
   agentId: string
   tracesToolbar: HTMLElement | null
+  initialTurnId?: string
+  initialSpanId?: string
 }) {
   if (view === 'events')
     return <AgentEventLog chat={chat} orgId={orgId} projectId={projectId} agentId={agentId} />
   if (view === 'traces')
     return (
-      <AgentTraces orgID={orgId} projectID={projectId} agentID={agentId} toolbar={tracesToolbar} />
+      <AgentTraces
+        orgID={orgId}
+        projectID={projectId}
+        agentID={agentId}
+        toolbar={tracesToolbar}
+        initialTurnId={initialTurnId}
+        initialSpanId={initialSpanId}
+      />
     )
   return (
     <AgentConversation
@@ -275,6 +286,8 @@ export function AgentView() {
                 projectId={projectId}
                 agentId={agentId}
                 tracesToolbar={tracesToolbar}
+                initialTurnId={search.turn}
+                initialSpanId={search.span}
               />
             </main>
           )}

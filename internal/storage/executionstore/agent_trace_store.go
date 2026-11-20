@@ -2,14 +2,15 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -24,6 +25,16 @@ const (
 	maxTurnTraceCalls = 2000
 	// maxTurnTraceInputLinks bounds the links on a turn's root span.
 	maxTurnTraceInputLinks = 50
+	// maxTurnTraceSentLinks bounds cross-agent sent links loaded for retained calls.
+	maxTurnTraceSentLinks = 500
+	// Pre-allocation content read budgets enforced in SQL before rows leave
+	// Postgres, preventing large tool inputs or results from blowing up worker
+	// memory when multiple deliveries are in flight.
+	maxTraceReadValueBytes = 256 * 1024
+	// maxTraceReadValueChars ensures UTF-8 left(text, n) stays within 256 KiB even for 4-byte runes.
+	maxTraceReadValueChars = maxTraceReadValueBytes / 4
+	maxTraceReadEventBytes = 512 * 1024
+	maxTraceReadTotalBytes = 8 * 1024 * 1024
 )
 
 func (s *Store) LoadTurnTrace(ctx context.Context, projectID, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
@@ -94,6 +105,8 @@ func (s *Store) loadTurnTrace(
 
 	toolCalls, err := s.q.ListTurnTraceToolCalls(ctx, dbsqlc.ListTurnTraceToolCallsParams{
 		AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceCalls + 1,
+		MaxValueBytes: maxTraceReadValueBytes, MaxValueChars: maxTraceReadValueChars,
+		MaxTotalBytes: maxTraceReadTotalBytes,
 	})
 	if err != nil {
 		return oteltrace.Turn{}, fmt.Errorf("list turn trace tool calls: %w", err)
@@ -104,8 +117,11 @@ func (s *Store) loadTurnTrace(
 	slices.Reverse(toolCalls)
 	turn.ToolCalls = make([]oteltrace.ToolCall, 0, len(toolCalls))
 	for _, call := range toolCalls {
+		if call.InputTruncated {
+			turn.ContentTruncated = true
+		}
 		turn.ToolCalls = append(turn.ToolCalls, oteltrace.ToolCall{
-			ID: call.ID, Name: call.Name, ProviderCallID: call.ProviderCallID, Input: call.Input,
+			ID: call.ID, Name: call.Name, ProviderCallID: call.ProviderCallID, Input: json.RawMessage(call.InputText),
 			Outcome: call.Outcome, StartedAt: call.CreatedAt, CompletedAt: call.CompletedAt,
 		})
 	}
@@ -114,40 +130,31 @@ func (s *Store) loadTurnTrace(
 		return oteltrace.Turn{}, err
 	}
 
-	var pages [][]AgentEventReadRecord
-	var beforeSequence int64
-	for count := 0; count < maxTurnTraceEvents; {
-		page, err := listTurnEventsForReadTx(
-			ctx, s.q, projectID, agentID, turnID, beforeSequence, MaxAgentEventsReadPageLimit)
-		if err != nil {
-			return oteltrace.Turn{}, err
-		}
-		if len(page) == 0 {
-			break
-		}
-		pages = append(pages, page)
-		count += len(page)
-		beforeSequence = page[0].Sequence
-		if len(page) < int(MaxAgentEventsReadPageLimit) {
-			break
-		}
-		if count >= maxTurnTraceEvents {
-			older, err := listTurnEventsForReadTx(ctx, s.q, projectID, agentID, turnID, beforeSequence, 1)
-			if err != nil {
-				return oteltrace.Turn{}, err
-			}
-			turn.Truncated = turn.Truncated || len(older) > 0
-		}
+	traceEvents, err := s.q.ListTurnTraceEvents(ctx, dbsqlc.ListTurnTraceEventsParams{
+		ProjectID: projectID, AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceEvents + 1,
+		MaxEventBytes: maxTraceReadEventBytes, MaxValueBytes: maxTraceReadValueBytes,
+		MaxValueChars: maxTraceReadValueChars, MaxTotalBytes: maxTraceReadTotalBytes,
+	})
+	if err != nil {
+		return oteltrace.Turn{}, fmt.Errorf("list turn trace events: %w", err)
 	}
-	for i := len(pages) - 1; i >= 0; i-- {
-		for _, event := range pages[i] {
-			turn.Events = append(turn.Events, oteltrace.Event{
-				Kind: events.Kind(event.EventKind), IsOpening: event.IsOpeningEvent,
-				ModelCallID: event.ModelCallContextID, ToolCallID: event.ToolCallID,
-				StopReason: event.ModelStopReason, ContentBlocks: event.ContentBlocks,
-				CreatedAt: event.CreatedAt,
-			})
+	if len(traceEvents) > maxTurnTraceEvents {
+		traceEvents, turn.Truncated = traceEvents[:maxTurnTraceEvents], true
+	}
+	slices.Reverse(traceEvents)
+	turn.Events = make([]oteltrace.Event, 0, len(traceEvents))
+	for _, event := range traceEvents {
+		if event.ContentTruncated {
+			turn.ContentTruncated = true
 		}
+		turn.Events = append(turn.Events, oteltrace.Event{
+			Kind: events.Kind(event.EventKind), IsOpening: event.IsOpeningEvent,
+			ModelCallID:   storeutil.IDFromPtr(event.ModelCallContextID),
+			ToolCallID:    storeutil.IDFromPtr(event.ToolCallID),
+			StopReason:    modelenvelope.StopReason(storeutil.TextOrEmpty(event.ModelStopReason)),
+			ContentBlocks: event.ContentBlocks,
+			CreatedAt:     event.CreatedAt,
+		})
 	}
 	return turn, nil
 }
@@ -159,30 +166,10 @@ func tokenCount(count *int32) *int64 {
 	return new(int64(*count))
 }
 
-// traceLinkSource reads where an input came from out of its idempotency key.
-// Inputs a person or integration sent have no source in another trace.
-func traceLinkSource(scope, key string) (kind string, id uuid.UUID, fromToolCall, ok bool) {
-	var raw string
-	switch {
-	case scope == "content_input" && strings.HasPrefix(key, "launch:spawn:") && strings.HasSuffix(key, ":content-input"):
-		kind, fromToolCall = oteltrace.LinkSpawnedBy, true
-		raw = strings.TrimSuffix(strings.TrimPrefix(key, "launch:spawn:"), ":content-input")
-	case scope == subagentMessageIdempotencyScope && strings.HasPrefix(key, "tool_call:"):
-		kind, fromToolCall = oteltrace.LinkMessageFrom, true
-		raw = strings.TrimPrefix(key, "tool_call:")
-	case scope == subagentMessageIdempotencyScope && strings.HasPrefix(key, "model_output:"):
-		kind = oteltrace.LinkResultFrom
-		raw = strings.TrimPrefix(key, "model_output:")
-	default:
-		return "", uuid.Nil, false, false
-	}
-	id, err := uuid.Parse(raw)
-	return kind, id, fromToolCall, err == nil
-}
-
 // loadTurnTraceLinks connects the turn to the other agents' turns it exchanged
 // input with: on the turn for input it received, on its tool calls for input
-// they sent. A source or recipient that no longer exists is left unlinked.
+// they sent. Links come only from explicit source provenance columns recorded
+// by the sending operation. A source or recipient that no longer exists is left unlinked.
 func (s *Store) loadTurnTraceLinks(
 	ctx context.Context, turn *oteltrace.Turn, projectID, agentID, turnID uuid.UUID,
 ) error {
@@ -193,25 +180,24 @@ func (s *Store) loadTurnTraceLinks(
 		return fmt.Errorf("list turn trace input sources: %w", err)
 	}
 	for _, source := range sources {
-		kind, id, fromToolCall, ok := traceLinkSource(
-			storeutil.TextOrEmpty(source.IdempotencyScope), storeutil.TextOrEmpty(source.InputIdempotencyKey))
-		if !ok {
-			continue
-		}
+		kind := storeutil.TextOrEmpty(source.SourceLinkKind)
 		link := oteltrace.Link{Kind: kind}
 		var sourceAgentID uuid.UUID
-		if fromToolCall {
+		switch {
+		case source.SourceToolCallID != nil:
 			var row dbsqlc.GetTraceLinkToolCallRow
 			row, err = s.q.GetTraceLinkToolCall(ctx, dbsqlc.GetTraceLinkToolCallParams{
-				ProjectID: projectID, ToolCallID: id,
+				ProjectID: projectID, ToolCallID: *source.SourceToolCallID,
 			})
-			sourceAgentID, link.TurnID, link.ToolCallID = row.AgentID, row.TurnID, id
-		} else {
+			sourceAgentID, link.TurnID, link.ToolCallID = row.AgentID, row.TurnID, *source.SourceToolCallID
+		case source.SourceModelOutputID != nil:
 			var row dbsqlc.GetTraceLinkModelOutputRow
 			row, err = s.q.GetTraceLinkModelOutput(ctx, dbsqlc.GetTraceLinkModelOutputParams{
-				ProjectID: projectID, ModelOutputID: id,
+				ProjectID: projectID, ModelOutputID: *source.SourceModelOutputID,
 			})
 			sourceAgentID, link.TurnID = row.AgentID, row.TurnID
+		default:
+			continue
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -222,23 +208,43 @@ func (s *Store) loadTurnTraceLinks(
 		if link.AgentID, err = publicid.Encode(publicid.KindAgent, sourceAgentID); err != nil {
 			return err
 		}
+		if link.PublicTurnID, err = publicid.Encode(publicid.KindAgentTurn, link.TurnID); err != nil {
+			return err
+		}
 		turn.Links = append(turn.Links, link)
 	}
 
-	sent, err := s.q.ListTurnTraceSentInputs(ctx, dbsqlc.ListTurnTraceSentInputsParams{AgentID: agentID, TurnID: turnID})
+	var sendingToolCallIDs []uuid.UUID
+	for _, call := range turn.ToolCalls {
+		if call.Name == "spawn_agent" || call.Name == "send_agent_message" {
+			sendingToolCallIDs = append(sendingToolCallIDs, call.ID)
+		}
+	}
+	if len(sendingToolCallIDs) == 0 {
+		return nil
+	}
+	sent, err := s.q.ListTurnTraceSentInputs(ctx, dbsqlc.ListTurnTraceSentInputsParams{
+		AgentID: &agentID, ToolCallIds: sendingToolCallIDs, RowLimit: maxTurnTraceSentLinks,
+	})
 	if err != nil {
 		return fmt.Errorf("list turn trace sent inputs: %w", err)
 	}
 	for _, row := range sent {
+		if row.ToolCallID == nil {
+			continue
+		}
 		link := oteltrace.Link{Kind: oteltrace.LinkMessageTo, TurnID: row.TurnID}
-		if row.ToolName == "spawn_agent" {
+		if storeutil.TextOrEmpty(row.SourceLinkKind) == oteltrace.LinkSpawnedBy {
 			link.Kind = oteltrace.LinkSpawned
 		}
 		if link.AgentID, err = publicid.Encode(publicid.KindAgent, row.AgentID); err != nil {
 			return err
 		}
+		if link.PublicTurnID, err = publicid.Encode(publicid.KindAgentTurn, row.TurnID); err != nil {
+			return err
+		}
 		for i := range turn.ToolCalls {
-			if turn.ToolCalls[i].ID == row.ToolCallID {
+			if turn.ToolCalls[i].ID == *row.ToolCallID {
 				turn.ToolCalls[i].Links = append(turn.ToolCalls[i].Links, link)
 			}
 		}

@@ -301,7 +301,7 @@ paths:
       operationId: listOtelExporters
       tags: [Events]
       summary: List OpenTelemetry exporters
-      description: Lists the organization's exporters at every scope, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+      description: Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
       parameters:
         - name: scope_type
           in: query
@@ -347,7 +347,7 @@ paths:
       operationId: createOtelExporter
       tags: [Events]
       summary: Create an OpenTelemetry exporter
-      description: Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions and are sent in batches as OTLP JSON or protobuf. The scope selects every agent in the organization, every agent in one project, or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
+      description: Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions, and each finished turn is sent as one OTLP/HTTP request in protobuf or JSON encoding. The scope selects every agent in one project or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5921,7 +5921,7 @@ paths:
       operationId: getTurnTrace
       tags: [Events]
       summary: Get a turn as an OpenTelemetry trace
-      description: Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
+      description: Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
       parameters:
         - name: variant
           in: query
@@ -11121,18 +11121,8 @@ components:
             additionalProperties: true
     OtelExporterScopeType:
       type: string
-      enum: [org, project, agent]
-      x-enum-varnames: [OtelExporterScopeOrg, OtelExporterScopeProject, OtelExporterScopeAgent]
-    OrgOtelExporterScope:
-      type: object
-      additionalProperties: false
-      required: [type]
-      description: Exports every agent in the organization.
-      properties:
-        type:
-          type: string
-          enum: [org]
-          x-enum-varnames: [OrgOtelExporterScopeTypeOrg]
+      enum: [project, agent]
+      x-enum-varnames: [OtelExporterScopeProject, OtelExporterScopeAgent]
     ProjectOtelExporterScope:
       type: object
       additionalProperties: false
@@ -11161,15 +11151,42 @@ components:
           $ref: '#/components/schemas/AgentID'
     OtelExporterScope:
       oneOf:
-        - $ref: '#/components/schemas/OrgOtelExporterScope'
         - $ref: '#/components/schemas/ProjectOtelExporterScope'
         - $ref: '#/components/schemas/AgentOtelExporterScope'
       discriminator:
         propertyName: type
         mapping:
-          org: '#/components/schemas/OrgOtelExporterScope'
           project: '#/components/schemas/ProjectOtelExporterScope'
           agent: '#/components/schemas/AgentOtelExporterScope'
+    OtelExporterAuthKind:
+      type: string
+      enum: [none, bearer_token, api_key_header, basic]
+      x-enum-varnames:
+        - OtelExporterAuthKindNone
+        - OtelExporterAuthKindBearerToken
+        - OtelExporterAuthKindAPIKeyHeader
+        - OtelExporterAuthKindBasic
+      description: >-
+        How the exporter authenticates to the endpoint: none, Authorization Bearer token,
+        a custom API key header named by auth_options.header_name, or HTTP Basic auth
+        with auth_options.username and the secret password.
+    OtelExporterAuthOptions:
+      type: object
+      additionalProperties: false
+      description: >-
+        Non-secret authentication settings. Must be empty for none and bearer_token.
+        With api_key_header, set {"header_name":"..."}.
+        With basic, set {"username":"..."} (for Langfuse, use the public key).
+      properties:
+        header_name:
+          type: string
+          minLength: 1
+          description: Header that carries the API key when auth_kind is api_key_header.
+        username:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Non-secret username for HTTP Basic auth when auth_kind is basic (for Langfuse, the public key).
     OtelExporterHeaders:
       type: object
       maxProperties: 20
@@ -11181,7 +11198,7 @@ components:
     OtelExporterSecretHeaders:
       type: object
       maxProperties: 20
-      description: Request headers whose values come from organization-owned generic secrets, by header name. Use these for credentials such as Authorization.
+      description: Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
       additionalProperties:
         $ref: '#/components/schemas/SecretID'
     OtelExporterSamplePercent:
@@ -11207,6 +11224,14 @@ components:
         encoding:
           $ref: '#/components/schemas/OtelExporterEncoding'
           default: protobuf
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+          default: none
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Organization-owned generic secret required when auth_kind is bearer_token, api_key_header, or basic.
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:
@@ -11228,6 +11253,15 @@ components:
           $ref: '#/components/schemas/OtelTraceVariant'
         encoding:
           $ref: '#/components/schemas/OtelExporterEncoding'
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          oneOf:
+            - $ref: '#/components/schemas/SecretID'
+            - type: 'null'
+          description: Organization-owned generic secret for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:
@@ -11237,7 +11271,7 @@ components:
     OtelExporter:
       type: object
       additionalProperties: false
-      required: [id, org_id, endpoint, scope, variant, encoding, headers, secret_headers, sample_percent, created_at, updated_at]
+      required: [id, org_id, endpoint, scope, variant, encoding, auth_kind, auth_options, headers, secret_headers, sample_percent, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/OtelExporterID'
@@ -11254,6 +11288,13 @@ components:
           $ref: '#/components/schemas/OtelTraceVariant'
         encoding:
           $ref: '#/components/schemas/OtelExporterEncoding'
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Organization-owned generic secret used for authentication. Omitted when auth_kind is none.
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:

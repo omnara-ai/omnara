@@ -3,11 +3,13 @@ package maintenance
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/stretchr/testify/require"
@@ -37,6 +39,16 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 			"cleaned expired event webhook deliveries", "cleanup expired event webhook deliveries",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
 				return deleteExpiredWebhookDeliveries(log, func(context.Context, int32) (int64, error) { return 1, err }, nil)
+			}},
+		{"delete expired otel export deliveries",
+			"cleaned expired otel export deliveries", "cleanup expired otel export deliveries",
+			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
+				return deleteExpiredOtelExportDeliveries(
+					log,
+					func(context.Context, int32) ([]executionstore.OtelExportDelivery, error) {
+						return []executionstore.OtelExportDelivery{{ID: uuid.New()}}, err
+					},
+				)
 			}},
 		{"refresh model prices", "stored new model prices", "refresh model prices",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
@@ -120,4 +132,43 @@ func TestCleanupJobsRerunOnlyWhileBehind(t *testing.T) {
 	}
 	require.True(t, deleted(full))
 	require.False(t, deleted(1))
+}
+
+func TestDeleteExpiredOtelExportDeliveriesLogsMetadataEvents(t *testing.T) {
+	delivery := executionstore.OtelExportDelivery{
+		ID: uuid.New(), OrgID: uuid.New(), ExporterID: uuid.New(), AgentID: uuid.New(), TurnID: uuid.New(),
+		AttemptCount: 5, CreatedAt: time.Now().Add(-2 * time.Hour),
+	}
+	var output bytes.Buffer
+	job := deleteExpiredOtelExportDeliveries(
+		slog.New(slog.NewJSONHandler(&output, nil)),
+		func(context.Context, int32) ([]executionstore.OtelExportDelivery, error) {
+			return []executionstore.OtelExportDelivery{delivery}, nil
+		},
+	)
+	result := job(t.Context())
+	require.True(t, result.worked)
+	require.NoError(t, result.err)
+
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
+	require.GreaterOrEqual(t, len(lines), 1)
+	var expiredEvent map[string]any
+	for _, line := range lines {
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal(line, &entry))
+		if entry["event.name"] == "otel_export.delivery_expired" {
+			expiredEvent = entry
+			break
+		}
+	}
+	require.NotNil(t, expiredEvent)
+	require.Equal(t, "WARN", expiredEvent["level"])
+	require.Equal(t, delivery.OrgID.String(), expiredEvent["org.id"])
+	require.Equal(t, delivery.AgentID.String(), expiredEvent["agent.id"])
+	require.Equal(t, delivery.TurnID.String(), expiredEvent["turn.id"])
+	require.Equal(t, delivery.ID.String(), expiredEvent["otel_export.delivery_id"])
+	require.Equal(t, delivery.ExporterID.String(), expiredEvent["otel_export.exporter_id"])
+	require.InDelta(t, 5, expiredEvent["otel_export.attempt"], 0)
+	require.Equal(t, "expired", expiredEvent["otel_export.outcome"])
+	require.GreaterOrEqual(t, expiredEvent["otel_export.age_seconds"], 3600.0)
 }
