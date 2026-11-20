@@ -216,7 +216,9 @@ ORDER BY created_at DESC, id DESC;
 -- Newest first, bounded by row count and cumulative content-block bytes read
 -- before rows leave Postgres. Oversized single events clip each block in JSONB
 -- so tool_call structure and valid JSON survive; events past the cumulative
--- budget omit content blocks and flag content_truncated.
+-- budget omit content blocks and flag content_truncated. The budget is charged
+-- to the turn's opening inputs first and then newest first, so a turn with
+-- large later content still exports the messages that opened it.
 WITH recent AS (
     SELECT projection.sequence, projection.event_kind, projection.is_opening_event,
            projection.model_call_context_id, projection.tool_call_id, projection.model_stop_reason,
@@ -232,7 +234,7 @@ WITH recent AS (
     SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
            model_stop_reason, content_blocks, created_at, content_bytes,
            sum(least(content_bytes, sqlc.arg(max_event_bytes)::integer))
-               OVER (ORDER BY sequence DESC) AS cumulative_bytes
+               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
     FROM recent
 )
 SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
