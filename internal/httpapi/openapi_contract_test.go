@@ -1047,6 +1047,20 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "groundbox",
+			body: `{"provider":"groundbox",` + common +
+				`,"default_machine_cpu":2,"default_machine_memory_mb":4096,` +
+				`"max_total_cpu":8,"max_total_memory_mb":16384,"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "groundbox missing cpu",
+			body: `{"provider":"groundbox",` + common +
+				`,"default_machine_memory_mb":4096,"max_total_cpu":8,"max_total_memory_mb":16384,` +
+				`"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "docker",
 			body: `{"provider":"docker",` + common +
 				`,"default_machine_cpu":2,"default_machine_memory_mb":4096,` +

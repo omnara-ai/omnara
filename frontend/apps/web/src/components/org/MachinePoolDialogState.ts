@@ -192,6 +192,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     case 'arker':
     case 'docker':
     case 'freestyle':
+    case 'groundbox':
     case 'modal':
     case 'tenki':
     case 'unikraft':
@@ -359,6 +360,7 @@ export function machinePoolUpdateRequest(
     case 'arker':
     case 'docker':
     case 'freestyle':
+    case 'groundbox':
     case 'modal':
     case 'tenki':
     case 'unikraft':
@@ -452,6 +454,7 @@ function clusterMachinePoolUpdateRequest(
     case 'arker':
     case 'docker':
     case 'freestyle':
+    case 'groundbox':
     case 'modal':
     case 'tenki':
     case 'unikraft':

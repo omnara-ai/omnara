@@ -32,6 +32,10 @@ func newSleepPlatform(name string) (sleepPlatform, error) {
 			pauseURL:   daemonprotocol.CreateOSSelfPauseURL,
 			httpClient: &http.Client{Timeout: createOSSelfPauseTimeout},
 		}, nil
+	case daemonprotocol.SleepPlatformGroundbox:
+		return controlFileSleepPlatform{
+			controlPath: daemonprotocol.GroundboxAwakeControlFilePath,
+		}, nil
 	case daemonprotocol.SleepPlatformUnikraft:
 		return controlFileSleepPlatform{
 			controlPath: daemonprotocol.UnikraftScaleToZeroControlFilePath,

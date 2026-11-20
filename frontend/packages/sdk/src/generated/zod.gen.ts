@@ -2585,6 +2585,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
             'arker',
             'docker',
             'freestyle',
+            'groundbox',
             'modal',
             'tenki',
             'unikraft'

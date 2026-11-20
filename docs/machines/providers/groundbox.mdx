@@ -1,0 +1,87 @@
+---
+title: Groundbox
+description: Firecracker microVMs for agents that start in under a second, pause with their memory, and bill by the second
+icon: "/logo/providers/groundbox.svg"
+---
+
+[Groundbox](https://groundbox.dev) gives each machine its own Firecracker microVM with its own kernel, running Ubuntu 24.04 with Git, Node.js, Python, Go, and Docker. Connect your Groundbox team with a custom pool.
+
+## Why Groundbox
+
+- **A full Linux VM in under a second.** Machines start from a warm snapshot, so a new machine is usually running in under a second. Agents work as the `runner` user with passwordless `sudo`, and Docker runs inside the VM.
+- **Sleep that keeps everything.** With [sleep](/machines/providers/overview#sleep-when-idle) on, an idle machine pauses with its memory, files, and running processes, and resumes in under a second when an agent needs it. A paused machine pays only for storage.
+- **Your tools, built once.** Turn a registry image, a Dockerfile, or a list of apt, pip, and npm packages into a [template](https://groundbox.dev/docs/templates) with one API call. Groundbox snapshots it warm, so machines of the template's size skip the boot.
+- **Pay for the seconds you use.** Running machines bill by the second per vCPU, from 1 to 16 vCPU, with up to 4 GB of memory per vCPU included.
+
+## Set up a Groundbox pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Groundbox dashboard](https://app.groundbox.dev/keys), create an API key with the `sandboxes:read` and `sandboxes:write` scopes, and store it as an org-owned [secret](/organization/secrets) in Omnara. Machines run and bill in that key's team.
+
+    Add a card or start a paid plan first. Until then, Groundbox ends each sandbox after an hour and refuses the longer-lived sandboxes Omnara creates.
+  </Step>
+  <Step title="Choose a template">
+    Leave the template empty to use your team's default template, or Groundbox's own image if the team has none.
+
+    For your own tools, create a template that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements), for example:
+
+    ```bash
+    curl -X POST https://api.groundbox.dev/v1/templates \
+      -H "Authorization: Bearer $GROUNDBOX_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "omnara-machine",
+        "apt": ["ripgrep", "postgresql-client"],
+        "npm": ["pnpm"],
+        "cpus": 2,
+        "memory_gb": 4
+      }'
+    ```
+
+    - Give the template the same CPU and memory as the pool's machines. A machine of the template's size starts from its warm snapshot, and any other size boots cold.
+    - Groundbox's image already meets the requirements, so a template built on it, with no `image` or `dockerfile`, does too.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Groundbox**. Enter the credential, template (or leave it empty), default machine size, maximums, and capacity limits.
+
+    Memory is set in whole GB, from 1 GB to 4 GB per vCPU.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the machine.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "groundbox-pool",
+  "provider": "groundbox",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "template": "omnara-machine", // optional
+    "sleep_after_ms": 300000 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 16384,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 81920,
+  "max_total_machines": 10
+}
+```
+
+- `template` is optional. Omit it to use your team's default template, or Groundbox's image when the team has none. Otherwise set a template name or ID (`tpl_...`), optionally with a version, such as `omnara-machine:3`.
+- `default_machine_memory_mb` and `max_machine_memory_mb` are multiples of `1024`, at most `4096` per vCPU.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).
+
+## Limits
+
+- Groundbox ends a machine that has run for 30 days without sleeping, and deletes one that has slept for 30 days. Put setup in a template or the startup script rather than on the machine.
+- Groundbox keeps a limited number of paused sandboxes per team (10 unless your plan says otherwise). While a team is at that limit, an idle machine stays running instead of sleeping.

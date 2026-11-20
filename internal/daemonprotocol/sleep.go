@@ -17,12 +17,14 @@ const (
 	SleepPlatformArker                 = "arker"
 	SleepPlatformBlaxel                = "blaxel"
 	SleepPlatformCreateOS              = "createos"
+	SleepPlatformGroundbox             = "groundbox"
 	SleepPlatformUnikraft              = "unikraft"
 	BlaxelLocalAPIURL                  = "http://127.0.0.1:8080"
 	CreateOSSelfPauseURL               = "http://127.0.0.1:1029/self/pause"
 	BlaxelAwakeProcessNamePrefix       = "omnara-awake-"
 	UnikraftScaleToZeroControlFilePath = "/uk/libukp/scale_to_zero_disable"
 	ArkerAwakeControlFilePath          = "/tmp/arker-awake"
+	GroundboxAwakeControlFilePath      = "/tmp/groundbox-awake"
 )
 
 func SleepAfterDuration(milliseconds int) (time.Duration, error) {

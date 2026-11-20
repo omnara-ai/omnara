@@ -551,11 +551,12 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/docker \
 		./internal/machinepool/providers/e2b \
 		./internal/machinepool/providers/freestyle \
+		./internal/machinepool/providers/groundbox \
 		./internal/machinepool/providers/modal \
 		./internal/machinepool/providers/superserve \
 		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|Docker|E2B|Freestyle|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|Docker|E2B|Freestyle|Groundbox|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
 
 test-live-machine-providers:
 	@$(LOAD_DOTENV); \
