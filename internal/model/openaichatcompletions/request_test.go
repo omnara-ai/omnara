@@ -215,6 +215,76 @@ func TestPrepareKeepsCompletedToolExchangeBeforeLaterUserTurnWithoutDuplicatingA
 	}
 }
 
+func TestPrepareCurrentHostedOpenAIModels(t *testing.T) {
+	for _, slug := range []string{"openai/gpt-6.2-astra", "openai/gpt-6.2-sol"} {
+		t.Run(slug, func(t *testing.T) {
+			assistant := json.RawMessage(
+				`{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function",` +
+					`"function":{"name":"run_command","arguments":"{\"command\":\"true\"}"}}],` +
+					`"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque-reasoning",` +
+					`"format":"openai-responses-v1","index":0}]}`,
+			)
+			replay := testProviderReplay(slug, modelprotocol.APIFormatOpenAIChatCompletions,
+				modelprotocol.APIVariantOpenRouter, assistant)
+			client := Client{
+				ModelProviderConfigID: testModelProviderConfigID,
+				EndpointPath:          testEndpointPath,
+				BaseURL:               "https://openrouter.ai/api/v1",
+				ProviderModelSlug:     slug,
+				ModelCapabilities:     model.Capabilities{SupportsTools: true, SupportsReasoning: true},
+				APIVariant:            modelprotocol.APIVariantOpenRouter,
+			}
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					SafetyIdentifier: "omnara-model-catalog-smoke",
+					Messages: []modelcontext.Message{
+						{Sequence: 1, Role: modelprotocol.RoleUser,
+							Content: json.RawMessage(`[{"type":"text","text":"run true"}]`)},
+						withToolCallLinks(chatReplayMessage("mcc_1", replay), "call_1"),
+					},
+					ToolSpecs: []modelcontext.ToolSpec{{
+						Name: "run_command", Description: "run",
+						InputSchema: json.RawMessage(`{"type":"object"}`),
+					}},
+					ToolResults: []modelcontext.ToolResultRef{{
+						ToolCallID: "call_1", ModelCallContextID: "mcc_1",
+						ProviderCallID: "call_1", Name: "run_command",
+						Input:        json.RawMessage(`{"command":"true"}`),
+						ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"ok":true}}]`),
+					}},
+				},
+				Policy: model.RequestPolicy{MaxOutputTokens: 65_536, ReasoningEffort: "medium"},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				Model               string               `json:"model"`
+				User                string               `json:"user"`
+				MaxCompletionTokens int                  `json:"max_completion_tokens"`
+				Reasoning           chatReasoning        `json:"reasoning"`
+				ToolChoice          string               `json:"tool_choice"`
+				Tools               []chatToolDefinition `json:"tools"`
+				Messages            []json.RawMessage    `json:"messages"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if payload.Model != slug || payload.User != "omnara-model-catalog-smoke" ||
+				payload.MaxCompletionTokens != 65_536 || payload.Reasoning.Effort != "medium" {
+				t.Fatalf("unexpected model controls: %s", prepared.Body)
+			}
+			if payload.ToolChoice != "auto" || len(payload.Tools) != 1 ||
+				payload.Tools[0].Function.Strict == nil || *payload.Tools[0].Function.Strict {
+				t.Fatalf("unexpected tool controls: %s", prepared.Body)
+			}
+			if len(payload.Messages) != 3 || string(payload.Messages[1]) != string(assistant) {
+				t.Fatalf("assistant/tool reasoning replay changed: %s", prepared.Body)
+			}
+		})
+	}
+}
+
 func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath,
 		ProviderModelSlug: "anthropic/claude-sonnet-4",

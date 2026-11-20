@@ -90,7 +90,7 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
 ## 4. Pick the model
 
 `npx omnara grant models list --json`: each item has `model.provider_config` and
-`model.name`. Use `openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted,
+`model.name`. Use `openai/gpt-6.2-sol` on `omnara-openrouter` if it's granted,
 otherwise a strong general-purpose model from the list. The choice gives
 `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 

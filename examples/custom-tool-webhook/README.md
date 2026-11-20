@@ -26,7 +26,7 @@ This example uses the SDK from this checkout.
 2. Fill in `.env` with your personal access token, organization and project
    IDs, and the signing key from step 1.
 3. Run `pnpm start`. Expose `http://127.0.0.1:3000` through an HTTPS tunnel.
-   The config uses `omnara-openrouter` / `openai/gpt-6.1-sol`; choose another
+   The config uses `omnara-openrouter` / `openai/gpt-6.2-sol`; choose another
    model if that one isn't available to your project.
 4. In the Omnara dashboard, create a profile using `agent.yaml`. Open the project's
    **Webhooks** tab and add the public URL ending in `/webhook`. Under
