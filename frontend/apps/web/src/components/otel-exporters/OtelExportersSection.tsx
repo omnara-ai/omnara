@@ -1,6 +1,6 @@
 import { useDeleteOtelExporter, useOtelExporters } from '@omnara/react'
 import type { OtelExporter } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import {
   AgentCard,
@@ -28,9 +28,17 @@ const scopeIcons = { project: Folder, agent: Bot }
 
 /**
  * The organization's exporters fetched in a single list. Inside a project the list narrows
- * to the project's own and its agents' exporters.
+ * to the project's own and its agents' exporters. The heading shares a row with the add button.
  */
-export function OtelExportersSection({ orgId, projectId }: { orgId: string; projectId?: string }) {
+export function OtelExportersSection({
+  orgId,
+  projectId,
+  heading,
+}: {
+  orgId: string
+  projectId?: string
+  heading: ReactNode
+}) {
   const query = useOtelExporters(orgId)
   const exporters = useInfiniteQueryItems(query).filter(
     (exporter) => projectId === undefined || exporter.scope.project_id === projectId,
@@ -38,17 +46,19 @@ export function OtelExportersSection({ orgId, projectId }: { orgId: string; proj
   const remove = useDeleteOtelExporter(orgId)
   const [editing, setEditing] = useState<OtelExporter | 'new' | null>(null)
   return (
-    <section className="flex min-w-0 flex-col gap-3">
-      <Button
-        size="sm"
-        variant="outline"
-        className="self-end"
-        onClick={() => {
-          setEditing('new')
-        }}
-      >
-        <PlusIcon /> Add exporter
-      </Button>
+    <section className="flex min-w-0 flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        {heading}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setEditing('new')
+          }}
+        >
+          <PlusIcon /> Add exporter
+        </Button>
+      </div>
       {exporters.length > 0 && (
         <ul className="flex flex-col gap-2">
           {exporters.map((exporter) => {
