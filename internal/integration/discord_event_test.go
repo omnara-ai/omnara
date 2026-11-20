@@ -893,6 +893,29 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 	})
 }
 
+func TestDiscordInboxAudioAttachmentTypeFallsBackToFilename(t *testing.T) {
+	t.Parallel()
+	for filename, tc := range map[string]struct {
+		declared string
+		content  []byte
+		want     string
+	}{
+		"master.flac": {"", []byte("fLaC\x00\x00\x00\x22"), "audio/flac"},
+		"memo.m4a":    {"video/mp4", []byte("\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00"), "audio/mp4"},
+		"take.MP3":    {"application/octet-stream", []byte{0xff, 0xfb, 0x90, 0x00}, "audio/mpeg"},
+	} {
+		f, p := newDiscordInboxFixture(t)
+		f.attach("701", tc.content, tc.declared)
+		f.message.Attachments[0].Filename = filename
+		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
+		if err != nil || expansion.Event == nil || len(expansion.Event.Files) != 1 ||
+			expansion.Event.Files[0].Expected == nil ||
+			expansion.Event.Files[0].Expected.ContentType != tc.want {
+			t.Fatalf("%s: %+v %v", filename, expansion, err)
+		}
+	}
+}
+
 func TestDiscordInboxThreadPreparationDoesNotMutateReplies(t *testing.T) {
 	t.Parallel()
 	f, p := newDiscordInboxFixture(t)

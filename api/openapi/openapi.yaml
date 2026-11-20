@@ -11084,7 +11084,7 @@ components:
             type: string
         input_modalities:
           type: array
-          description: Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+          description: Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
           items:
             type: string
         output_modalities:
@@ -11142,7 +11142,7 @@ components:
             type: string
         input_modalities:
           type: array
-          description: Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+          description: Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
           items:
             type: string
         output_modalities:
@@ -11200,7 +11200,7 @@ components:
             type: string
         input_modalities:
           type: array
-          description: Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+          description: Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
           items:
             type: string
         output_modalities:
@@ -13837,7 +13837,11 @@ components:
         model; unsupported combinations are rejected. Other binary documents are
         sent directly only to OpenAI Responses models with file input support.
         Chat Completions and Anthropic Messages receive the artifact ID and the
-        filename, if provided, instead of the contents of those documents.
+        filename, if provided, instead of the contents of those documents. Audio
+        (WAV, MP3, M4A, FLAC) is sent directly only to Chat Completions models
+        whose input modalities explicitly include audio, and M4A and FLAC only
+        through OpenRouter; otherwise the model receives the artifact ID and the
+        filename.
       additionalProperties: false
       required: [type, media_type, data]
       properties:
@@ -13854,6 +13858,10 @@ components:
             - image/jpeg
             - image/gif
             - image/webp
+            - audio/wav
+            - audio/mpeg
+            - audio/mp4
+            - audio/flac
             - application/pdf
             - text/plain
             - text/markdown

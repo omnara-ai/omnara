@@ -593,8 +593,17 @@ func normalizeMediaType(value string) string {
 	if parsed, _, err := mime.ParseMediaType(mediaType); err == nil {
 		mediaType = parsed
 	}
-	if mediaType == "image/jpg" {
+	switch mediaType {
+	case "image/jpg":
 		return "image/jpeg"
+	case "audio/x-wav", "audio/wave", "audio/vnd.wave":
+		return "audio/wav"
+	case "audio/mp3":
+		return "audio/mpeg"
+	case "audio/x-m4a", "audio/m4a":
+		return "audio/mp4"
+	case "audio/x-flac":
+		return "audio/flac"
 	}
 	return mediaType
 }

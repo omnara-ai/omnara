@@ -134,6 +134,8 @@ func TestEstimatePreparedRequestCountsOnlyPresentMediaInBodiesAndSuffixes(t *tes
 			`"image_url":{"url":"data:image/png;base64,` + encoded + `"}}]}`},
 		{"input", `{"role":"user","content":[{"type":"input_file",` +
 			`"file_data":"data:application/pdf;base64,` + encoded + `"}]}`},
+		{"messages", `{"role":"user","content":[{"type":"input_audio",` +
+			`"input_audio":{"data":"` + encoded + `","format":"mp3"}}]}`},
 		{"messages", `{"role":"user","content":[{"type":"file",` +
 			`"file":{"file_data":"data:application/pdf;base64,` + encoded + `"}}]}`},
 	} {

@@ -88,6 +88,7 @@ const (
 	InputModalityText  = "text"
 	InputModalityImage = "image"
 	InputModalityFile  = "file"
+	InputModalityAudio = "audio"
 )
 
 func (m RenderedMedia) InputModality() string {
@@ -99,6 +100,8 @@ func (m RenderedMedia) InputModality() string {
 			return ""
 		}
 		return InputModalityFile
+	case AttachmentKindAudio:
+		return InputModalityAudio
 	}
 	return ""
 }

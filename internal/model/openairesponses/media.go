@@ -25,6 +25,9 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 	var rendered []modelcontext.RenderedMedia
 	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
 		item := occurrence.Media
+		if item.Kind == modelcontext.AttachmentKindAudio {
+			continue
+		}
 		switch {
 		case occurrence.MessageRole == modelprotocol.RoleUser || occurrence.IsToolResult():
 			tokenEstimate := 0
@@ -48,7 +51,8 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]modelcontext.ResolvedMedia {
 	out := make(map[string]modelcontext.ResolvedMedia, len(media))
 	for id, resolved := range media {
-		if _, ok := modelcontext.AttachmentKindForMediaType(resolved.MediaType); ok {
+		if kind, ok := modelcontext.AttachmentKindForMediaType(resolved.MediaType); ok &&
+			kind != modelcontext.AttachmentKindAudio {
 			out[id] = resolved
 		}
 	}
