@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func TestClassifyEvidencePrecedence(t *testing.T) {
@@ -13,13 +14,14 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 		httpStatus     int
 		providerStatus int
 		message        string
-		codes          []string
+		signals        []classification
+		gatewayBilling bool
 		want           model.ErrorKind
 	}{
 		{
 			name:       "exact billing code",
 			httpStatus: http.StatusTooManyRequests,
-			codes:      []string{"insufficient_quota"},
+			signals:    []classification{classifyOpenAICode("insufficient_quota")},
 			want:       model.ErrorKindBillingAccount,
 		},
 		{
@@ -51,14 +53,14 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 			name:       "maximum context prose behind invalid request",
 			httpStatus: http.StatusBadRequest,
 			message:    "This model's maximum context length is 131072 tokens.",
-			codes:      []string{"invalid_request_error"},
+			signals:    []classification{classifyOpenAICode("invalid_request_error")},
 			want:       model.ErrorKindContextWindow,
 		},
 		{
 			name:       "lossy Responses invalid prompt does not hide context prose",
 			httpStatus: http.StatusBadGateway,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"provider_unavailable", "invalid_prompt"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable"), classifyOpenAICode("invalid_prompt")},
 			want:       model.ErrorKindContextWindow,
 		},
 		{
@@ -83,7 +85,7 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 			name:       "Anthropic context prose",
 			httpStatus: http.StatusBadRequest,
 			message:    "input length and `max_tokens` exceed context limit",
-			codes:      []string{"invalid_request_error"},
+			signals:    []classification{classifyOpenAICode("invalid_request_error")},
 			want:       model.ErrorKindContextWindow,
 		},
 		{
@@ -91,115 +93,120 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 			httpStatus:     http.StatusOK,
 			providerStatus: http.StatusBadGateway,
 			message:        "Your input exceeds the context window of this model.",
-			codes:          []string{"provider_unavailable", "502"},
+			signals:        []classification{classifyOpenRouterType("provider_unavailable"), classifyOpenRouterType("502")},
 			want:           model.ErrorKindContextWindow,
 		},
 		{
 			name:       "context prose overrides generic server code",
 			httpStatus: http.StatusBadGateway,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"server_error"},
+			signals:    []classification{classifyOpenAICode("server_error")},
 			want:       model.ErrorKindContextWindow,
 		},
 		{
 			name:       "payload prose overrides generic gateway metadata",
 			httpStatus: http.StatusBadGateway,
 			message:    "The upstream rejected this request: request entity too large.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindPayloadTooLarge,
 		},
 		{
 			name:       "payload prose overrides generic invalid request",
 			httpStatus: http.StatusBadRequest,
 			message:    "Payload too large for the provider endpoint.",
-			codes:      []string{"invalid_request_error"},
+			signals:    []classification{classifyOpenAICode("invalid_request_error")},
 			want:       model.ErrorKindPayloadTooLarge,
 		},
 		{
 			name:       "redirect status rejects conflicting context prose",
 			httpStatus: http.StatusTemporaryRedirect,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindProviderUnavailable,
 		},
 		{
 			name:       "auth status beats conflicting prose",
 			httpStatus: http.StatusUnauthorized,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindAuth,
 		},
 		{
 			name:       "auth status beats conflicting payload prose",
 			httpStatus: http.StatusUnauthorized,
 			message:    "Request body too large.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindAuth,
 		},
 		{
 			name:       "billing status beats conflicting prose",
 			httpStatus: http.StatusPaymentRequired,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"invalid_request_error"},
+			signals:    []classification{classifyOpenAICode("invalid_request_error")},
 			want:       model.ErrorKindBillingAccount,
 		},
 		{
 			name:       "rate status beats conflicting prose",
 			httpStatus: http.StatusTooManyRequests,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindRateLimit,
 		},
 		{
 			name:       "moderation status beats conflicting prose",
 			httpStatus: http.StatusForbidden,
 			message:    "Content policy: input exceeds the context window.",
-			codes:      []string{"provider_unavailable"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable")},
 			want:       model.ErrorKindInvalidRequest,
 		},
 		{
-			name:       "budget limit status is billing",
-			httpStatus: http.StatusForbidden,
-			message:    "Org member budget limit exceeded (weekly limit). Contact your org admin.",
-			want:       model.ErrorKindBillingAccount,
+			name:           "budget limit status is billing",
+			gatewayBilling: true,
+			httpStatus:     http.StatusForbidden,
+			message:        "Org member budget limit exceeded (weekly limit). Contact your org admin.",
+			want:           model.ErrorKindBillingAccount,
 		},
 		{
 			name:       "permission wrapper allows moderation evidence",
 			httpStatus: http.StatusForbidden,
 			message:    "Request blocked by content policy.",
-			codes:      []string{"permission_denied"},
+			signals:    []classification{classifyOpenRouterType("permission_denied")},
 			want:       model.ErrorKindInvalidRequest,
 		},
 		{
 			name:       "canonical content policy beats lossy server code",
 			httpStatus: http.StatusBadGateway,
-			codes:      []string{"content_policy_violation", "server_error"},
+			signals:    []classification{classifyOpenRouterType("content_policy_violation"), classifyOpenAICode("server_error")},
 			want:       model.ErrorKindInvalidRequest,
 		},
 		{
 			name:       "exact auth code beats conflicting prose",
 			httpStatus: http.StatusBadGateway,
 			message:    "Your input exceeds the context window of this model.",
-			codes:      []string{"provider_unavailable", "invalid_api_key"},
+			signals:    []classification{classifyOpenRouterType("provider_unavailable"), classifyOpenAICode("invalid_api_key")},
 			want:       model.ErrorKindAuth,
 		},
 		{
 			name:       "first specific structured code is authoritative",
 			httpStatus: http.StatusBadGateway,
-			codes:      []string{"rate_limit_error", "context_length_exceeded"},
-			want:       model.ErrorKindRateLimit,
+			signals: []classification{
+				classifyAnthropicCode("rate_limit_error"), classifyOpenAICode("context_length_exceeded"),
+			},
+			want: model.ErrorKindRateLimit,
 		},
 		{
 			name:       "specific context code follows generic metadata",
 			httpStatus: http.StatusBadGateway,
-			codes:      []string{"provider_unavailable", "context_length_exceeded"},
-			want:       model.ErrorKindContextWindow,
+			signals: []classification{
+				classifyOpenRouterType("provider_unavailable"), classifyOpenAICode("context_length_exceeded"),
+			},
+			want: model.ErrorKindContextWindow,
 		},
 		{
 			name:       "request entity too large is payload overflow",
 			httpStatus: http.StatusRequestEntityTooLarge,
 			message:    "Request exceeds maximum context length in bytes.",
-			codes:      []string{"invalid_request_error"},
+			signals:    []classification{classifyOpenAICode("invalid_request_error")},
 			want:       model.ErrorKindPayloadTooLarge,
 		},
 		{
@@ -211,7 +218,8 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := Classify(test.httpStatus, test.providerStatus, test.message, test.codes...); got != test.want {
+			status := effectiveStatusCode(test.httpStatus, test.providerStatus)
+			if got := classify(status, test.message, test.signals, test.gatewayBilling); got != test.want {
 				t.Fatalf("Classify() = %q, want %q", got, test.want)
 			}
 		})
@@ -222,12 +230,17 @@ func TestClassifyReplayRejection(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		message string
-		codes   []string
+		signals []classification
 	}{
-		{name: "structured code", codes: []string{"invalid_request_error", "invalid_encrypted_content"}},
+		{
+			name: "structured code",
+			signals: []classification{
+				classifyOpenAICode("invalid_request_error"), classifyOpenAICode("invalid_encrypted_content"),
+			},
+		},
 		{
 			name: "verification marker", message: "The encrypted content could not be verified.",
-			codes: []string{"invalid_request_error"},
+			signals: []classification{classifyOpenAICode("invalid_request_error")},
 		},
 		{name: "decryption marker", message: "Encrypted content could not be decrypted or parsed."},
 		{name: "decoding marker", message: "Encrypted function output content could not be decrypted or decoded."},
@@ -235,12 +248,12 @@ func TestClassifyReplayRejection(t *testing.T) {
 			name: "Anthropic immutable thinking",
 			message: "messages.1.content.0: `thinking` or `redacted_thinking` blocks in the latest " +
 				"assistant message cannot be modified. These blocks must remain as they were in the original response.",
-			codes: []string{"invalid_request_error"},
+			signals: []classification{classifyOpenAICode("invalid_request_error")},
 		},
 		{
 			name:    "Anthropic invalid thinking signature",
 			message: "Invalid `signature` in `thinking` block",
-			codes:   []string{"invalid_request_error"},
+			signals: []classification{classifyOpenAICode("invalid_request_error")},
 		},
 		{
 			name: "Anthropic preserved thinking bound to a different conversation",
@@ -248,16 +261,16 @@ func TestClassifyReplayRejection(t *testing.T) {
 				"different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` " +
 				"to \"drop_block\". That setting requires the `thinking-binding-controls-2026-08-01` value in the " +
 				"`anthropic-beta` header.",
-			codes: []string{"invalid_request_error"},
+			signals: []classification{classifyOpenAICode("invalid_request_error")},
 		},
 		{
 			name:    "Anthropic-compatible invalid thinking signature",
 			message: "messages.1.content.0: Invalid signature in thinking",
-			codes:   []string{"invalid_request_error"},
+			signals: []classification{classifyOpenAICode("invalid_request_error")},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := Classify(http.StatusBadRequest, 0, test.message, test.codes...); got != model.ErrorKindReplayRejected {
+			if got := classify(http.StatusBadRequest, test.message, test.signals, false); got != model.ErrorKindReplayRejected {
 				t.Fatalf("Classify() = %q, want %q", got, model.ErrorKindReplayRejected)
 			}
 		})
@@ -268,16 +281,14 @@ func TestClassifyReplayRejection(t *testing.T) {
 		"The assistant message cannot be modified.",
 		"The thinking setting in the latest assistant message cannot be modified.",
 	} {
-		got := Classify(http.StatusBadRequest, 0, message, "invalid_request_error")
+		got := classify(http.StatusBadRequest, message, []classification{classifyOpenAICode("invalid_request_error")}, false)
 		if got != model.ErrorKindInvalidRequest {
 			t.Fatalf("unrelated message %q = %q, want %q", message, got, model.ErrorKindInvalidRequest)
 		}
 	}
-	got := Classify(
-		http.StatusUnauthorized,
-		0,
-		"Invalid signature in thinking block",
-		"invalid_api_key",
+	got := classify(
+		http.StatusUnauthorized, "Invalid signature in thinking block",
+		[]classification{classifyOpenAICode("invalid_api_key")}, false,
 	)
 	if got != model.ErrorKindAuth {
 		t.Fatalf("auth evidence with replay prose = %q, want %q", got, model.ErrorKindAuth)
@@ -285,7 +296,7 @@ func TestClassifyReplayRejection(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		httpStatus int
-		codes      []string
+		signals    []classification
 		want       model.ErrorKind
 	}{
 		{
@@ -296,32 +307,16 @@ func TestClassifyReplayRejection(t *testing.T) {
 		{
 			name:       "permission evidence",
 			httpStatus: http.StatusBadRequest,
-			codes:      []string{"permission_denied"},
+			signals:    []classification{classifyOpenRouterType("permission_denied")},
 			want:       model.ErrorKindAuth,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := Classify(test.httpStatus, 0, "Invalid signature in thinking block", test.codes...)
+			got := classify(test.httpStatus, "Invalid signature in thinking block", test.signals, false)
 			if got != test.want {
 				t.Fatalf("conflicting replay prose = %q, want %q", got, test.want)
 			}
 		})
-	}
-}
-
-func TestStructuredEvidenceCanBeRefined(t *testing.T) {
-	if !StructuredEvidenceCanBeRefined("400", "provider_error", "invalid_request_error") {
-		t.Fatal("generic gateway evidence must be refinable")
-	}
-	for _, values := range [][]string{
-		{"400", "invalid_api_key"},
-		{"permission_denied"},
-		{"context_length_exceeded"},
-		{"provider_specific_code"},
-	} {
-		if StructuredEvidenceCanBeRefined(values...) {
-			t.Fatalf("specific evidence %q must remain authoritative", values)
-		}
 	}
 }
 
@@ -334,7 +329,10 @@ func TestClassifyCurrentBillingCodes(t *testing.T) {
 	}
 	for _, code := range codes {
 		t.Run(code, func(t *testing.T) {
-			if got := Classify(http.StatusTooManyRequests, 0, "limit reached", code); got != model.ErrorKindBillingAccount {
+			got := Interpret(modelprotocol.APIVariantDefault, Evidence{
+				HTTPStatus: http.StatusTooManyRequests, Message: "limit reached", Native: OpenAI(code, ""),
+			}).Kind
+			if got != model.ErrorKindBillingAccount {
 				t.Fatalf("Classify() = %q, want %q", got, model.ErrorKindBillingAccount)
 			}
 		})
@@ -357,7 +355,10 @@ func TestClassifyCurrentOpenRouterCanonicalRequestCodes(t *testing.T) {
 	}
 	for _, code := range codes {
 		t.Run(code, func(t *testing.T) {
-			got := Classify(http.StatusBadGateway, 0, "provider detail", code, "server_error")
+			got := Interpret(modelprotocol.APIVariantOpenRouter, Evidence{
+				HTTPStatus: http.StatusBadGateway, Message: "provider detail",
+				Native: OpenAI("server_error", ""), OpenRouter: openRouterEvidence(t, openRouterError{ErrorType: code}),
+			}).Kind
 			if got != model.ErrorKindInvalidRequest {
 				t.Fatalf("Classify() = %q, want %q", got, model.ErrorKindInvalidRequest)
 			}
@@ -404,8 +405,8 @@ func TestEffectiveStatusCode(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := EffectiveStatusCode(test.httpStatus, test.providerStatus); got != test.want {
-				t.Fatalf("EffectiveStatusCode() = %d, want %d", got, test.want)
+			if got := effectiveStatusCode(test.httpStatus, test.providerStatus); got != test.want {
+				t.Fatalf("effectiveStatusCode() = %d, want %d", got, test.want)
 			}
 		})
 	}

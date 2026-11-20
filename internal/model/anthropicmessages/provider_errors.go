@@ -45,70 +45,62 @@ type anthropicErrorEnvelope struct {
 }
 
 type anthropicErrorBody struct {
-	Type      string `json:"type"`
-	ErrorType string `json:"error_type"`
-	Message   string `json:"message"`
+	Type      string          `json:"type"`
+	ErrorType json.RawMessage `json:"error_type"`
+	Message   string          `json:"message"`
 	Details   struct {
 		ErrorCode string `json:"error_code"`
 	} `json:"details"`
 }
 
 func (e anthropicErrorBody) present() bool {
-	return e.Type != "" || e.ErrorType != "" || e.Message != ""
+	return e.Type != "" || e.Message != "" || providererrors.OpenRouterType(e.ErrorType).Present()
 }
 
-func classifyHTTPError(source string, statusCode int, header http.Header, body []byte) model.ProviderError {
+func classifyHTTPError(
+	source string,
+	variant modelprotocol.APIVariant,
+	statusCode int,
+	header http.Header,
+	body []byte,
+) model.ProviderError {
 	payload := anthropicErrorEnvelope{}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return anthropicProviderError(
 			source,
+			variant,
 			statusCode,
 			header,
 			anthropicErrorEnvelope{},
 			strings.TrimSpace(string(body)),
 		)
 	}
-	return anthropicProviderError(source, statusCode, header, payload, "")
+	return anthropicProviderError(source, variant, statusCode, header, payload, strings.TrimSpace(string(body)))
 }
 
 func anthropicProviderError(
 	source string,
+	variant modelprotocol.APIVariant,
 	statusCode int,
 	header http.Header,
 	payload anthropicErrorEnvelope,
 	fallbackMessage string,
 ) model.ProviderError {
-	errorType := firstAnthropicNonEmpty(
-		payload.Error.Details.ErrorCode,
-		payload.Error.ErrorType,
-		payload.Error.Type,
-		payload.Type,
-	)
 	message := strings.TrimSpace(payload.Error.Message)
 	if message == "" {
 		message = fallbackMessage
 	}
-	kind := providererrors.Classify(
-		statusCode,
-		0,
-		message,
-		payload.Error.Details.ErrorCode,
-		payload.Error.ErrorType,
-		payload.Error.Type,
-		payload.Type,
-	)
-	return model.ProviderError{
-		Kind:       kind,
-		Source:     source,
-		StatusCode: statusCode,
-		Code:       providererrors.UserFacingCode(errorType, message),
-		Message:    providererrors.UserFacingMessage(message),
-		RequestID: firstAnthropicNonEmpty(
-			model.RequestIDFromHeader(header),
-			payload.RequestID,
+	result := providererrors.Interpret(variant, providererrors.Evidence{
+		HTTPStatus: statusCode, Message: message,
+		Native: providererrors.Anthropic(
+			firstAnthropicNonEmpty(payload.Error.Type, payload.Type), payload.Error.Details.ErrorCode,
 		),
-		RetryAfter: model.RetryAfterFromHeader(header),
-	}
+		OpenRouter: providererrors.OpenRouterType(payload.Error.ErrorType),
+	})
+	result.Source = source
+	result.RequestID = firstAnthropicNonEmpty(model.RequestIDFromHeader(header), payload.RequestID)
+	result.RetryAfter = model.RetryAfterFromHeader(header)
+	return result
 }
 
 func firstAnthropicNonEmpty(values ...string) string {

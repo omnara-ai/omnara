@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 type recordingSink struct {
@@ -36,9 +37,14 @@ func openAIDataOnlySSE(events ...string) string {
 	return b.String()
 }
 
-func consumeOpenAIStream(t *testing.T, stream string, sink model.StreamSink) (model.Response, error) {
+func consumeOpenAIStream(
+	t *testing.T, stream string, sink model.StreamSink, variants ...modelprotocol.APIVariant,
+) (model.Response, error) {
 	t.Helper()
 	p := protocol{client: Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}}
+	if len(variants) > 0 {
+		p.client.APIVariant = variants[0]
+	}
 	return p.ConsumeStream(context.Background(), strings.NewReader(stream), http.StatusOK, http.Header{}, sink)
 }
 
@@ -266,7 +272,7 @@ func TestOpenAIConsumeStreamFailedUsesTopLevelErrorType(t *testing.T) {
 				`"error_type":"` + test.errorType + `",` +
 				`"error":{"code":"` + test.code + `","message":"` + test.message + `"}}`
 			stream := openAISSE([2]string{"response.failed", `{"response":` + failed + `}`})
-			_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+			_, err := consumeOpenAIStream(t, stream, &recordingSink{}, modelprotocol.APIVariantOpenRouter)
 			providerErr, ok := model.ClassifyError(err)
 			if !ok || providerErr.Kind != test.want || providerErr.Code != test.errorType {
 				t.Fatalf("top-level failed error type = %+v ok=%v err=%v", providerErr, ok, err)
@@ -396,7 +402,7 @@ func TestOpenAIConsumeStreamStandaloneErrorUsesTopLevelErrorType(t *testing.T) {
 		`{"type":"response.error","error_type":"provider_unavailable",` +
 			`"code":502,"message":"Your input exceeds the context window of this model."}`,
 	})
-	_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	_, err := consumeOpenAIStream(t, stream, &recordingSink{}, modelprotocol.APIVariantOpenRouter)
 	providerErr, ok := model.ClassifyError(err)
 	if !ok || providerErr.Kind != model.ErrorKindContextWindow ||
 		providerErr.Code != "provider_unavailable" {
@@ -410,7 +416,7 @@ func TestOpenAIConsumeStreamStandalonePayloadErrorUsesTopLevelErrorType(t *testi
 		`{"type":"response.error","error_type":"provider_unavailable",` +
 			`"code":502,"message":"Request entity too large for the upstream provider."}`,
 	})
-	_, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	_, err := consumeOpenAIStream(t, stream, &recordingSink{}, modelprotocol.APIVariantOpenRouter)
 	providerErr, ok := model.ClassifyError(err)
 	if !ok || providerErr.Kind != model.ErrorKindPayloadTooLarge ||
 		providerErr.Code != "provider_unavailable" {

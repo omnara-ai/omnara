@@ -671,6 +671,9 @@ func validateModelProviderAPIVariant(
 	case modelprotocol.APIVariantDefault:
 		return nil
 	case modelprotocol.APIVariantOpenRouter:
+		// Error decoding exists for the other wire formats too, but only Chat
+		// implements OpenRouter cost reporting, served-provider metadata and
+		// request/stream behavior. Audit those contracts before widening this.
 		if apiFormat == modelprotocol.APIFormatOpenAIChatCompletions {
 			return nil
 		}

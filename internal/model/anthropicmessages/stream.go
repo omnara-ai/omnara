@@ -277,6 +277,7 @@ func (a *anthropicStreamAccumulator) handle(ctx context.Context, ev route.SSEEve
 		}
 		a.streamErr = anthropicProviderError(
 			a.protocol.errorSource(),
+			a.protocol.client.ModelAPIVariant(),
 			a.statusCode,
 			a.header,
 			frame,

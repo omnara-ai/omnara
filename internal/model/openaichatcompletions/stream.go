@@ -292,7 +292,7 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	if chunk.Error.present() {
 		a.streamErr = classifyProviderError(
 			a.protocol.errorSource(),
-			a.protocol.client.compat(),
+			a.protocol.client.ModelAPIVariant(),
 			a.statusCode,
 			a.header,
 			chunk.Error,
@@ -378,7 +378,7 @@ func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStr
 	}
 	if choice.Error.present() || strings.EqualFold(choice.FinishReason, "error") {
 		a.streamErr = classifyChoiceError(
-			a.protocol.errorSource(), a.protocol.client.compat(), a.statusCode, a.header, chatChoice{
+			a.protocol.errorSource(), a.protocol.client.ModelAPIVariant(), a.statusCode, a.header, chatChoice{
 				Index:        choice.Index,
 				FinishReason: choice.FinishReason,
 				Error:        choice.Error,

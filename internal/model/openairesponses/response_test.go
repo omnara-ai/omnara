@@ -355,6 +355,7 @@ func TestRespondMapsIncompleteStopReasons(t *testing.T) {
 
 func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 	tests := []struct {
+		variant    modelprotocol.APIVariant
 		name       string
 		body       string
 		want       model.ErrorKind
@@ -376,7 +377,8 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 			code: "insufficient_quota",
 		},
 		{
-			name: "top-level gateway type with context prose",
+			name:    "top-level gateway type with context prose",
+			variant: modelprotocol.APIVariantOpenRouter,
 			body: `{"id":"resp_failed","status":"failed",` +
 				`"error_type":"provider_unavailable",` +
 				`"error":{"code":"invalid_prompt",` +
@@ -385,7 +387,8 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 			code: "provider_unavailable",
 		},
 		{
-			name: "top-level gateway type with payload prose",
+			name:    "top-level gateway type with payload prose",
+			variant: modelprotocol.APIVariantOpenRouter,
 			body: `{"id":"resp_failed","status":"failed",` +
 				`"error_type":"provider_unavailable",` +
 				`"error":{"code":"invalid_prompt",` +
@@ -394,14 +397,16 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 			code: "provider_unavailable",
 		},
 		{
-			name: "top-level authentication survives lossy native code",
+			name:    "top-level authentication survives lossy native code",
+			variant: modelprotocol.APIVariantOpenRouter,
 			body: `{"id":"resp_failed","status":"failed","error_type":"authentication",` +
 				`"error":{"code":"server_error","message":"Invalid credentials"},"output":[]}`,
 			want: model.ErrorKindAuth,
 			code: "authentication",
 		},
 		{
-			name: "top-level content policy survives lossy native code",
+			name:    "top-level content policy survives lossy native code",
+			variant: modelprotocol.APIVariantOpenRouter,
 			body: `{"id":"resp_failed","status":"failed",` +
 				`"error_type":"content_policy_violation",` +
 				`"error":{"code":"server_error","message":"Output blocked"},"output":[]}`,
@@ -416,6 +421,7 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 			}))
 			defer server.Close()
 			client := testRespondClient(server)
+			client.APIVariant = tt.variant
 			_, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)})
 			providerErr, ok := model.ClassifyError(err)
 			if !ok || providerErr.Kind != tt.want || providerErr.Code != tt.code {
