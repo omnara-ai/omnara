@@ -86,7 +86,7 @@ Then check the repository:
 ## 3. Pick the model and machine pool
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Use `openai/gpt-6.1-sol` on `omnara-openrouter` if it's
+   and `model.name`. Use `openai/gpt-6.2-sol` on `omnara-openrouter` if it's
    granted (`agent.yaml` runs it at `xhigh` reasoning effort), otherwise the
    strongest coding model on the list. The choice gives
    `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.

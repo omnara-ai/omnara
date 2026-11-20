@@ -62,6 +62,14 @@ func TestOpenRouterRetryEndsWithConfigurationUpdate(t *testing.T) {
 	}{
 		{name: "gpt one level down", client: Client{ProviderModelSlug: "openai/gpt-6-sol"},
 			effort: "high", retries: 1, wantEffort: "medium"},
+		{name: "gpt 6.2 astra one level down", client: Client{ProviderModelSlug: "openai/gpt-6.2-astra"},
+			effort: "high", retries: 1, wantEffort: "medium"},
+		{name: "gpt 6.2 sol one level down", client: Client{ProviderModelSlug: "openai/gpt-6.2-sol"},
+			effort: "high", retries: 1, wantEffort: "medium"},
+		{name: "gpt 6.2 sol pro unsupported", client: Client{ProviderModelSlug: "openai/gpt-6.2-sol-pro"},
+			effort: "high", retries: 1},
+		{name: "gemini argon unsupported", client: Client{ProviderModelSlug: "google/gemini-4-argon"},
+			effort: "high", retries: 1},
 		{name: "claude model default", client: Client{ProviderModelSlug: "anthropic/claude-fable-5.2"},
 			retries: 2, wantEffort: "low"},
 		{name: "options-supplied low is never raised", retries: 1, client: Client{
