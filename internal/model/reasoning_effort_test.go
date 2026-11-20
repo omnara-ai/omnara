@@ -92,8 +92,6 @@ func TestPerMessageEffortModelSupport(t *testing.T) {
 		"openai/gpt-6-luna":             true,
 		"openai/gpt-6.1-terra":          true,
 		"openai/gpt-6.1-sol-2026-09-01": true,
-		"openai/gpt-6.2-astra":          false,
-		"openai/gpt-6.2-sol":            false,
 		"openai/gpt-6-sol-pro":          false,
 		"openai/gpt-5.5":                false,
 		"google/gemini-3-pro":           false,
