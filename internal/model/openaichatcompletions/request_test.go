@@ -226,12 +226,13 @@ func TestPrepareCurrentHostedOpenAIModels(t *testing.T) {
 			)
 			replay := testProviderReplay(slug, modelprotocol.APIFormatOpenAIChatCompletions,
 				modelprotocol.APIVariantOpenRouter, assistant)
+			supportsTools := true
 			client := Client{
 				ModelProviderConfigID: testModelProviderConfigID,
 				EndpointPath:          testEndpointPath,
 				BaseURL:               "https://openrouter.ai/api/v1",
 				ProviderModelSlug:     slug,
-				ModelCapabilities:     model.Capabilities{SupportsTools: true, SupportsReasoning: true},
+				ModelCapabilities:     model.Capabilities{SupportsTools: &supportsTools, SupportsReasoning: true},
 				APIVariant:            modelprotocol.APIVariantOpenRouter,
 			}
 			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
