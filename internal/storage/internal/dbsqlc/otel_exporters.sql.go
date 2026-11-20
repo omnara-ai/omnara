@@ -552,7 +552,7 @@ WITH recent AS (
     SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
            model_stop_reason, content_blocks, created_at, content_bytes,
            sum(least(content_bytes, $2::integer))
-               OVER (ORDER BY sequence DESC) AS cumulative_bytes
+               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
     FROM recent
 )
 SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
@@ -607,7 +607,9 @@ type ListTurnTraceEventsRow struct {
 // Newest first, bounded by row count and cumulative content-block bytes read
 // before rows leave Postgres. Oversized single events clip each block in JSONB
 // so tool_call structure and valid JSON survive; events past the cumulative
-// budget omit content blocks and flag content_truncated.
+// budget omit content blocks and flag content_truncated. The budget is charged
+// to the turn's opening inputs first and then newest first, so a turn with
+// large later content still exports the messages that opened it.
 func (q *Queries) ListTurnTraceEvents(ctx context.Context, arg ListTurnTraceEventsParams) ([]ListTurnTraceEventsRow, error) {
 	rows, err := q.db.Query(ctx, listTurnTraceEvents,
 		arg.MaxTotalBytes,

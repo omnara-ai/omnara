@@ -376,6 +376,40 @@ func TestTurnTraceIgnoresCallerSpoofedIdempotencyKeyAndBoundsContent(t *testing.
 	require.True(t, truncated.Bool())
 }
 
+func TestTurnTraceKeepsOpeningInputsWhenLaterContentExceedsBudget(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "otel_opening_budget")
+	store := fixture.Store.Execution()
+
+	// Enough large outputs to spend the whole content budget on their own.
+	turnID, contextID, openingInputID := startOtelTestTurn(t, fixture, "opening-survives")
+	big := modelenvelope.ResponsePart{Type: "text", Text: strings.Repeat("a", 600*1024)}
+	for range 17 {
+		recordOtelTestOutput(t, fixture, contextID, modelenvelope.StopReasonMaxTokens, big)
+		work, found, err := store.NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
+		require.NoError(t, err)
+		require.True(t, found)
+		prepared, err := store.PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			OpeningInputIDs:          []uuid.UUID{openingInputID},
+			SourceModelCallContextID: work.ModelCallContextID, SourceModelOutputID: work.SourceModelOutputID,
+		})
+		require.NoError(t, err)
+		require.True(t, prepared.Claim.Claimed)
+		contextID = prepared.Claim.Context.ID
+	}
+	recordOtelTestOutput(t, fixture, contextID, modelenvelope.StopReasonEndTurn,
+		modelenvelope.ResponsePart{Type: "text", Text: "done"})
+
+	turn, err := store.LoadTurnTrace(ctx, testProjectID, fixture.AgentID, turnID)
+	require.NoError(t, err)
+	require.True(t, turn.ContentTruncated)
+	spans := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	input, ok := spans.At(0).Attributes().Get("gen_ai.input.messages")
+	require.True(t, ok)
+	require.Contains(t, input.AsString(), "opening-survives")
+}
+
 func TestOtelExporterConfigChangeDefersTurnExport(t *testing.T) {
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "otel_config_defer")
