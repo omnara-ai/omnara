@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -261,6 +262,8 @@ func TestPrepareCurrentHostedOpenAIModels(t *testing.T) {
 			}
 			var payload struct {
 				Model               string               `json:"model"`
+				Stream              bool                 `json:"stream"`
+				N                   int                  `json:"n"`
 				User                string               `json:"user"`
 				MaxCompletionTokens int                  `json:"max_completion_tokens"`
 				Reasoning           chatReasoning        `json:"reasoning"`
@@ -271,7 +274,8 @@ func TestPrepareCurrentHostedOpenAIModels(t *testing.T) {
 			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
 				t.Fatalf("decode payload: %v", err)
 			}
-			if payload.Model != slug || payload.User != "omnara-model-catalog-smoke" ||
+			if payload.Model != slug || !payload.Stream || payload.N != 1 ||
+				payload.User != "omnara-model-catalog-smoke" ||
 				payload.MaxCompletionTokens != 65_536 || payload.Reasoning.Effort != "medium" {
 				t.Fatalf("unexpected model controls: %s", prepared.Body)
 			}
@@ -279,9 +283,10 @@ func TestPrepareCurrentHostedOpenAIModels(t *testing.T) {
 				payload.Tools[0].Function.Strict == nil || *payload.Tools[0].Function.Strict {
 				t.Fatalf("unexpected tool controls: %s", prepared.Body)
 			}
-			if len(payload.Messages) != 3 || string(payload.Messages[1]) != string(assistant) {
-				t.Fatalf("assistant/tool reasoning replay changed: %s", prepared.Body)
+			if len(payload.Messages) != 3 {
+				t.Fatalf("expected user, assistant, and tool result messages: %s", prepared.Body)
 			}
+			require.JSONEq(t, string(assistant), string(payload.Messages[1]))
 		})
 	}
 }
