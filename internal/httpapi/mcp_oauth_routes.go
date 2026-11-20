@@ -412,7 +412,7 @@ func (s *Server) saveMCPOAuthSecret(
 		flowData.SecretName,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
-		metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata, flow.EndpointURL)
+		metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -438,7 +438,7 @@ func (s *Server) saveMCPOAuthSecret(
 	if existing.Kind != secretstore.SecretKindOAuthTokenSet {
 		return uuid.Nil, fmt.Errorf("secret %q already exists with kind %q", flowData.SecretName, existing.Kind)
 	}
-	metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata, flow.EndpointURL)
+	metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -456,17 +456,15 @@ func (s *Server) saveMCPOAuthSecret(
 }
 
 // mcpOAuthSecretMetadata merges the flow's metadata for the saved secret:
-// mcp_url and provided pairs always win, then existing pairs are kept in
+// provided pairs always win, then existing pairs other than mcp_url are kept in
 // sorted key order while they fit the metadata limits, so re-authorizing
 // never fails on metadata carried over from the stored secret.
 func mcpOAuthSecretMetadata(
 	existing json.RawMessage,
 	provided resourcemeta.Metadata,
-	mcpURL string,
 ) (resourcemeta.Metadata, error) {
 	metadata := resourcemeta.Metadata{}
 	maps.Copy(metadata, provided)
-	metadata[secrets.KeyMCPURL] = mcpURL
 	if len(existing) == 0 {
 		return metadata, nil
 	}
@@ -478,7 +476,7 @@ func mcpOAuthSecretMetadata(
 		if len(metadata) >= resourcemeta.MaxEntries {
 			break
 		}
-		if _, ok := metadata[key]; ok {
+		if _, ok := metadata[key]; ok || key == secrets.KeyMCPURL {
 			continue
 		}
 		if resourcemeta.ValidateEntry(key, decoded[key]) != nil {

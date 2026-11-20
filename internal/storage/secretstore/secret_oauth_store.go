@@ -114,6 +114,16 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	); err != nil {
 		return SecretRecord{}, fmt.Errorf("set secret current version: %w", err)
 	}
+	if metadata, ok := mirroredStoredMetadata(secret, material.Payload[secrets.KeyMCPURL]); ok {
+		if _, err := qtx.UpdateSecretMetadata(ctx, dbsqlc.UpdateSecretMetadataParams{
+			OrgID:    input.Lease.OrgID,
+			ID:       input.Lease.SecretID,
+			Name:     secret.Name,
+			Metadata: metadata,
+		}); err != nil {
+			return SecretRecord{}, fmt.Errorf("update rotated oauth secret metadata: %w", err)
+		}
+	}
 	updated, err := getSecretTx(ctx, qtx, input.Lease.OrgID, input.Lease.SecretID)
 	if err != nil {
 		return SecretRecord{}, err
