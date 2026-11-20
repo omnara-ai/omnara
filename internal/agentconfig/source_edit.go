@@ -16,10 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	ErrInvalidEdit  = errors.New("invalid agent config edit")
-	errEditTooLarge = errors.New("edited config too large")
-)
+var ErrInvalidEdit = errors.New("invalid agent config edit")
 
 const maxEditedSourceBytes = 1024 * 1024
 
@@ -51,13 +48,9 @@ func ApplyEdits(format SourceFormat, source string, edits []Edit) (EditResult, e
 		return EditResult{}, err
 	}
 	limit := max(maxEditedSourceBytes, len(source))
-	budget := limit
 	outcomes := make([]string, len(edits))
 	for i, edit := range edits {
-		outcome, err := apply(after, edit, &budget)
-		if errors.Is(err, errEditTooLarge) {
-			err = fmt.Errorf("%w: text replacements would add more than %d bytes", ErrInvalidEdit, limit)
-		}
+		outcome, err := apply(after, edit, limit)
 		if err != nil {
 			return EditResult{}, fmt.Errorf("edit %d: %w", i, err)
 		}
@@ -104,7 +97,7 @@ func jsonValue(raw []byte) (any, error) {
 	return value, err
 }
 
-func apply(root map[string]any, edit Edit, budget *int) (string, error) {
+func apply(root map[string]any, edit Edit, limit int) (string, error) {
 	keys, err := parsePointer(edit.Path)
 	if err != nil {
 		return "", err
@@ -143,7 +136,7 @@ func apply(root map[string]any, edit Edit, budget *int) (string, error) {
 	var outcome string
 	switch edit.Type {
 	case "replace_text":
-		updated, outcome, err = replaceText(target, edit, budget)
+		updated, outcome, err = replaceText(root, target, edit, limit)
 	case "add_item", "remove_item":
 		updated, outcome, err = editItems(target, edit)
 	default:
@@ -175,7 +168,7 @@ func remove(path []any, keys []string) string {
 	return "path_not_found"
 }
 
-func replaceText(target any, edit Edit, budget *int) (any, string, error) {
+func replaceText(root map[string]any, target any, edit Edit, limit int) (any, string, error) {
 	text, ok := target.(string)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: %s is not text", ErrInvalidEdit, edit.Path)
@@ -187,12 +180,27 @@ func replaceText(target any, edit Edit, budget *int) (any, string, error) {
 	if count == 0 {
 		return nil, "text_not_found", nil
 	}
-	growth := count * (len(edit.Replace) - len(edit.Find))
-	if growth > *budget {
-		return nil, "", errEditTooLarge
+	if growth := count * (len(edit.Replace) - len(edit.Find)); growth > 0 && textSize(root)+growth > limit {
+		return nil, "", fmt.Errorf("%w: edited config would exceed %d bytes", ErrInvalidEdit, limit)
 	}
-	*budget -= growth
 	return strings.ReplaceAll(text, edit.Find, edit.Replace), "applied", nil
+}
+
+func textSize(value any) int {
+	size := 0
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			size += len(key) + textSize(item)
+		}
+	case []any:
+		for _, item := range typed {
+			size += textSize(item)
+		}
+	case string:
+		size = len(typed)
+	}
+	return size
 }
 
 func editItems(target any, edit Edit) (any, string, error) {
