@@ -210,6 +210,7 @@ func TestApplyEditsCapsConfigSize(t *testing.T) {
 	}
 	_, err = ApplyEdits(SourceFormatYAML, source, acrossFields)
 	require.ErrorIs(t, err, ErrInvalidEdit)
+	require.Regexp(t, `^edit \d+: `, err.Error())
 
 	_, err = ApplyEdits(SourceFormatYAML, "instruction: x\n"+model,
 		[]Edit{setEdit("/instruction", `"`+strings.Repeat("z", maxEditedSourceBytes)+`"`)})
@@ -223,19 +224,14 @@ func TestApplyEditsCapsConfigSize(t *testing.T) {
 	grown := testutil.RequireType[string](t, decodeEditedSource(t, shrinkThenGrow.Source)["instruction"])
 	require.Len(t, grown, 900_000)
 
-	setThenGrow, err := ApplyEdits(SourceFormatYAML, "instruction: "+strings.Repeat("a", 950_000)+"\n"+model, []Edit{
-		setEdit("/instruction", `"x"`),
-		{Type: "replace_text", Path: "/instruction", Find: "x", Replace: strings.Repeat("b", 500_000)},
+	expandRemoveExpand, err := ApplyEdits(SourceFormatYAML, "instruction: x\n"+model+
+		"tools:\n  a:\n    type: custom\n    description: a\n  b:\n    type: custom\n    description: b\n", []Edit{
+		{Type: "replace_text", Path: "/tools/a/description", Find: "a", Replace: strings.Repeat("a", 600_000)},
+		{Type: "remove", Path: "/tools/a"},
+		{Type: "replace_text", Path: "/tools/b/description", Find: "b", Replace: strings.Repeat("b", 600_000)},
 	})
 	require.NoError(t, err)
-	require.True(t, setThenGrow.Changed)
-	removeThenGrow, err := ApplyEdits(SourceFormatYAML, "instruction: "+strings.Repeat("a", 300_000)+"\n"+model+
-		"tools:\n  big:\n    type: custom\n    description: "+strings.Repeat("d", 600_000)+"\n", []Edit{
-		{Type: "remove", Path: "/tools/big"},
-		{Type: "replace_text", Path: "/instruction", Find: "a", Replace: "aaa"},
-	})
-	require.NoError(t, err)
-	require.True(t, removeThenGrow.Changed)
+	require.True(t, expandRemoveExpand.Changed)
 
 	oversized := "instruction: " + strings.Repeat("a", maxEditedSourceBytes) + "\n" + model
 	shrunk, err := ApplyEdits(SourceFormatYAML, oversized,
