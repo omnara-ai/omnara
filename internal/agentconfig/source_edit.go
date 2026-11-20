@@ -102,7 +102,11 @@ func apply(root map[string]any, edit Edit, limit int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	removes := edit.Type == "remove" || edit.Type == "remove_item"
 	path, found := walk(root, keys[:len(keys)-1], edit.Type == "set")
+	if !found && removes && len(keys) == 2 {
+		return "unchanged", nil
+	}
 	if !found {
 		return "path_not_found", nil
 	}
@@ -115,19 +119,30 @@ func apply(root map[string]any, edit Edit, limit int) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		var old any
+		had := false
+		switch typed := parent.(type) {
+		case map[string]any:
+			old, had = typed[key]
+		case []any:
+			if i, ok := index(typed, key); ok {
+				old, had = typed[i], true
+			}
+		}
 		if !setChild(parent, key, value) {
 			return "path_not_found", nil
+		}
+		if had && reflect.DeepEqual(old, value) {
+			return "unchanged", nil
 		}
 		return "applied", nil
 	}
 	target, found := child(parent, key)
-	if !found && len(path) == 1 {
-		switch edit.Type {
-		case "add_item":
-			target, found = []any{}, true
-		case "remove_item":
-			return "item_not_found", nil
-		}
+	if !found && edit.Type == "add_item" && len(path) == 1 {
+		target, found = []any{}, true
+	}
+	if !found && removes {
+		return "unchanged", nil
 	}
 	if !found {
 		return "path_not_found", nil
@@ -153,7 +168,7 @@ func remove(path []any, keys []string) string {
 	switch parent := path[len(path)-1].(type) {
 	case map[string]any:
 		if _, exists := parent[key]; !exists {
-			return "path_not_found"
+			return "unchanged"
 		}
 		delete(parent, key)
 		return "applied"
@@ -183,7 +198,10 @@ func replaceText(root map[string]any, target any, edit Edit, limit int) (any, st
 	if growth := count * (len(edit.Replace) - len(edit.Find)); growth > 0 && textSize(root)+growth > limit {
 		return nil, "", fmt.Errorf("%w: edited config would exceed %d bytes", ErrInvalidEdit, limit)
 	}
-	return strings.ReplaceAll(text, edit.Find, edit.Replace), "applied", nil
+	if replaced := strings.ReplaceAll(text, edit.Find, edit.Replace); replaced != text {
+		return replaced, "applied", nil
+	}
+	return nil, "unchanged", nil
 }
 
 func textSize(value any) int {
@@ -215,12 +233,12 @@ func editItems(target any, edit Edit) (any, string, error) {
 	match := func(item any) bool { return reflect.DeepEqual(item, value) }
 	if edit.Type == "add_item" {
 		if slices.ContainsFunc(list, match) {
-			return nil, "item_exists", nil
+			return nil, "unchanged", nil
 		}
 		return append(list, value), "applied", nil
 	}
 	if !slices.ContainsFunc(list, match) {
-		return nil, "item_not_found", nil
+		return nil, "unchanged", nil
 	}
 	return slices.DeleteFunc(list, match), "applied", nil
 }

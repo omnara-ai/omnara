@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +27,7 @@ type agentConfigEditRequest struct {
 	project        identitystore.ProjectRecord
 	principal      identitystore.PrincipalRecord
 	edits          []agentconfig.Edit
+	allowPartial   bool
 	rolloutKey     string
 	deleteMachines []executionstore.MachineRecord
 }
@@ -146,7 +149,8 @@ func (s strictOpenAPIServer) EditAgentConfigs(
 		targets = targets[:limit]
 	}
 	edit := &agentConfigEditRequest{
-		project: scope.project, principal: principal, edits: edits, rolloutKey: position.Rollout,
+		project: scope.project, principal: principal, edits: edits, allowPartial: body.AllowPartialEdits,
+		rolloutKey: position.Rollout,
 	}
 	defer func() { s.server.startPoolMachineDeletion(ctx, edit.deleteMachines) }()
 	response := openapi.EditAgentConfigs200JSONResponse{
@@ -162,6 +166,13 @@ func (s strictOpenAPIServer) EditAgentConfigs(
 		}
 		if err != nil {
 			return nil, err
+		}
+		if result.Status != openapi.AgentConfigEditResultStatusUpdated && result.Edits != nil {
+			for i, outcome := range *result.Edits {
+				if outcome == openapi.AgentConfigEditResultEditsApplied {
+					(*result.Edits)[i] = openapi.AgentConfigEditResultEditsNotApplied
+				}
+			}
 		}
 		response.Data = append(response.Data, result)
 	}
@@ -364,13 +375,22 @@ func (s strictOpenAPIServer) editedAgentConfig(
 		return agentconfigcompile.Body{}, false, err
 	}
 	outcomes := make([]openapi.AgentConfigEditResultEdits, len(edited.Edits))
+	var missed []int
 	for i, outcome := range edited.Edits {
 		outcomes[i] = openapi.AgentConfigEditResultEdits(outcome)
+		if outcome == "text_not_found" || outcome == "path_not_found" {
+			missed = append(missed, i)
+		}
 	}
 	result.Edits = &outcomes
 	if !edited.Changed {
 		result.Status = openapi.AgentConfigEditResultStatusUnchanged
 		result.CurrentConfigId, err = idOrNil(publicid.KindAgentConfig, config.ID)
+		return agentconfigcompile.Body{}, false, err
+	}
+	if len(missed) > 0 && !edit.allowPartial {
+		*result, err = agentConfigEditFailed(*result,
+			apierror.FromCode(openapi.ErrorCodeEditConflict, agentConfigEditConflictMessage(missed)))
 		return agentconfigcompile.Body{}, false, err
 	}
 	compiled, err := agentconfigcompile.Compile(
@@ -411,6 +431,18 @@ func agentConfigEditFailed(result openapi.AgentConfigEditResult, err error) (ope
 	result.Status = openapi.AgentConfigEditResultStatusFailed
 	result.Code, result.Error = &responseErr.Code, &responseErr.Message
 	return result, nil
+}
+
+func agentConfigEditConflictMessage(missed []int) string {
+	edits := make([]string, len(missed))
+	for i, index := range missed {
+		edits[i] = strconv.Itoa(index)
+	}
+	subject := "edit " + edits[0]
+	if last := len(edits) - 1; last > 0 {
+		subject = "edits " + strings.Join(edits[:last], ", ") + " and " + edits[last]
+	}
+	return subject + " didn't match this config, so nothing was saved; set allow_partial_edits to save the other edits"
 }
 
 func agentConfigEditKey(key, targetID string) string {

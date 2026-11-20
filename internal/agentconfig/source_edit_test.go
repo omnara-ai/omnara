@@ -53,12 +53,17 @@ func TestApplyEditsOutcomes(t *testing.T) {
 		},
 		{"text not found", Edit{Type: "replace_text", Path: "/instruction", Find: "missing"}, "text_not_found", false},
 		{
+			"replace text with itself",
+			Edit{Type: "replace_text", Path: "/instruction", Find: "Be direct.", Replace: "Be direct."},
+			"unchanged", false,
+		},
+		{
 			"replace text missing path",
 			Edit{Type: "replace_text", Path: "/mcp/linear/url", Find: "a"},
 			"path_not_found", false,
 		},
 		{"set existing", setEdit("/model/name", `"gpt-next"`), "applied", true},
-		{"set same value", setEdit("/model/name", `"gpt-test"`), "applied", false},
+		{"set same value", setEdit("/model/name", `"gpt-test"`), "unchanged", false},
 		{"set new key", setEdit("/tools/web_fetch", `{}`), "applied", true},
 		{
 			"set creates missing top-level section",
@@ -73,13 +78,21 @@ func TestApplyEditsOutcomes(t *testing.T) {
 		{"set list index", setEdit("/skills/1", `"skl_three"`), "applied", true},
 		{"set past list end", setEdit("/skills/2", `"skl_three"`), "path_not_found", false},
 		{"remove existing", Edit{Type: "remove", Path: "/tools/web_search"}, "applied", true},
-		{"remove missing", Edit{Type: "remove", Path: "/tools/web_fetch"}, "path_not_found", false},
+		{"remove missing", Edit{Type: "remove", Path: "/tools/web_fetch"}, "unchanged", false},
+		{"remove in missing section", Edit{Type: "remove", Path: "/mcp/linear"}, "unchanged", false},
+		{"remove in missing tool", Edit{Type: "remove", Path: "/tools/web_fetch/permission"}, "path_not_found", false},
+		{"remove past list end", Edit{Type: "remove", Path: "/skills/2"}, "path_not_found", false},
 		{"add item", Edit{Type: "add_item", Path: "/skills", Value: json.RawMessage(`"skl_three"`)}, "applied", true},
-		{"add existing item", Edit{Type: "add_item", Path: "/skills", Value: json.RawMessage(`"skl_one"`)}, "item_exists", false},
+		{"add existing item", Edit{Type: "add_item", Path: "/skills", Value: json.RawMessage(`"skl_one"`)}, "unchanged", false},
 		{"add item creates missing top-level list", Edit{Type: "add_item", Path: "/memory_stores", Value: json.RawMessage(`{"name":"notes","access":"read"}`)}, "applied", true},
 		{"remove item", Edit{Type: "remove_item", Path: "/skills", Value: json.RawMessage(`"skl_one"`)}, "applied", true},
-		{"remove missing item", Edit{Type: "remove_item", Path: "/skills", Value: json.RawMessage(`"skl_three"`)}, "item_not_found", false},
-		{"remove item from missing list", Edit{Type: "remove_item", Path: "/memory_stores", Value: json.RawMessage(`"x"`)}, "item_not_found", false},
+		{"remove missing item", Edit{Type: "remove_item", Path: "/skills", Value: json.RawMessage(`"skl_three"`)}, "unchanged", false},
+		{"remove item from missing list", Edit{Type: "remove_item", Path: "/memory_stores", Value: json.RawMessage(`"x"`)}, "unchanged", false},
+		{
+			"remove item in missing tool",
+			Edit{Type: "remove_item", Path: "/tools/web_fetch/list", Value: json.RawMessage(`"x"`)},
+			"path_not_found", false,
+		},
 		{"replace text in null", Edit{Type: "replace_text", Path: "/mcp", Find: "a"}, "path_not_found", false},
 	}
 	for _, tt := range tests {
@@ -261,7 +274,7 @@ func TestApplyEditsHandlesNullListItems(t *testing.T) {
 	require.Equal(t, []string{"applied"}, added.Edits)
 	again, err := ApplyEdits(SourceFormatYAML, added.Source, []Edit{addNull})
 	require.NoError(t, err)
-	require.Equal(t, []string{"item_exists"}, again.Edits)
+	require.Equal(t, []string{"unchanged"}, again.Edits)
 	removed, err := ApplyEdits(SourceFormatYAML, added.Source,
 		[]Edit{{Type: "remove_item", Path: path, Value: json.RawMessage(`null`)}})
 	require.NoError(t, err)
@@ -339,7 +352,7 @@ func TestApplyEditsComparesNumbersByValue(t *testing.T) {
 		setEdit("/max_subagents", `2.0`),
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"applied", "item_exists", "applied"}, result.Edits)
+	require.Equal(t, []string{"applied", "unchanged", "unchanged"}, result.Edits)
 	require.Equal(t, []any{2}, testutil.RequireType[map[string]any](t,
 		testutil.RequireType[map[string]any](t, decodeEditedSource(t, result.Source)["tools"])["pick"])["enum"])
 }
