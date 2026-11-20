@@ -280,7 +280,8 @@ export const zErrorCode = z.enum([
     'daemon_runtime_unregistered',
     'validation_failed',
     'csrf_check_failed',
-    'authentication_unavailable'
+    'authentication_unavailable',
+    'edit_conflict'
 ]);
 
 /**
@@ -1114,7 +1115,8 @@ export const zEditAgentConfigsRequest = z.intersection(z.union([
     agent_profile_ids: z.array(zAgentProfileId).min(1).max(1000).optional(),
     agent_ids: z.array(zAgentId).min(1).max(1000).optional(),
     apply_to: z.array(z.enum(['profile', 'agent'])).min(1).optional(),
-    edits: z.array(zAgentConfigEdit).min(1).max(100)
+    edits: z.array(zAgentConfigEdit).min(1).max(100),
+    allow_partial_edits: z.boolean().optional().default(false)
 }));
 
 export const zAgentConfigEditResult = z.object({
@@ -1131,10 +1133,10 @@ export const zAgentConfigEditResult = z.object({
     current_generation: z.int().optional(),
     edits: z.array(z.enum([
         'applied',
+        'unchanged',
         'text_not_found',
         'path_not_found',
-        'item_not_found',
-        'item_exists'
+        'not_applied'
     ])).optional(),
     code: zErrorCode.optional(),
     error: z.string().optional()

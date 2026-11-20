@@ -10418,6 +10418,7 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+            - edit_conflict
     ErrorCode:
       type: string
       description: Known error codes.
@@ -10451,6 +10452,7 @@ components:
         - validation_failed
         - csrf_check_failed
         - authentication_unavailable
+        - edit_conflict
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -10471,6 +10473,7 @@ components:
         - agent_backlog_full
         - state_transition_conflict
         - tool_call_already_completed
+        - edit_conflict
         - pending_work
         - not_wake_capable
         - gone
@@ -12318,6 +12321,13 @@ components:
           maxItems: 100
           items:
             $ref: '#/components/schemas/AgentConfigEdit'
+        allow_partial_edits:
+          type: boolean
+          default: false
+          x-go-type-skip-optional-pointer: true
+          description: >-
+            When false, a target where some edits miss (text_not_found or path_not_found) while others
+            apply is left unchanged and fails with edit_conflict.
     AgentConfigEditPath:
       description: >-
         JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null
@@ -12440,6 +12450,7 @@ components:
         agent_id:
           $ref: '#/components/schemas/AgentID'
         status:
+          description: unchanged also covers targets where no edit matched.
           type: string
           enum: [updated, unchanged, failed]
         previous_config_id:
@@ -12450,12 +12461,13 @@ components:
           type: integer
         edits:
           description: >-
-            One entry per request edit, in order. Omitted for replayed results and for targets that
-            failed before all edits ran.
+            One entry per request edit, in order. unchanged means the edit was already satisfied;
+            not_applied means it would have changed a target that wasn't saved. Omitted for replayed
+            results and for targets that failed before all edits ran.
           type: array
           items:
             type: string
-            enum: [applied, text_not_found, path_not_found, item_not_found, item_exists]
+            enum: [applied, unchanged, text_not_found, path_not_found, not_applied]
         code:
           $ref: '#/components/schemas/ErrorCode'
         error:

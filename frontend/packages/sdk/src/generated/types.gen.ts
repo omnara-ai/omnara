@@ -505,7 +505,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'path_not_found' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'path_not_found' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable' | 'edit_conflict';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -1746,6 +1746,10 @@ export type EditAgentConfigsRequest = ({
      * Applied in order.
      */
     edits: Array<AgentConfigEdit>;
+    /**
+     * When false, a target where some edits miss (text_not_found or path_not_found) while others apply is left unchanged and fails with edit_conflict.
+     */
+    allow_partial_edits?: boolean;
 };
 
 /**
@@ -1818,14 +1822,17 @@ export type AgentConfigEditResult = {
     type: 'profile' | 'agent';
     agent_profile_id?: AgentProfileId;
     agent_id?: AgentId;
+    /**
+     * unchanged also covers targets where no edit matched.
+     */
     status: 'updated' | 'unchanged' | 'failed';
     previous_config_id?: AgentConfigId;
     current_config_id?: AgentConfigId;
     current_generation?: number;
     /**
-     * One entry per request edit, in order. Omitted for replayed results and for targets that failed before all edits ran.
+     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results and for targets that failed before all edits ran.
      */
-    edits?: Array<'applied' | 'text_not_found' | 'path_not_found' | 'item_not_found' | 'item_exists'>;
+    edits?: Array<'applied' | 'unchanged' | 'text_not_found' | 'path_not_found' | 'not_applied'>;
     code?: ErrorCode;
     error?: string;
 };

@@ -69,9 +69,9 @@ func TestEditAgentConfigs(t *testing.T) {
 		return testutil.RequireType[string](t, config["source"])
 	}
 
-	body := `{"agent_profile_ids":["` + profileID + `"],"agent_ids":["` + shared + `"],"edits":[` +
-		`{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"Be direct and kind."},` +
-		`{"type":"set","path":"/model/cache_retention","value":"long"}]}`
+	edits := `"edits":[{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"Be direct and kind."},` +
+		`{"type":"set","path":"/model/cache_retention","value":"long"}]`
+	body := `{"agent_profile_ids":["` + profileID + `"],"agent_ids":["` + shared + `"],` + edits + `}`
 	response := edit("", body, "", http.StatusOK)
 	require.Nil(t, response["next_cursor"])
 	data := results(response)
@@ -79,14 +79,26 @@ func TestEditAgentConfigs(t *testing.T) {
 	require.Equal(t, []any{"profile", profileID, "updated", float64(2)},
 		[]any{data[0]["type"], data[0]["agent_profile_id"], data[0]["status"], data[0]["current_generation"]})
 	require.Equal(t, configID, data[0]["previous_config_id"])
-	for i, agentID := range []string{shared, personal, other} {
+	for i, agentID := range []string{shared, personal} {
 		require.Equal(t, []any{"agent", agentID, "updated"},
 			[]any{data[i+1]["type"], data[i+1]["agent_id"], data[i+1]["status"]})
 	}
 	require.Equal(t, []any{"applied", "applied"}, data[1]["edits"])
-	require.Equal(t, []any{"text_not_found", "applied"}, data[3]["edits"])
 	require.Contains(t, source(testutil.RequireType[string](t, data[2]["current_config_id"])),
 		"Hi Maya. Be direct and kind.")
+	require.Equal(t, []any{other, "failed", "edit_conflict", []any{"text_not_found", "not_applied"},
+		"edit conflict: edit 0 didn't match this config, so nothing was saved; " +
+			"set allow_partial_edits to save the other edits"},
+		[]any{data[3]["agent_id"], data[3]["status"], data[3]["code"], data[3]["edits"], data[3]["error"]})
+	missed := results(edit("", `{"agent_ids":["`+other+`"],"edits":[`+
+		`{"type":"replace_text","path":"/instruction","find":"a","replace":"b"},`+
+		`{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"x"},`+
+		`{"type":"remove","path":"/tools/gone/permission"}]}`, "", http.StatusOK))
+	require.Equal(t, "edit conflict: edits 1 and 2 didn't match this config, so nothing was saved; "+
+		"set allow_partial_edits to save the other edits", missed[0]["error"])
+	partial := results(edit("", `{"agent_ids":["`+other+`"],"allow_partial_edits":true,`+edits+`}`, "", http.StatusOK))
+	require.Equal(t, []any{"updated", []any{"text_not_found", "applied"}},
+		[]any{partial[0]["status"], partial[0]["edits"]})
 
 	for _, result := range results(edit("", body, "", http.StatusOK)) {
 		require.Equal(t, "unchanged", result["status"])
@@ -116,6 +128,9 @@ func TestEditAgentConfigs(t *testing.T) {
 		}
 	}
 	require.Equal(t, []any{profileID, shared, personal, other}, walk(body))
+	firstPage := edit("?limit=1", body, "", http.StatusOK)
+	edit("?limit=1&cursor="+url.QueryEscape(testutil.RequireType[string](t, firstPage["next_cursor"])),
+		`{"allow_partial_edits":true,`+body[1:], "", http.StatusBadRequest)
 	firstAgents, secondAgents := []any{shared, personal, other}, []any{secondEarly, secondLate}
 	if testPublicIDOrder(t, publicid.KindAgentProfile, secondProfileID, profileID) {
 		firstAgents, secondAgents = secondAgents, firstAgents
@@ -178,7 +193,8 @@ func TestEditAgentConfigs(t *testing.T) {
 	require.Equal(t, "updated", nulled[0]["status"])
 	nullItem := results(edit("", `{"agent_ids":["`+shared+`"],"edits":[`+
 		`{"type":"add_item","path":"/skills","value":null}]}`, "", http.StatusOK))
-	require.Equal(t, []any{"failed", "invalid_request"}, []any{nullItem[0]["status"], nullItem[0]["code"]})
+	require.Equal(t, []any{"failed", "invalid_request", []any{"not_applied"}},
+		[]any{nullItem[0]["status"], nullItem[0]["code"], nullItem[0]["edits"]})
 
 	missing := testPublicID(t, publicid.KindAgent, httpTestID("agent-config-edit-missing"))
 	setShort := `"edits":[{"type":"set","path":"/model/cache_retention","value":"short"}]`

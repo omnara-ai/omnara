@@ -47,6 +47,7 @@ var definitions = map[openapi.ErrorCode]definition{
 		"daemon runtime is no longer registered for this machine",
 	},
 	openapi.ErrorCodeToolCallAlreadyCompleted:  {http.StatusConflict, "tool call already completed"},
+	openapi.ErrorCodeEditConflict:              {http.StatusConflict, "edit conflict"},
 	openapi.ErrorCodeValidationFailed:          {http.StatusBadRequest, "validation failed"},
 	openapi.ErrorCodeCsrfCheckFailed:           {http.StatusForbidden, "csrf check failed"},
 	openapi.ErrorCodeAuthenticationUnavailable: {http.StatusServiceUnavailable, "authentication unavailable"},
