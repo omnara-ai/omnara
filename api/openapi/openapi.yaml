@@ -16043,7 +16043,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [agent37, arker, docker, freestyle, modal, tenki, unikraft]
+                  enum: [agent37, arker, docker, freestyle, groundbox, modal, tenki, unikraft]
                 default_machine_cpu:
                   type: integer
                   format: int32

@@ -34,6 +34,11 @@ func TestSleepPlatformSelection(t *testing.T) {
 	if err != nil || arker != (controlFileSleepPlatform{controlPath: daemonprotocol.ArkerAwakeControlFilePath}) {
 		t.Fatalf("arker sleep platform = %#v, %v", arker, err)
 	}
+	groundbox, err := newSleepPlatform(daemonprotocol.SleepPlatformGroundbox)
+	if err != nil ||
+		groundbox != (controlFileSleepPlatform{controlPath: daemonprotocol.GroundboxAwakeControlFilePath}) {
+		t.Fatalf("groundbox sleep platform = %#v, %v", groundbox, err)
+	}
 	createOS, err := newSleepPlatform(daemonprotocol.SleepPlatformCreateOS)
 	if selfPause, ok := createOS.(createOSSleepPlatform); err != nil || !ok ||
 		selfPause.pauseURL != daemonprotocol.CreateOSSelfPauseURL {

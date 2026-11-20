@@ -316,6 +316,25 @@ const agent37: MachinePoolProviderDefinition = {
   },
 }
 
+const groundbox: MachinePoolProviderDefinition = {
+  label: 'Groundbox',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'my-template',
+    optional: true,
+    description:
+      "Leave empty to use your Groundbox team's default template, or Groundbox's Ubuntu 24.04 image with git, Node.js, Python, and Docker. Machines have 1 to 16 vCPU and up to 4 GB of memory per vCPU, in whole GB.",
+    descriptionHref: 'https://groundbox.dev/docs/templates',
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 const docker: MachinePoolProviderDefinition = {
   label: 'Docker',
   resource: {
@@ -356,6 +375,7 @@ export const machinePoolProviderDefinitions = {
   e2b,
   superserve,
   agent37,
+  groundbox,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

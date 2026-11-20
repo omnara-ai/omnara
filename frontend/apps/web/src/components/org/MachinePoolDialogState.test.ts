@@ -844,6 +844,7 @@ it('lists providers alphabetically', () => {
     'Docker',
     'E2B',
     'Freestyle',
+    'Groundbox',
     'Modal',
     'Superserve',
     'Tenki',
