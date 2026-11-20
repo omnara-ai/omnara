@@ -20,6 +20,7 @@ import (
 )
 
 type githubRepositoryPayload struct {
+	ID       int64  `json:"id"`
 	FullName string `json:"full_name"`
 }
 
@@ -113,7 +114,8 @@ func githubRepositoryPage(
 		result.OffsetPage = listing.ContinueAt(offset+end-start, true)
 	}
 	for _, repository := range window[start:end] {
-		result.Repositories = append(result.Repositories, githubRepositoryPayload{FullName: repository.FullName})
+		result.Repositories = append(result.Repositories,
+			githubRepositoryPayload{ID: repository.ID, FullName: repository.FullName})
 	}
 	return result
 }

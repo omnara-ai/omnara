@@ -27,6 +27,7 @@ type GitHubCheckRun struct {
 	Done          bool
 	Restart       bool
 	Unfinished    bool
+	Eligible      bool
 	revision      int64
 }
 
@@ -101,7 +102,7 @@ func (s *Store) ListGitHubCheckRuns(
 				Kind: storeutil.TextOrEmpty(state.ScopeKind), Ref: storeutil.TextOrEmpty(state.ScopeRef),
 			},
 			Run: data.Run, Waiting: data.Waiting, Done: data.Done, Restart: data.Restart, Unfinished: data.Claim != "",
-			revision: state.Revision,
+			Eligible: state.Eligible, revision: state.Revision,
 		})
 	}
 	return runs, nil

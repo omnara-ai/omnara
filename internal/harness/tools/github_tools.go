@@ -13,11 +13,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
+type githubTargetInput struct {
+	RepositoryID int64 `json:"repository_id,omitempty"`
+	PullRequest  int   `json:"pull_request,omitempty"`
+}
+
 type githubReadInput struct {
+	githubTargetInput
 	Section  string `json:"section,omitempty"`
 	Page     int    `json:"page,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
@@ -26,33 +33,40 @@ type githubReadInput struct {
 }
 
 type githubDiscussionInput struct {
+	githubTargetInput
 	Body string `json:"body"`
 }
 
 type githubReviewCommentInput struct {
+	githubTargetInput
 	github.ReviewCommentArgs
 	ReviewID int64 `json:"review_id,omitempty"`
 }
 
 type githubStartReviewInput struct {
+	githubTargetInput
 	CommitID string `json:"commit_id"`
 }
 
 type githubSubmitReviewInput struct {
+	githubTargetInput
 	ReviewID int64  `json:"review_id"`
 	Body     string `json:"body"`
 }
 
 type githubDiscardReviewInput struct {
+	githubTargetInput
 	ReviewID int64 `json:"review_id"`
 }
 
 type githubReplyInput struct {
+	githubTargetInput
 	CommentID int64  `json:"comment_id"`
 	Body      string `json:"body"`
 }
 
 type githubResolveThreadInput struct {
+	githubTargetInput
 	ReviewThreadID string `json:"review_thread_id"`
 }
 
@@ -62,8 +76,11 @@ func runGitHubTool(
 	record executionstore.ToolCallRecord,
 	access integrationToolAccess,
 ) (asyncPhaseResult, error) {
-	if access.Authority.Definition.Operation == toolcatalog.IntegrationOperationAssignPullRequest {
-		return runGitHubAssignPullRequest(ctx, call, record, access)
+	switch access.Authority.Definition.Operation {
+	case toolcatalog.IntegrationOperationAttachPullRequest, toolcatalog.IntegrationOperationDetachPullRequest:
+		return runGitHubAttachment(ctx, call, record, access)
+	case toolcatalog.IntegrationOperationListAttachedPullRequests:
+		return listGitHubAttachedPullRequests(ctx, call, record, access)
 	}
 	address := access.Conversation.GitHub
 	if address == nil {
@@ -195,45 +212,41 @@ func runGitHubTool(
 	return completeAsynchronously(content), nil
 }
 
-func runGitHubAssignPullRequest(
+func runGitHubAttachment(
 	ctx context.Context,
 	call asyncToolContext,
 	record executionstore.ToolCallRecord,
 	access integrationToolAccess,
 ) (asyncPhaseResult, error) {
 	var input integrationdefinition.GitHubScope
-	if err := decodeSingleStrictJSON(record.Input, &input, "GitHub assign pull request"); err != nil {
+	if err := decodeSingleStrictJSON(record.Input, &input, record.Name); err != nil {
 		return integrationToolFailure(err)
 	}
-	siblings, err := call.Executor.Store.Execution().
-		ListSiblingToolCallNames(ctx, call.Turn.ProjectID, call.Turn.AgentID, record.ID)
-	if err != nil {
-		return nil, err
+	attachment := integrationstore.AgentConversationInput{
+		CreateIntegrationSubscriptionInput: integrationstore.CreateIntegrationSubscriptionInput{
+			OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, IntegrationID: access.Integration.ID,
+			AgentID: call.Turn.AgentID, Conversation: record.Input,
+		},
+		ExpectedConfigID: access.CurrentConfigID,
+		RuntimeLockID:    call.Turn.RuntimeLockID,
 	}
-	for _, name := range siblings {
-		if integration, _, ok := toolcatalog.SplitIntegrationToolName(name); ok && integration == access.Integration.Name {
-			return integrationToolFailure(fmt.Errorf(
-				"call %s without other %s tool calls in the same response", record.Name, integration))
+	var url string
+	var err error
+	if access.Authority.Definition.Operation == toolcatalog.IntegrationOperationDetachPullRequest {
+		err = call.Executor.Store.Integrations().DetachAgentConversation(ctx, attachment)
+	} else {
+		client, clientErr := call.Executor.githubToolClient(call.Turn, record, access)
+		if clientErr != nil {
+			return integrationToolFailure(clientErr)
 		}
+		pull, pullErr := client.GetPullRequest(ctx,
+			github.Scope{RepositoryID: input.RepositoryID, PullRequest: input.PullRequest})
+		if pullErr != nil {
+			return integrationToolFailure(pullErr)
+		}
+		url = pull.HTMLURL
+		err = call.Executor.Store.Integrations().AttachAgentConversation(ctx, attachment)
 	}
-	client, err := call.Executor.githubToolClient(call.Turn, record, access)
-	if err != nil {
-		return integrationToolFailure(err)
-	}
-	pull, err := client.GetPullRequest(ctx, github.Scope{RepositoryID: input.RepositoryID, PullRequest: input.PullRequest})
-	if err != nil {
-		return integrationToolFailure(err)
-	}
-	_, err = call.Executor.Store.Integrations().CreateAssignedIntegrationSubscription(ctx,
-		integrationstore.CreateAssignedIntegrationSubscriptionInput{
-			CreateIntegrationSubscriptionInput: integrationstore.CreateIntegrationSubscriptionInput{
-				OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, IntegrationID: access.Integration.ID,
-				AgentID: call.Turn.AgentID, Conversation: record.Input,
-			},
-			DisplayName:      fmt.Sprintf("%s#%d", pull.Base.Repo.FullName, pull.Number),
-			ExpectedConfigID: access.CurrentConfigID,
-			RuntimeLockID:    call.Turn.RuntimeLockID,
-		})
 	if errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		return nil, err
 	}
@@ -251,8 +264,39 @@ func runGitHubAssignPullRequest(
 	content, err := structuredToolResultContent(struct {
 		RepositoryID int64  `json:"repository_id"`
 		PullRequest  int    `json:"pull_request"`
-		URL          string `json:"url"`
-	}{input.RepositoryID, input.PullRequest, pull.HTMLURL})
+		URL          string `json:"url,omitempty"`
+	}{input.RepositoryID, input.PullRequest, url})
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(content), nil
+}
+
+func listGitHubAttachedPullRequests(
+	ctx context.Context,
+	call asyncToolContext,
+	record executionstore.ToolCallRecord,
+	access integrationToolAccess,
+) (asyncPhaseResult, error) {
+	var input struct {
+		Offset int `json:"offset"`
+		Limit  int `json:"limit"`
+	}
+	if err := decodeSingleStrictJSON(record.Input, &input, record.Name); err != nil {
+		return integrationToolFailure(err)
+	}
+	if input.Limit == 0 {
+		input.Limit = toolcatalog.ListAttachedPullRequestsDefaultLimit
+	}
+	pullRequests, err := call.Executor.listAgentGitHubPullRequests(ctx, call.Turn, access.Integration)
+	if err != nil {
+		return nil, err
+	}
+	start, end := min(input.Offset, len(pullRequests)), listing.PageEnd(input.Offset, input.Limit, len(pullRequests))
+	content, err := structuredToolResultContent(struct {
+		PullRequests []integrationdefinition.GitHubScope `json:"pull_requests"`
+		listing.OffsetPage
+	}{pullRequests[start:end], listing.ContinueAt(end, end < len(pullRequests))})
 	if err != nil {
 		return nil, err
 	}

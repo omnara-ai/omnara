@@ -57,11 +57,11 @@ func TestStandaloneIntegrationToolAccessAndRevocation(t *testing.T) {
 			executor := Executor{Store: f.Store}
 			access, err := executor.resolveIntegrationToolAuthority(ctx, f.turn(), record)
 			require.NoError(t, err, "integration authority does not depend on a launcher or subscription")
-			_, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access)
+			_, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access, record.Input)
 			require.ErrorContains(t, err, "no assigned conversation", "shipped tools keep their conversation restriction")
 
 			access.Authority.Definition.Scope = toolcatalog.IntegrationToolScopeIntegration
-			access, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access)
+			access, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access, record.Input)
 			require.NoError(t, err)
 			require.Empty(t, access.Conversation)
 			require.NotEmpty(t, access.Credential)

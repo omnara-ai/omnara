@@ -15,7 +15,7 @@ func TestIntegrationToolScopePreparation(t *testing.T) {
 			access := integrationToolAccess{Authority: agentconfig.IntegrationToolAuthority{
 				Definition: toolcatalog.IntegrationToolDefinition{Scope: scope},
 			}}
-			conversation, err := (Executor{}).integrationToolConversation(t.Context(), Turn{}, access)
+			conversation, err := (Executor{}).integrationToolConversation(t.Context(), Turn{}, access, json.RawMessage(`{}`))
 			if scope != toolcatalog.IntegrationToolScopeIntegration {
 				require.ErrorContains(t, err, "explicit scope")
 				_, err = integrationToolPermissionSummary(access, json.RawMessage(`{}`))

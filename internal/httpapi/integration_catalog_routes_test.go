@@ -41,7 +41,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				destinationFields = []string{"repository_id", "pull_request"}
 				operations = []string{
 					"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-					"resolve_thread", "assign_pull_request",
+					"resolve_thread", "attach_pull_request", "detach_pull_request", "list_attached_pull_requests",
 				}
 			default:
 				t.Fatalf("unexpected integration %q", definition.IntegrationKind)
@@ -58,13 +58,21 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 					continue
 				}
 				for _, field := range destinationFields {
-					require.NotContains(t, properties, field, operation)
+					if kind == integrationdefinition.GitHubPR {
+						require.Contains(t, properties, field, operation)
+					} else {
+						require.NotContains(t, properties, field, operation)
+					}
 				}
 			}
 			read, err := json.Marshal(definition.Capabilities.Tools["read"].InputSchema)
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(read, json.RawMessage(`{}`)))
-			require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
+			if definition.IntegrationKind == openapi.IntegrationKindGitHubPR {
+				require.NoError(t, jsonschema.Validate(read, destination), "GitHub tools can name a pull request")
+			} else {
+				require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
+			}
 			require.NotNil(t, definition.Capabilities.Settings)
 			settingsSchema, err := json.Marshal(definition.Capabilities.Settings.InputSchema)
 			require.NoError(t, err)

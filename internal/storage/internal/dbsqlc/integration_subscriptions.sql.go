@@ -55,6 +55,31 @@ func (q *Queries) CountIntegrationConversationSubscriptions(ctx context.Context,
 	return column_1, err
 }
 
+const deleteAgentIntegrationSubscription = `-- name: DeleteAgentIntegrationSubscription :exec
+DELETE FROM integration_subscriptions
+WHERE project_id = $1 AND agent_id = $2 AND integration_id = $3
+  AND scope_kind = $4 AND scope_ref = $5
+`
+
+type DeleteAgentIntegrationSubscriptionParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
+}
+
+func (q *Queries) DeleteAgentIntegrationSubscription(ctx context.Context, arg DeleteAgentIntegrationSubscriptionParams) error {
+	_, err := q.db.Exec(ctx, deleteAgentIntegrationSubscription,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IntegrationID,
+		arg.ScopeKind,
+		arg.ScopeRef,
+	)
+	return err
+}
+
 const deleteAgentIntegrationSubscriptions = `-- name: DeleteAgentIntegrationSubscriptions :exec
 DELETE FROM integration_subscriptions WHERE project_id = $1 AND agent_id = $2
 `
@@ -293,6 +318,44 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listAgentIntegrationSubscriptions = `-- name: ListAgentIntegrationSubscriptions :many
+SELECT scope_kind, scope_ref
+FROM integration_subscriptions
+WHERE project_id = $1 AND agent_id = $2 AND integration_id = $3
+ORDER BY created_at, id
+`
+
+type ListAgentIntegrationSubscriptionsParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+}
+
+type ListAgentIntegrationSubscriptionsRow struct {
+	ScopeKind string
+	ScopeRef  string
+}
+
+func (q *Queries) ListAgentIntegrationSubscriptions(ctx context.Context, arg ListAgentIntegrationSubscriptionsParams) ([]ListAgentIntegrationSubscriptionsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentIntegrationSubscriptions, arg.ProjectID, arg.AgentID, arg.IntegrationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentIntegrationSubscriptionsRow{}
+	for rows.Next() {
+		var i ListAgentIntegrationSubscriptionsRow
+		if err := rows.Scan(&i.ScopeKind, &i.ScopeRef); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listIntegrationSubscriptions = `-- name: ListIntegrationSubscriptions :many

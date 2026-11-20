@@ -440,41 +440,6 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 	return items, nil
 }
 
-const listSiblingToolCallNames = `-- name: ListSiblingToolCallNames :many
-SELECT sibling.name
-FROM tool_calls call
-JOIN tool_calls sibling ON sibling.agent_id = call.agent_id AND sibling.model_output_id = call.model_output_id
-  AND sibling.id <> call.id
-WHERE call.project_id = $1 AND call.agent_id = $2 AND call.id = $3
-ORDER BY sibling.id
-`
-
-type ListSiblingToolCallNamesParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) ListSiblingToolCallNames(ctx context.Context, arg ListSiblingToolCallNamesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listSiblingToolCallNames, arg.ProjectID, arg.AgentID, arg.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		items = append(items, name)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,

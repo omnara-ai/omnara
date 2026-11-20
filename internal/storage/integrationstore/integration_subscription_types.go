@@ -8,7 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
-const MaxIntegrationSubscriptionsPerLaunch = 100
+const MaxIntegrationSubscriptionsPerLaunch = 16
 
 type IntegrationSubscriptionAttachment struct {
 	IntegrationID uuid.UUID       `json:"integration_id"`
@@ -34,9 +34,8 @@ type CreateIntegrationSubscriptionInput struct {
 	Conversation                             json.RawMessage
 }
 
-type CreateAssignedIntegrationSubscriptionInput struct {
+type AgentConversationInput struct {
 	CreateIntegrationSubscriptionInput
-	DisplayName      string
 	ExpectedConfigID uuid.UUID
 	RuntimeLockID    uuid.UUID
 }

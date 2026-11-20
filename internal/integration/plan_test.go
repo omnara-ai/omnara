@@ -509,12 +509,12 @@ func TestGitHubLaunchPreservesExplicitGitCredentials(t *testing.T) {
 		"a reused integration name cannot replace the profile's pinned identity")
 }
 
-func TestGitHubLaunchKeepsExplicitAssignPullRequest(t *testing.T) {
+func TestGitHubLaunchKeepsExplicitAttachPullRequest(t *testing.T) {
 	_, execution, _, integration, _ := integrationPlannerFixture(t)
 	base := execution.profile.CurrentConfig
 	integration.Provider = integrationdefinition.ProviderGitHub
 	integration.IntegrationKind, integration.Name = integrationdefinition.GitHubPR, "reviews"
-	name := toolcatalog.IntegrationToolName(integration.Name, toolcatalog.IntegrationOperationAssignPullRequest)
+	name := toolcatalog.IntegrationToolName(integration.Name, toolcatalog.IntegrationOperationAttachPullRequest)
 	derived, err := deriveIntegrationLaunchConfig(base, integration)
 	require.NoError(t, err)
 	var actual agentconfig.Compiled
@@ -533,7 +533,7 @@ func TestGitHubLaunchKeepsExplicitAssignPullRequest(t *testing.T) {
 	require.NoError(t, err)
 	actual = agentconfig.Compiled{}
 	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
-	require.Equal(t, explicit, actual.Tools[name], "a profile can opt launched agents into reassignment")
+	require.Equal(t, explicit, actual.Tools[name], "a profile can opt launched agents into attaching pull requests")
 }
 
 func TestIntegrationLaunchSubscriptionsFollowDefinition(t *testing.T) {

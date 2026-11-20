@@ -5669,7 +5669,7 @@ export type ConfigureIntegrationRequest = {
 export type IntegrationCapabilityDefinition = {
     description?: string;
     /**
-     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and, except standalone tools, use the agent's assigned conversation; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and, except standalone tools, use one of the agent's conversations; execution fails if it has none. Shipped interaction handlers use the assigned conversation and accept empty arguments.
      */
     input_schema: {
         [key: string]: unknown;

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -30,13 +31,16 @@ func (s *Store) AssignAgentIntegrationConversationTx(
 	if err != nil {
 		return err
 	}
-	rows, err := dbsqlc.New(tx).UpsertAgentIntegrationConversation(ctx, dbsqlc.UpsertAgentIntegrationConversationParams{
+	rows, err := dbsqlc.New(tx).InsertAgentIntegrationConversation(ctx, dbsqlc.InsertAgentIntegrationConversationParams{
 		ProjectID:     projectID,
 		AgentID:       agentID,
 		IntegrationID: integrationID,
 		Kind:          agentConversationStateKind,
 		Data:          data,
 	})
+	if storeutil.IsUniqueViolationOnConstraint(err, "integration_states_project_id_integration_id_kind_key_key") {
+		return storeerr.ErrConflict
+	}
 	if err != nil {
 		return fmt.Errorf("assign agent integration conversation: %w", err)
 	}

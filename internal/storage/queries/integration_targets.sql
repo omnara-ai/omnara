@@ -51,17 +51,10 @@ JOIN projects project ON project.id = target.project_id AND project.deleted_at I
 JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
     AND integration.deleted_at IS NULL AND integration.state = 'active'
-JOIN integration_states assignment ON assignment.project_id = target.project_id
-    AND assignment.integration_id = target.integration_id AND assignment.kind = 'agent_conversation'
-    AND assignment.key = target.agent_id::text
-    AND assignment.data->>'kind' = target.scope_kind AND assignment.data->>'ref' = target.scope_ref
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-ORDER BY target.id;
-
--- name: PromoteIntegrationConversationTarget :exec
-UPDATE integration_targets SET launch_key = sqlc.arg(launch_key)::text, updated_at = transaction_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND launch_key IS NULL AND deleted_at IS NULL;
+ORDER BY target.id
+LIMIT 2;
 
 -- name: InsertIntegrationConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, integration_id,

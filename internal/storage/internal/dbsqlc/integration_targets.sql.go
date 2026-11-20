@@ -79,13 +79,10 @@ JOIN projects project ON project.id = target.project_id AND project.deleted_at I
 JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
     AND integration.deleted_at IS NULL AND integration.state = 'active'
-JOIN integration_states assignment ON assignment.project_id = target.project_id
-    AND assignment.integration_id = target.integration_id AND assignment.kind = 'agent_conversation'
-    AND assignment.key = target.agent_id::text
-    AND assignment.data->>'kind' = target.scope_kind AND assignment.data->>'ref' = target.scope_ref
 WHERE target.project_id = $1 AND target.agent_id = $2
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
 ORDER BY target.id
+LIMIT 2
 `
 
 type GetAgentIntegrationLaunchOwnersParams struct {
@@ -380,21 +377,5 @@ func (q *Queries) LockIntegrationConversation(ctx context.Context, arg LockInteg
 		arg.Kind,
 		arg.Ref,
 	)
-	return err
-}
-
-const promoteIntegrationConversationTarget = `-- name: PromoteIntegrationConversationTarget :exec
-UPDATE integration_targets SET launch_key = $1::text, updated_at = transaction_timestamp()
-WHERE project_id = $2 AND id = $3 AND launch_key IS NULL AND deleted_at IS NULL
-`
-
-type PromoteIntegrationConversationTargetParams struct {
-	LaunchKey string
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) PromoteIntegrationConversationTarget(ctx context.Context, arg PromoteIntegrationConversationTargetParams) error {
-	_, err := q.db.Exec(ctx, promoteIntegrationConversationTarget, arg.LaunchKey, arg.ProjectID, arg.ID)
 	return err
 }

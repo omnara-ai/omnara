@@ -103,7 +103,7 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) (GitHubCheckPass,
 	}
 	var work []githubCheckWork
 	for _, run := range ready {
-		retry, state := r.retries[run.ID], states[run.AgentID]
+		retry, state := r.retries[run.ID], githubCheckState(run, states)
 		if githubCheckDue(run, state) {
 			work = append(work, githubCheckWork{run: run, state: state, retry: retry})
 		}
@@ -174,6 +174,13 @@ func githubCheckGiveUp(err error, retry githubCheckRetry, open bool, now time.Ti
 	}
 }
 
+func githubCheckState(run integrationstore.GitHubCheckRun, states map[uuid.UUID]string) string {
+	if !run.Eligible {
+		return ""
+	}
+	return states[run.AgentID]
+}
+
 func githubCheckDue(run integrationstore.GitHubCheckRun, state string) bool {
 	return run.Unfinished || !githubCheckCurrent(run, state)
 }
@@ -201,6 +208,9 @@ var (
 func (r *GitHubCheckReconciler) reconcile(
 	ctx context.Context, tracked *integrationstore.GitHubCheckRun, state string,
 ) error {
+	if !tracked.Eligible && !tracked.Unfinished {
+		return r.release(ctx, *tracked)
+	}
 	running := state == executionstore.SubagentStateRunning
 	waiting := state == executionstore.SubagentStateWaitingOnInteraction
 	if !running && !waiting && tracked.Done && !tracked.Restart && !tracked.Unfinished {
@@ -261,6 +271,21 @@ func (r *GitHubCheckReconciler) reconcile(
 		run.Run, run.Waiting, run.Done = 0, false, true
 		return ignoreConflict(r.Store.Integrations().SaveGitHubCheckRun(ctx, run))
 	}
+}
+
+func (r *GitHubCheckReconciler) release(ctx context.Context, run integrationstore.GitHubCheckRun) error {
+	if run.Run != 0 {
+		client, scope, setup, err := r.client(ctx, run)
+		if err != nil {
+			return err
+		}
+		check := r.check(ctx, run, setup)
+		check.Conclusion, check.Title = githubCheckFinished.conclusion, githubCheckFinished.title
+		if err := client.CompleteCheckRun(ctx, scope, run.Run, check); err != nil {
+			return err
+		}
+	}
+	return ignoreConflict(r.Store.Integrations().DeleteGitHubCheckRun(ctx, run))
 }
 
 func (r *GitHubCheckReconciler) client(

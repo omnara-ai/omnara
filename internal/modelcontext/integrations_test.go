@@ -173,6 +173,20 @@ func TestNewStoreUsesIndependentIntegrationMetadataProvider(t *testing.T) {
 	require.ErrorIs(t, err, integrations.integrationDefinitionsErr)
 }
 
+func TestGitHubToolDescriptionWithoutAssignedPullRequest(t *testing.T) {
+	store, id := integrationContextFixture(t, "tools: {int__engineering__read: {}}\n")
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(store.config.CompiledDefinition, &compiled))
+	store.integrationDefinitions[id] = agentconfig.IntegrationResolution{
+		IntegrationID: id, IntegrationKind: integrationdefinition.GitHubPR,
+	}
+	specs, err := RuntimeContractToolSpecs(t.Context(), store, testProjectID, testAgentID,
+		agentconfig.RuntimeContract{IntegrationTools: compiled.Tools}, time.Time{})
+	require.NoError(t, err)
+	require.Contains(t, requireToolSpec(t, specs, "int__engineering__read").Description,
+		"No pull request is assigned to this agent; this tool acts on attached pull requests.")
+}
+
 func TestIntegrationToolDescriptionIdentifiesAssignedConversation(t *testing.T) {
 	for _, test := range []struct {
 		kind                integrationdefinition.Kind
@@ -201,6 +215,11 @@ func TestIntegrationToolDescriptionIdentifiesAssignedConversation(t *testing.T) 
 			require.NoError(t, err)
 			for _, operation := range []string{"read", test.operation} {
 				spec := requireToolSpec(t, specs, "int__engineering__"+operation)
+				if test.kind == integrationdefinition.GitHubPR {
+					require.Contains(t, spec.Description, "Assigned pull request: "+test.expected+
+						"; this tool also acts on attached pull requests.")
+					continue
+				}
 				require.Contains(t, spec.Description, "Assigned conversation: "+test.expected)
 				require.Contains(t, spec.Description, "Messages from other subscriptions do not change")
 			}

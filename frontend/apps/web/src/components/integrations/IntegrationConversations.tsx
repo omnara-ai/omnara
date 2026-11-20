@@ -130,7 +130,7 @@ function ConversationCard({
             onClick={() => {
               if (
                 !window.confirm(
-                  `Stop forwarding ${conversation.label} to ${agentName}? Future updates from this conversation will no longer be forwarded to this agent. The agent, its sending tools and history are kept. To resume forwarding, reattach the conversation through the subscriptions API.`,
+                  `Stop forwarding ${conversation.label} to ${agentName}? Future updates from this conversation will no longer be forwarded to this agent. To resume forwarding, reattach the conversation through the subscriptions API.`,
                 )
               )
                 return

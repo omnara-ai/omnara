@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const getAgentAssignmentAuthority = `-- name: GetAgentAssignmentAuthority :one
+const getAgentToolAuthority = `-- name: GetAgentToolAuthority :one
 SELECT agent.current_config_id = $1::uuid AS config_current,
        EXISTS (
          SELECT 1 FROM agent_runtime_locks runtime_lock
@@ -23,26 +23,26 @@ FROM agents agent
 WHERE agent.project_id = $3 AND agent.id = $4
 `
 
-type GetAgentAssignmentAuthorityParams struct {
+type GetAgentToolAuthorityParams struct {
 	ConfigID      uuid.UUID
 	RuntimeLockID uuid.UUID
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
 }
 
-type GetAgentAssignmentAuthorityRow struct {
+type GetAgentToolAuthorityRow struct {
 	ConfigCurrent bool
 	RuntimeActive bool
 }
 
-func (q *Queries) GetAgentAssignmentAuthority(ctx context.Context, arg GetAgentAssignmentAuthorityParams) (GetAgentAssignmentAuthorityRow, error) {
-	row := q.db.QueryRow(ctx, getAgentAssignmentAuthority,
+func (q *Queries) GetAgentToolAuthority(ctx context.Context, arg GetAgentToolAuthorityParams) (GetAgentToolAuthorityRow, error) {
+	row := q.db.QueryRow(ctx, getAgentToolAuthority,
 		arg.ConfigID,
 		arg.RuntimeLockID,
 		arg.ProjectID,
 		arg.AgentID,
 	)
-	var i GetAgentAssignmentAuthorityRow
+	var i GetAgentToolAuthorityRow
 	err := row.Scan(&i.ConfigCurrent, &i.RuntimeActive)
 	return i, err
 }
@@ -78,18 +78,16 @@ func (q *Queries) GetAssignedIntegrationConversationTarget(ctx context.Context, 
 	return id, err
 }
 
-const upsertAgentIntegrationConversation = `-- name: UpsertAgentIntegrationConversation :execrows
+const insertAgentIntegrationConversation = `-- name: InsertAgentIntegrationConversation :execrows
 INSERT INTO integration_states(project_id, integration_id, kind, key, data)
 SELECT agent.project_id, integration.id, $1, agent.id::text, $2
 FROM agents agent
 JOIN integrations integration ON integration.project_id = agent.project_id AND integration.id = $3
 WHERE agent.project_id = $4 AND agent.id = $5
   AND agent.state = 'active' AND integration.state = 'active' AND integration.deleted_at IS NULL
-ON CONFLICT (project_id, integration_id, kind, key) DO UPDATE
-SET data = excluded.data, revision = integration_states.revision + 1, updated_at = statement_timestamp()
 `
 
-type UpsertAgentIntegrationConversationParams struct {
+type InsertAgentIntegrationConversationParams struct {
 	Kind          string
 	Data          json.RawMessage
 	IntegrationID uuid.UUID
@@ -97,8 +95,8 @@ type UpsertAgentIntegrationConversationParams struct {
 	AgentID       uuid.UUID
 }
 
-func (q *Queries) UpsertAgentIntegrationConversation(ctx context.Context, arg UpsertAgentIntegrationConversationParams) (int64, error) {
-	result, err := q.db.Exec(ctx, upsertAgentIntegrationConversation,
+func (q *Queries) InsertAgentIntegrationConversation(ctx context.Context, arg InsertAgentIntegrationConversationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertAgentIntegrationConversation,
 		arg.Kind,
 		arg.Data,
 		arg.IntegrationID,

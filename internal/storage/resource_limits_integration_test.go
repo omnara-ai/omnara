@@ -152,7 +152,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxNonTerminalProcessesPerAgent:           32,
 		MaxActiveCronTriggersPerProject:           1_000,
 		MaxActiveIntegrationsPerProject:           1_000,
-		MaxActiveIntegrationSubscriptionsPerAgent: 1_024,
+		MaxActiveIntegrationSubscriptionsPerAgent: 16,
 		MaxActiveMemoryStoresPerProject:           10_000,
 		MaxMemoriesPerStore:                       100_000,
 	}

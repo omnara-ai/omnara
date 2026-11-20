@@ -37,7 +37,7 @@ func githubToolTestCalls() []model.ToolCall {
 		},
 		{ID: "reply", Name: "int__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
 		{ID: "resolve-thread", Name: "int__chat__resolve_thread", Input: json.RawMessage(`{"review_thread_id":"PRRT_1"}`)},
-		{ID: "assign", Name: "int__chat__assign_pull_request", Input: json.RawMessage(`{"repository_id":123,"pull_request":8}`)},
+		{ID: "attach", Name: "int__chat__attach_pull_request", Input: json.RawMessage(`{"repository_id":123,"pull_request":8}`)},
 	}
 }
 

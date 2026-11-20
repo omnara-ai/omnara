@@ -30,7 +30,7 @@ import (
 )
 
 func createGitHubToolIntegration(
-	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID, name string,
+	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID,
 ) integrationstore.IntegrationRecord {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -45,7 +45,7 @@ func createGitHubToolIntegration(
 	})
 	require.NoError(t, err)
 	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, IntegrationKind: integrationdefinition.GitHubPR,
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", IntegrationKind: integrationdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	integration, err = store.Integrations().ConfigureIntegration(

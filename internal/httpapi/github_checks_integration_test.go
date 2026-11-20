@@ -54,6 +54,8 @@ type githubCheckRunRequest struct {
 	} `json:"output"`
 }
 
+type githubCheckRunFailure int
+
 func newGitHubChecksAPI(
 	t *testing.T, head func() string, denyChecks bool,
 	checkRun func(*http.Request, githubCheckRunRequest) any,
@@ -82,6 +84,10 @@ func newGitHubChecksAPI(
 			var body githubCheckRunRequest
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 			result = checkRun(r, body)
+			if status, failed := result.(githubCheckRunFailure); failed {
+				w.WriteHeader(int(status))
+				result = map[string]any{"message": "unavailable"}
+			}
 		default:
 			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
 		}
@@ -242,9 +248,10 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, runs, "a finished check stops being tracked")
 
+	unowned := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#43"}
 	for range 2 {
 		require.NoError(t, integrations.MarkGitHubCheckRun(
-			t.Context(), f.project.ProjectUUID, f.integration.ID, uuid.New(), address, false))
+			t.Context(), f.project.ProjectUUID, f.integration.ID, uuid.New(), unowned, false))
 	}
 	first, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 1)
 	require.NoError(t, err)
@@ -328,6 +335,10 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 	ctx := t.Context()
 	agentID, _ := createHTTPStructuredQuestionInteraction(t, ctx, integrationPoolForHandler(t, f.handler),
 		f.project.Store, f.project.OrgUUID, f.project.ProjectUUID, time.Now())
+	_, err := integrationPoolForHandler(t, f.handler).Exec(ctx, `INSERT INTO integration_subscriptions(project_id,
+		agent_id, integration_id, scope_kind, scope_ref) VALUES ($1, $2, $3, 'pull_request', '1001#42')`,
+		f.project.ProjectUUID, agentID, f.integration.ID)
+	require.NoError(t, err)
 	require.NoError(t, f.project.Store.Integrations().MarkGitHubCheckRun(ctx, f.project.ProjectUUID, f.integration.ID,
 		agentID, integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}, false))
 	var mu sync.Mutex
@@ -349,6 +360,75 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 		"POST /repos/owner/repository/check-runs completedaction_required",
 		"PATCH /repos/owner/repository/check-runs/1 neutral",
 	}, calls, "finishing after a question updates the waiting check instead of adding another")
+}
+
+func TestGitHubCheckReconcilerReleasesIneligibleChecks(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name                       string
+		posted, restart, closeFail bool
+	}{
+		{name: "unposted"},
+		{name: "unposted-restart", restart: true},
+		{name: "posted", posted: true},
+		{name: "posted-restart", posted: true, restart: true},
+		{name: "posted-restart-retry", posted: true, restart: true, closeFail: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f, _ := newGitHubChecksJourney(t, "github-check-release-"+test.name)
+			ctx := t.Context()
+			pool := integrationPoolForHandler(t, f.handler)
+			agentID, _ := createHTTPStructuredQuestionInteraction(t, ctx, pool,
+				f.project.Store, f.project.OrgUUID, f.project.ProjectUUID, time.Now())
+			address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
+			checks := f.project.Store.Integrations()
+			require.NoError(t, checks.MarkGitHubCheckRun(ctx, f.project.ProjectUUID, f.integration.ID,
+				agentID, address, false))
+			if test.posted {
+				_, err := pool.Exec(ctx, `UPDATE integration_states SET data = data || '{"run":7}'
+					WHERE project_id = $1 AND kind = 'github_check_run'`, f.project.ProjectUUID)
+				require.NoError(t, err)
+			}
+			if test.restart {
+				require.NoError(t, checks.RestartGitHubCheckRuns(ctx, f.project.ProjectUUID, f.integration.ID, address))
+			}
+			var mu sync.Mutex
+			var calls []string
+			api := newGitHubChecksAPI(t, func() string { return strings.Repeat("c", 40) }, false,
+				func(r *http.Request, body githubCheckRunRequest) any {
+					mu.Lock()
+					defer mu.Unlock()
+					calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ", body.Conclusion)))
+					if test.closeFail && len(calls) == 1 {
+						return githubCheckRunFailure(http.StatusServiceUnavailable)
+					}
+					return map[string]any{"id": 8}
+				})
+			reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
+			closeCheck := "PATCH /repos/owner/repository/check-runs/7 neutral"
+			var want []string
+			if test.closeFail {
+				_, err := reconciler.Reconcile(ctx)
+				require.Error(t, err)
+				runs, err := checks.ListGitHubCheckRuns(ctx, uuid.New(), uuid.Nil, 100)
+				require.NoError(t, err)
+				require.Len(t, runs, 1)
+				require.False(t, runs[0].Unfinished, "a failed close leaves no claim behind")
+				reconciler = &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
+				want = append(want, closeCheck)
+			}
+			requireReconciled(t, reconciler)
+			requireReconciled(t, reconciler)
+			if test.posted {
+				want = append(want, closeCheck)
+			}
+			require.Equal(t, want, calls, "an ineligible agent's check is closed, never posted")
+			runs, err := checks.ListGitHubCheckRuns(ctx, uuid.New(), uuid.Nil, 100)
+			require.NoError(t, err)
+			require.Empty(t, runs)
+		})
+	}
 }
 
 func requireReconciled(t *testing.T, reconciler *integrationruntime.GitHubCheckReconciler) {

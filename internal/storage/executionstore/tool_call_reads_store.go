@@ -31,16 +31,6 @@ func getToolCallTx(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
-func (s *Store) ListSiblingToolCallNames(ctx context.Context, projectID, agentID, id uuid.UUID) ([]string, error) {
-	names, err := s.q.ListSiblingToolCallNames(ctx, dbsqlc.ListSiblingToolCallNamesParams{
-		ProjectID: projectID, AgentID: agentID, ID: id,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list sibling tool calls: %w", err)
-	}
-	return names, nil
-}
-
 func (s *Store) GetToolCall(
 	ctx context.Context,
 	projectID, agentID, id uuid.UUID,

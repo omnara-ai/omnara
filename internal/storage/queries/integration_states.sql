@@ -75,7 +75,25 @@ WHERE sqlc.arg(force)::boolean OR NOT integration_states.data @> excluded.data;
 -- name: ListActiveGitHubCheckRunStates :many
 SELECT state.id, state.project_id, state.integration_id, state.kind, state.key, state.scope_kind, state.scope_ref,
        state.data, state.revision, state.expires_at, state.created_at, state.updated_at,
-       integration.provider_account_ref
+       integration.provider_account_ref,
+       (EXISTS (
+           SELECT 1 FROM integration_targets owner
+           WHERE owner.project_id = state.project_id AND owner.integration_id = state.integration_id
+             AND owner.agent_id = (state.data->>'agent_id')::uuid
+             AND owner.scope_kind = state.scope_kind AND owner.scope_ref = state.scope_ref
+             AND owner.launch_key IS NOT NULL AND owner.deleted_at IS NULL
+       ) OR (EXISTS (
+           SELECT 1 FROM integration_subscriptions subscription
+           WHERE subscription.project_id = state.project_id AND subscription.integration_id = state.integration_id
+             AND subscription.agent_id = (state.data->>'agent_id')::uuid
+             AND subscription.scope_kind = state.scope_kind AND subscription.scope_ref = state.scope_ref
+       ) AND NOT EXISTS (
+           SELECT 1 FROM integration_targets owner
+           WHERE owner.project_id = state.project_id AND owner.integration_id = state.integration_id
+             AND owner.agent_id <> (state.data->>'agent_id')::uuid
+             AND owner.scope_kind = state.scope_kind AND owner.scope_ref = state.scope_ref
+             AND owner.launch_key IS NOT NULL AND owner.deleted_at IS NULL
+       )))::boolean AS eligible
 FROM integration_states state
 JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
 WHERE state.kind = 'github_check_run' AND state.id > sqlc.arg(after_id)

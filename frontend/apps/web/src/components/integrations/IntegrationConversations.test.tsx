@@ -264,7 +264,7 @@ it('uses the saved name in stop confirmation while deleting only the subscriptio
     expect(api.requestsTo('DELETE', `${path}/${row.id}`)).toHaveLength(1)
   })
   expect(confirm).toHaveBeenCalledWith(
-    `${stop}? Future updates from this conversation will no longer be forwarded to this agent. The agent, its sending tools and history are kept. To resume forwarding, reattach the conversation through the subscriptions API.`,
+    `${stop}? Future updates from this conversation will no longer be forwarded to this agent. To resume forwarding, reattach the conversation through the subscriptions API.`,
   )
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
 })

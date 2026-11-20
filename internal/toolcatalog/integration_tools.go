@@ -3,22 +3,27 @@ package toolcatalog
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 )
 
 const (
-	IntegrationOperationRead              = "read"
-	IntegrationOperationPostMessage       = "post_message"
-	IntegrationOperationDiscussionComment = "discussion_comment"
-	IntegrationOperationReviewComment     = "review_comment"
-	IntegrationOperationStartReview       = "start_review"
-	IntegrationOperationSubmitReview      = "submit_review"
-	IntegrationOperationDiscardReview     = "discard_review"
-	IntegrationOperationReply             = "reply"
-	IntegrationOperationResolveThread     = "resolve_thread"
-	IntegrationOperationAssignPullRequest = "assign_pull_request"
+	IntegrationOperationRead                     = "read"
+	IntegrationOperationPostMessage              = "post_message"
+	IntegrationOperationDiscussionComment        = "discussion_comment"
+	IntegrationOperationReviewComment            = "review_comment"
+	IntegrationOperationStartReview              = "start_review"
+	IntegrationOperationSubmitReview             = "submit_review"
+	IntegrationOperationDiscardReview            = "discard_review"
+	IntegrationOperationReply                    = "reply"
+	IntegrationOperationResolveThread            = "resolve_thread"
+	IntegrationOperationAttachPullRequest        = "attach_pull_request"
+	IntegrationOperationDetachPullRequest        = "detach_pull_request"
+	IntegrationOperationListAttachedPullRequests = "list_attached_pull_requests"
 )
+
+const ListAttachedPullRequestsDefaultLimit = 50
 
 type IntegrationToolScope string
 
@@ -68,16 +73,30 @@ func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
 	if d.Scope != IntegrationToolScopeIntegration && d.Scope != IntegrationToolScopeConversation {
 		return Entry{}, fmt.Errorf("integration tool %q requires an explicit scope", name)
 	}
-	entry, err := toolEntry(name, d.Description, d.required, d.properties)
-	if err != nil {
-		return Entry{}, err
+	properties, dependentRequired := d.properties, map[string][]string{}
+	if d.IntegrationKind == integrationdefinition.GitHubPR && d.Scope == IntegrationToolScopeConversation {
+		target := func() map[string]any {
+			return map[string]any{
+				"type": "integer", "minimum": 1,
+				"description": "Only needed when several pull requests are attached.",
+			}
+		}
+		properties = map[string]any{"repository_id": target(), "pull_request": target()}
+		maps.Copy(properties, d.properties)
+		dependentRequired["repository_id"] = []string{"pull_request"}
+		dependentRequired["pull_request"] = []string{"repository_id"}
 	}
 	if d.IntegrationKind == integrationdefinition.GitHubPR && d.Operation == IntegrationOperationReviewComment {
-		var schema map[string]any
-		_ = json.Unmarshal(entry.InputSchema, &schema)
-		schema["dependentRequired"] = map[string][]string{"start_line": {"start_side"}, "start_side": {"start_line"}}
-		entry.InputSchema, err = json.Marshal(schema)
+		dependentRequired["start_line"], dependentRequired["start_side"] = []string{"start_side"}, []string{"start_line"}
 	}
+	entry, err := toolEntry(name, d.Description, d.required, properties)
+	if err != nil || len(dependentRequired) == 0 {
+		return entry, err
+	}
+	var schema map[string]any
+	_ = json.Unmarshal(entry.InputSchema, &schema)
+	schema["dependentRequired"] = dependentRequired
+	entry.InputSchema, err = json.Marshal(schema)
 	return entry, err
 }
 
@@ -230,14 +249,37 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 			properties: map[string]any{"review_thread_id": text()},
 		},
 		{
-			Operation:       IntegrationOperationAssignPullRequest,
+			Operation:       IntegrationOperationAttachPullRequest,
 			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeIntegration,
-			Description: "Assign a GitHub pull request to this agent; the other GitHub tools then act on it " +
-				"and its events reach this agent. " +
-				"Find repository_id with gh api repos/OWNER/REPO --jq .id.",
+			Description: "Attach a GitHub pull request to this agent so its events reach this agent and " +
+				"the other GitHub tools can act on it.",
+			required: []string{"repository_id", "pull_request"},
+			properties: map[string]any{
+				"repository_id": map[string]any{
+					"type": "integer", "minimum": 1,
+					"description": "Numeric repository ID returned by list_github_repositories.",
+				},
+				"pull_request": positive(),
+			},
+		},
+		{
+			Operation:       IntegrationOperationDetachPullRequest,
+			IntegrationKind: integrationdefinition.GitHubPR,
+			Scope:           IntegrationToolScopeIntegration,
+			Description: "Detach a GitHub pull request from this agent: its events stop reaching this agent and " +
+				"the other GitHub tools can no longer act on it. The pull request this agent was launched for " +
+				"can't be detached.",
 			required:   []string{"repository_id", "pull_request"},
 			properties: map[string]any{"repository_id": positive(), "pull_request": positive()},
+		},
+		{
+			Operation:       IntegrationOperationListAttachedPullRequests,
+			IntegrationKind: integrationdefinition.GitHubPR,
+			Scope:           IntegrationToolScopeIntegration,
+			Description: fmt.Sprintf("List this agent's GitHub pull requests, including the one it was launched for "+
+				"(default limit %d). Pass next_offset as offset to continue.", ListAttachedPullRequestsDefaultLimit),
+			properties: map[string]any{"offset": map[string]any{"type": "integer", "minimum": 0}, "limit": limit()},
 		},
 		{
 			Operation:       IntegrationOperationRead,

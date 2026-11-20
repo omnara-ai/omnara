@@ -7,6 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -33,6 +34,19 @@ func runIntegrationTool(ctx context.Context, call asyncToolContext) (asyncPhaseR
 	}
 	access, err := call.Executor.resolveIntegrationToolAccess(ctx, call.Turn, record)
 	if err != nil {
+		return integrationToolFailure(err)
+	}
+	approval, approved, err := call.Executor.Store.Execution().GetAgentInteractionByToolCallKind(
+		ctx, call.Turn.ProjectID, call.Turn.AgentID, record.ID, executionstore.AgentInteractionKindPermission,
+	)
+	if err != nil {
+		return nil, err
+	}
+	summary, err := integrationToolPermissionSummary(access, call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	if err := authorizeRecordedToolExecution(call.Turn, call.Call, record.ID, approval, approved, summary); err != nil {
 		return integrationToolFailure(err)
 	}
 	switch access.Integration.IntegrationKind {
@@ -72,7 +86,7 @@ func integrationPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	access.Conversation, err = e.integrationToolConversation(ctx, turn, access)
+	access.Conversation, err = e.integrationToolConversation(ctx, turn, access, call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

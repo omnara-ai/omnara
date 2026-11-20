@@ -893,7 +893,6 @@ type toolFixtureOptions struct {
 	withToolContext        bool
 	toolContextAddress     integrationstore.ConversationAddress
 	slackPermission        string
-	githubAssignTool       string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -961,12 +960,9 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if fixtureOptions.withDiscordIntegration {
 		install = createDiscordToolIntegration(t, ctx, store, user.ID)
 	} else if fixtureOptions.withGitHubIntegration {
-		install = createGitHubToolIntegration(t, ctx, store, user.ID, "chat")
+		install = createGitHubToolIntegration(t, ctx, store, user.ID)
 	} else {
 		install = createSlackToolIntegration(t, ctx, store, user.ID, "chat", label)
-	}
-	if fixtureOptions.githubAssignTool != "" {
-		createGitHubToolIntegration(t, ctx, store, user.ID, fixtureOptions.githubAssignTool)
 	}
 	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
@@ -1289,13 +1285,10 @@ tools:
 		}
 		for _, operation := range []string{
 			"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-			"resolve_thread", "assign_pull_request",
+			"resolve_thread", "attach_pull_request", "detach_pull_request", "list_attached_pull_requests",
 		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
-	}
-	if fixtureOptions.githubAssignTool != "" {
-		sourceYAML += "  int__" + fixtureOptions.githubAssignTool + "__assign_pull_request: {}\n"
 	}
 	if fixtureOptions.gitCredentials != "" {
 		sourceYAML += "git_credentials: " + fixtureOptions.gitCredentials + "\n"

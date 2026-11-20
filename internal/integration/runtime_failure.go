@@ -4,11 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
-	"slices"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
@@ -29,35 +26,29 @@ type RuntimeFailureNotifier struct {
 }
 
 func (n RuntimeFailureNotifier) Notify(ctx context.Context, projectID, agentID, runtimeID uuid.UUID) error {
-	owners, err := n.Store.Integrations().ListAgentIntegrationLaunchOwners(ctx, projectID, agentID)
+	target, found, err := n.Store.Integrations().GetAgentIntegrationLaunchOwner(ctx, projectID, agentID)
+	if err != nil || !found {
+		return err
+	}
+	address, found, err := n.Store.Integrations().GetAgentIntegrationConversation(
+		ctx, projectID, agentID, target.IntegrationID,
+	)
 	if err != nil {
 		return err
 	}
-	failures := make([]error, len(owners))
-	var notifications sync.WaitGroup
-	for i, target := range owners {
-		notifications.Go(func() { failures[i] = n.notifyOwner(ctx, projectID, agentID, runtimeID, target) })
+	if !found || address.Kind != target.ScopeKind || address.Ref != target.ScopeRef {
+		return storeerr.ErrUnauthorized
 	}
-	notifications.Wait()
-	return errors.Join(failures...)
-}
-
-func (n RuntimeFailureNotifier) notifyOwner(
-	ctx context.Context, projectID, agentID, runtimeID uuid.UUID, target integrationstore.IntegrationTargetRecord,
-) error {
-	address := integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef}
 	check := func(ctx context.Context) error {
 		if err := n.Store.Execution().EnsureRuntimeLockActive(ctx, projectID, agentID, runtimeID); err != nil {
 			return err
 		}
-		current, err := n.Store.Integrations().ListAgentIntegrationLaunchOwners(ctx, projectID, agentID)
+		current, found, err := n.Store.Integrations().GetAgentIntegrationLaunchOwner(ctx, projectID, agentID)
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(current, func(owner integrationstore.IntegrationTargetRecord) bool {
-			return owner.ID == target.ID && owner.IntegrationID == target.IntegrationID &&
-				owner.ScopeKind == address.Kind && owner.ScopeRef == address.Ref && owner.LaunchKey == target.LaunchKey
-		}) {
+		if !found || current.ID != target.ID || current.IntegrationID != target.IntegrationID ||
+			current.ScopeKind != address.Kind || current.ScopeRef != address.Ref || current.LaunchKey != target.LaunchKey {
 			return storeerr.ErrUnauthorized
 		}
 		return nil

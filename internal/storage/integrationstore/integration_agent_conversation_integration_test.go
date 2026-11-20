@@ -140,12 +140,15 @@ func TestAgentIntegrationConversationConcurrentAssignment(t *testing.T) {
 			close(start)
 			first := integrationdb.Await(t, results, "first assignment")
 			second := integrationdb.Await(t, results, "second assignment")
+			if first.err != nil {
+				first, second = second, first
+			}
 			require.NoError(t, first.err)
-			require.NoError(t, second.err)
+			require.ErrorIs(t, second.err, storeerr.ErrConflict)
 			actual, found, err := f.store.GetAgentIntegrationConversation(f.ctx, f.project, f.agentID, f.integrationID)
 			require.NoError(t, err)
 			require.True(t, found)
-			require.Contains(t, []integrationstore.ConversationAddress{first.address, second.address}, actual)
+			require.Equal(t, first.address, actual)
 		})
 	}
 }
