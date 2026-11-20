@@ -430,6 +430,11 @@ func discordInboxDownload(
 	contentType, _, _ := mime.ParseMediaType(download.Attachment.ContentType)
 	contentType = modelcontext.CanonicalAttachmentMediaType(contentType)
 	if !modelcontext.IsAttachmentMedia(contentType) {
+		if audioType, ok := modelcontext.AudioMediaTypeForFilename(download.Attachment.Filename); ok {
+			contentType = audioType
+		}
+	}
+	if !modelcontext.IsAttachmentMedia(contentType) {
 		contentType, _, _ = mime.ParseMediaType(http.DetectContentType(download.Content))
 		contentType = modelcontext.CanonicalAttachmentMediaType(contentType)
 		if !modelcontext.IsAttachmentMedia(contentType) {

@@ -13840,8 +13840,9 @@ components:
         Chat Completions and Anthropic Messages receive the artifact ID and the
         filename, if provided, instead of the contents of those documents. Audio
         (WAV, MP3, M4A, FLAC) is sent directly only to Chat Completions models
-        whose input modalities allow audio; other models receive the artifact ID
-        and the filename.
+        whose input modalities explicitly include audio, and M4A and FLAC only
+        through OpenRouter; otherwise the model receives the artifact ID and the
+        filename.
       additionalProperties: false
       required: [type, media_type, data]
       properties:

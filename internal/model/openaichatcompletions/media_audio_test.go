@@ -13,6 +13,8 @@ import (
 
 const mediaTestAudioID = "019b18be-0000-7000-8000-00000000c0a1"
 
+var audioTestCapabilities = model.Capabilities{InputModalities: []string{"text", "audio"}}
+
 func audioTestBundle(mediaType string) modelcontext.Bundle {
 	return modelcontext.Bundle{
 		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[
@@ -37,11 +39,17 @@ func TestPrepareBuildsInputAudioParts(t *testing.T) {
 		"audio/mp4":  "m4a",
 		"audio/flac": "flac",
 	} {
-		client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "google/gemini-test"}
-		prepared, err := client.Prepare(
-			context.Background(),
-			model.PrepareInput{Context: audioTestBundle(mediaType)},
-		)
+		client := Client{
+			EndpointPath:      testEndpointPath,
+			ProviderModelSlug: "google/gemini-test",
+			APIVariant:        modelprotocol.APIVariantOpenRouter,
+			ModelCapabilities: audioTestCapabilities,
+		}
+		bundle := audioTestBundle(mediaType)
+		if rendered := client.ProjectRenderedMedia(bundle); len(rendered) != 1 {
+			t.Fatalf("project %s: rendered = %+v", mediaType, rendered)
+		}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: bundle})
 		if err != nil {
 			t.Fatalf("prepare %s: %v", mediaType, err)
 		}
@@ -79,12 +87,13 @@ func TestProjectRenderedMediaGatesAudioOnInputModalities(t *testing.T) {
 		modalities []string
 		want       bool
 	}{
-		{"unspecified", nil, true},
+		{"unspecified", nil, false},
 		{"audio", []string{"text", "audio"}, true},
 		{"no audio", []string{"text", "image", "file"}, false},
 	} {
 		client := Client{
 			ProviderModelSlug: "google/gemini-test",
+			APIVariant:        modelprotocol.APIVariantOpenRouter,
 			ModelCapabilities: model.Capabilities{InputModalities: tc.modalities},
 		}
 		rendered := client.ProjectRenderedMedia(bundle)
@@ -101,6 +110,42 @@ func TestProjectRenderedMediaGatesAudioOnInputModalities(t *testing.T) {
 	}
 }
 
+func TestProjectRenderedMediaGatesAudioFormatOnAPIVariant(t *testing.T) {
+	for _, variant := range []modelprotocol.APIVariant{
+		modelprotocol.APIVariantDefault,
+		modelprotocol.APIVariantBedrock,
+		modelprotocol.APIVariantOpenRouter,
+	} {
+		for mediaType, openRouterOnly := range map[string]bool{
+			"audio/wav":  false,
+			"audio/mpeg": false,
+			"audio/mp4":  true,
+			"audio/flac": true,
+		} {
+			client := Client{
+				ProviderModelSlug: "gpt-audio-test",
+				APIVariant:        variant,
+				EndpointPath:      testEndpointPath,
+				ModelCapabilities: audioTestCapabilities,
+			}
+			want := !openRouterOnly || variant == modelprotocol.APIVariantOpenRouter
+			bundle := audioTestBundle(mediaType)
+			rendered := client.ProjectRenderedMedia(bundle)
+			if (len(rendered) == 1) != want {
+				t.Fatalf("%s %s: rendered = %+v, want rendered=%t", variant, mediaType, rendered, want)
+			}
+			// The request must apply the same gate even when the bytes are loaded.
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: bundle})
+			if err != nil {
+				t.Fatalf("%s %s: prepare: %v", variant, mediaType, err)
+			}
+			if strings.Contains(string(prepared.Body), "input_audio") != want {
+				t.Fatalf("%s %s: body = %s, want input_audio=%t", variant, mediaType, prepared.Body, want)
+			}
+		}
+	}
+}
+
 func TestProjectRenderedMediaOmitsToolResultAudio(t *testing.T) {
 	bundle := audioTestBundle("audio/wav")
 	bundle.Messages = nil
@@ -111,9 +156,27 @@ func TestProjectRenderedMediaOmitsToolResultAudio(t *testing.T) {
 			`[{"type":"media_ref","artifact_id":"` + mediaTestAudioID + `"}]`,
 		),
 	}}
-	client := Client{ProviderModelSlug: "google/gemini-test"}
+	client := Client{ProviderModelSlug: "google/gemini-test", ModelCapabilities: audioTestCapabilities}
 	if rendered := client.ProjectRenderedMedia(bundle); len(rendered) != 0 {
 		t.Fatalf("rendered = %+v, want no tool-result audio", rendered)
+	}
+}
+
+func TestPrepareOmitsLoadedAudioWithoutDeclaredAudioModality(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "byo-model",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(
+		context.Background(),
+		model.PrepareInput{Context: audioTestBundle("audio/mpeg")},
+	)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if strings.Contains(string(prepared.Body), "input_audio") {
+		t.Fatalf("audio sent without a declared audio modality: %s", prepared.Body)
 	}
 }
 

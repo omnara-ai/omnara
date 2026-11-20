@@ -1,5 +1,10 @@
 package modelcontext
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 type mediaTypeInfo struct {
 	Kind      string
 	Extension string
@@ -95,6 +100,18 @@ func AudioInputFormat(mediaType string) (string, bool) {
 		return "", false
 	}
 	return info.Extension[1:], true
+}
+
+// AudioMediaTypeForFilename returns the stored audio media type for a filename
+// with a supported audio extension.
+func AudioMediaTypeForFilename(filename string) (string, bool) {
+	extension := strings.ToLower(filepath.Ext(filename))
+	for mediaType, info := range attachmentMediaTypes {
+		if info.Kind == AttachmentKindAudio && info.Extension == extension {
+			return mediaType, true
+		}
+	}
+	return "", false
 }
 
 func AttachmentKindForMediaType(mediaType string) (string, bool) {

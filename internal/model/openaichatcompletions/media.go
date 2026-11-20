@@ -59,7 +59,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 				representation = modelcontext.MediaRepresentationInlineText
 			}
 		case modelcontext.AttachmentKindAudio:
-			if !p.client.rendersAudio(occurrence) {
+			if occurrence.IsToolResult() || !p.client.sendsAudio(compat, item) {
 				continue
 			}
 			tokenEstimate = audioTokenEstimate(item)
@@ -77,17 +77,23 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 	return rendered
 }
 
-// Audio is sent as input_audio only in user messages and only when the model's
-// input modalities allow it; otherwise the model sees the artifact reference.
-func (c Client) rendersAudio(occurrence modelcontext.ResolvedMediaOccurrence) bool {
-	if occurrence.IsToolResult() {
+// Audio is sent as input_audio only when the model declares audio input and
+// the API variant accepts the format; otherwise the model sees the artifact
+// reference. Unlike other modalities, unspecified modalities do not allow
+// audio: most models reject it, and a rejected clip stays in history.
+func (c Client) sendsAudio(compat compat, media modelcontext.ResolvedMedia) bool {
+	if !c.ModelCapabilities.DeclaresInputModality(modelcontext.InputModalityAudio) {
 		return false
 	}
-	return c.ModelCapabilities.AllowsInputModality(modelcontext.InputModalityAudio)
+	switch media.MediaType {
+	case "audio/wav", "audio/mpeg":
+		return true
+	case "audio/mp4", "audio/flac":
+		return compat.acceptsM4AAndFLACAudio
+	}
+	return false
 }
 
-// Providers bill audio by duration, which is unknown here. Compressed formats
-// run near 2 tokens per KB, so size gives a conservative estimate for all four.
 func audioTokenEstimate(item modelcontext.ResolvedMedia) int {
 	return max(minAudioTokenEstimate, int(item.SizeBytes/512))
 }
@@ -112,16 +118,21 @@ func openRouterFallbackModelSlugs(options json.RawMessage) []string {
 	return out
 }
 
-func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]modelcontext.ResolvedMedia {
+func (c Client) renderableMedia(
+	compat compat,
+	media map[string]modelcontext.ResolvedMedia,
+) map[string]modelcontext.ResolvedMedia {
 	out := make(map[string]modelcontext.ResolvedMedia, len(media))
 	for id, resolved := range media {
 		if len(resolved.Data) == 0 {
 			continue
 		}
-		// Only media the projector selected carries data, so audio reaches
-		// here only for models that accept it.
 		switch resolved.Kind {
-		case modelcontext.AttachmentKindImage, modelcontext.AttachmentKindAudio:
+		case modelcontext.AttachmentKindImage:
+		case modelcontext.AttachmentKindAudio:
+			if !c.sendsAudio(compat, resolved) {
+				continue
+			}
 		case modelcontext.AttachmentKindDocument:
 			if !rendersAsChatDocument(resolved) {
 				continue

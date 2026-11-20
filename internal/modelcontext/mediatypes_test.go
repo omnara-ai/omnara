@@ -27,6 +27,24 @@ func TestAudioAttachmentMediaTypes(t *testing.T) {
 	}
 }
 
+func TestAudioMediaTypeForFilename(t *testing.T) {
+	for filename, want := range map[string]string{
+		"take.wav":       "audio/wav",
+		"take.MP3":       "audio/mpeg",
+		"voice memo.m4a": "audio/mp4",
+		"master.flac":    "audio/flac",
+	} {
+		if got, ok := AudioMediaTypeForFilename(filename); !ok || got != want {
+			t.Fatalf("media type for %s = %q, %t; want %q", filename, got, ok, want)
+		}
+	}
+	for _, filename := range []string{"take.ogg", "notes.txt", "flac", ""} {
+		if got, ok := AudioMediaTypeForFilename(filename); ok {
+			t.Fatalf("media type for %q = %q, want none", filename, got)
+		}
+	}
+}
+
 func TestCanonicalAttachmentMediaType(t *testing.T) {
 	for alias, want := range map[string]string{
 		"audio/x-wav":  "audio/wav",
