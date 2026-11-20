@@ -3466,6 +3466,66 @@ paths:
           $ref: '#/components/responses/ClientError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /orgs/{orgID}/projects/{projectID}/agent-configs/edit:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    post:
+      operationId: editAgentConfigs
+      tags: [Configs and Profiles]
+      summary: Edit agent configs
+      description: >-
+        Applies the same edits to agent profiles and agents, best effort: each target reports its own
+        result. Each listed profile is edited along with its active top-level agents; agents launched or
+        archived mid-rollout may be skipped. YAML sources keep their text outside the changed entries
+        when possible. Page with next_cursor, sending the same body; the first page's Idempotency-Key
+        covers every page, and reusing it with a different body returns earlier results for targets it
+        already edited.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditAgentConfigsRequest'
+      responses:
+        '200':
+          description: Results for this page of targets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditAgentConfigsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
@@ -10358,6 +10418,7 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+            - edit_conflict
     ErrorCode:
       type: string
       description: Known error codes.
@@ -10391,6 +10452,7 @@ components:
         - validation_failed
         - csrf_check_failed
         - authentication_unavailable
+        - edit_conflict
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -10411,6 +10473,7 @@ components:
         - agent_backlog_full
         - state_transition_conflict
         - tool_call_already_completed
+        - edit_conflict
         - pending_work
         - not_wake_capable
         - gone
@@ -12212,6 +12275,203 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+    EditAgentConfigsRequest:
+      type: object
+      additionalProperties: false
+      required: [edits]
+      anyOf:
+        - type: object
+          required: [agent_profile_ids]
+          properties:
+            agent_profile_ids:
+              type: array
+        - type: object
+          required: [agent_ids]
+          properties:
+            agent_ids:
+              type: array
+      properties:
+        agent_profile_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AgentProfileID'
+        agent_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AgentID'
+        apply_to:
+          description: Only valid with agent_profile_ids. Defaults to both.
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [profile, agent]
+            x-enum-varnames: [EditAgentConfigsRequestApplyToProfile, EditAgentConfigsRequestApplyToAgent]
+        edits:
+          description: Applied in order.
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AgentConfigEdit'
+        allow_partial_edits:
+          type: boolean
+          default: false
+          x-go-type-skip-optional-pointer: true
+          description: >-
+            When false, a target where some edits miss (text_not_found or path_not_found) while others
+            apply is left unchanged and fails with edit_conflict.
+    AgentConfigEditPath:
+      description: >-
+        JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null
+        top-level sections count as empty.
+      type: string
+      minLength: 2
+      maxLength: 1024
+      pattern: '^/'
+    AgentConfigEditValue:
+      description: Any JSON value, including null.
+      anyOf:
+        - {}
+        - type: 'null'
+    AgentConfigEdit:
+      oneOf:
+        - $ref: '#/components/schemas/SetAgentConfigEdit'
+        - $ref: '#/components/schemas/RemoveAgentConfigEdit'
+        - $ref: '#/components/schemas/AddItemAgentConfigEdit'
+        - $ref: '#/components/schemas/RemoveItemAgentConfigEdit'
+        - $ref: '#/components/schemas/ReplaceTextAgentConfigEdit'
+      discriminator:
+        propertyName: type
+        mapping:
+          set: '#/components/schemas/SetAgentConfigEdit'
+          remove: '#/components/schemas/RemoveAgentConfigEdit'
+          add_item: '#/components/schemas/AddItemAgentConfigEdit'
+          remove_item: '#/components/schemas/RemoveItemAgentConfigEdit'
+          replace_text: '#/components/schemas/ReplaceTextAgentConfigEdit'
+    SetAgentConfigEdit:
+      type: object
+      additionalProperties: false
+      required: [type, path, value]
+      properties:
+        type:
+          type: string
+          enum: [set]
+          x-enum-varnames: [SetAgentConfigEditTypeSet]
+        path:
+          $ref: '#/components/schemas/AgentConfigEditPath'
+        value:
+          $ref: '#/components/schemas/AgentConfigEditValue'
+    RemoveAgentConfigEdit:
+      type: object
+      additionalProperties: false
+      required: [type, path]
+      properties:
+        type:
+          type: string
+          enum: [remove]
+          x-enum-varnames: [RemoveAgentConfigEditTypeRemove]
+        path:
+          $ref: '#/components/schemas/AgentConfigEditPath'
+    AddItemAgentConfigEdit:
+      description: Appends value to the list at path unless an equal item is already there.
+      type: object
+      additionalProperties: false
+      required: [type, path, value]
+      properties:
+        type:
+          type: string
+          enum: [add_item]
+          x-enum-varnames: [AddItemAgentConfigEditTypeAddItem]
+        path:
+          $ref: '#/components/schemas/AgentConfigEditPath'
+        value:
+          $ref: '#/components/schemas/AgentConfigEditValue'
+    RemoveItemAgentConfigEdit:
+      description: Removes every item equal to value from the list at path.
+      type: object
+      additionalProperties: false
+      required: [type, path, value]
+      properties:
+        type:
+          type: string
+          enum: [remove_item]
+          x-enum-varnames: [RemoveItemAgentConfigEditTypeRemoveItem]
+        path:
+          $ref: '#/components/schemas/AgentConfigEditPath'
+        value:
+          $ref: '#/components/schemas/AgentConfigEditValue'
+    ReplaceTextAgentConfigEdit:
+      description: Replaces every occurrence of find in the text at path.
+      type: object
+      additionalProperties: false
+      required: [type, path, find, replace]
+      properties:
+        type:
+          type: string
+          enum: [replace_text]
+          x-enum-varnames: [ReplaceTextAgentConfigEditTypeReplaceText]
+        path:
+          $ref: '#/components/schemas/AgentConfigEditPath'
+        find:
+          type: string
+          minLength: 1
+        replace:
+          type: string
+    EditAgentConfigsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentConfigEditResult'
+        next_cursor:
+          type: [string, 'null']
+    AgentConfigEditResult:
+      type: object
+      additionalProperties: false
+      required: [type, status]
+      properties:
+        type:
+          type: string
+          enum: [profile, agent]
+          x-enum-varnames: [AgentConfigEditResultTypeProfile, AgentConfigEditResultTypeAgent]
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        status:
+          description: unchanged also covers targets where no edit matched.
+          type: string
+          enum: [updated, unchanged, failed]
+        previous_config_id:
+          $ref: '#/components/schemas/AgentConfigID'
+        current_config_id:
+          $ref: '#/components/schemas/AgentConfigID'
+        current_generation:
+          type: integer
+        edits:
+          description: >-
+            One entry per request edit, in order. unchanged means the edit was already satisfied;
+            not_applied means it would have changed a target that wasn't saved. Omitted for replayed
+            results and for targets that failed before all edits ran.
+          type: array
+          items:
+            type: string
+            enum: [applied, unchanged, text_not_found, path_not_found, not_applied]
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        error:
+          type: string
     ResolvedAgentConfigTools:
       type: object
       additionalProperties: false

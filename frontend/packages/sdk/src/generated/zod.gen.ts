@@ -280,7 +280,8 @@ export const zErrorCode = z.enum([
     'daemon_runtime_unregistered',
     'validation_failed',
     'csrf_check_failed',
-    'authentication_unavailable'
+    'authentication_unavailable',
+    'edit_conflict'
 ]);
 
 /**
@@ -1044,6 +1045,106 @@ export const zResolveAgentConfigToolsRequest = z.object({
         zAgentConfigToolsDefinition
     ]),
     source_format: z.enum(['yaml', 'json'])
+});
+
+/**
+ * JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null top-level sections count as empty.
+ */
+export const zAgentConfigEditPath = z.string().min(2).max(1024).regex(/^\//);
+
+/**
+ * Any JSON value, including null.
+ */
+export const zAgentConfigEditValue = z.unknown().nullable();
+
+export const zSetAgentConfigEdit = z.object({
+    type: z.enum(['set']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+export const zRemoveAgentConfigEdit = z.object({
+    type: z.enum(['remove']),
+    path: zAgentConfigEditPath
+});
+
+/**
+ * Appends value to the list at path unless an equal item is already there.
+ */
+export const zAddItemAgentConfigEdit = z.object({
+    type: z.enum(['add_item']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+/**
+ * Removes every item equal to value from the list at path.
+ */
+export const zRemoveItemAgentConfigEdit = z.object({
+    type: z.enum(['remove_item']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+/**
+ * Replaces every occurrence of find in the text at path.
+ */
+export const zReplaceTextAgentConfigEdit = z.object({
+    type: z.enum(['replace_text']),
+    path: zAgentConfigEditPath,
+    find: z.string().min(1),
+    replace: z.string()
+});
+
+export const zAgentConfigEdit = z.discriminatedUnion('type', [
+    zSetAgentConfigEdit.extend({ type: z.literal('set') }),
+    zRemoveAgentConfigEdit.extend({ type: z.literal('remove') }),
+    zAddItemAgentConfigEdit.extend({ type: z.literal('add_item') }),
+    zRemoveItemAgentConfigEdit.extend({ type: z.literal('remove_item') }),
+    zReplaceTextAgentConfigEdit.extend({ type: z.literal('replace_text') })
+]);
+
+export const zEditAgentConfigsRequest = z.intersection(z.union([
+    z.object({
+        agent_profile_ids: z.array(z.unknown())
+    }),
+    z.object({
+        agent_ids: z.array(z.unknown())
+    })
+]), z.object({
+    agent_profile_ids: z.array(zAgentProfileId).min(1).max(1000).optional(),
+    agent_ids: z.array(zAgentId).min(1).max(1000).optional(),
+    apply_to: z.array(z.enum(['profile', 'agent'])).min(1).optional(),
+    edits: z.array(zAgentConfigEdit).min(1).max(100),
+    allow_partial_edits: z.boolean().optional().default(false)
+}));
+
+export const zAgentConfigEditResult = z.object({
+    type: z.enum(['profile', 'agent']),
+    agent_profile_id: zAgentProfileId.optional(),
+    agent_id: zAgentId.optional(),
+    status: z.enum([
+        'updated',
+        'unchanged',
+        'failed'
+    ]),
+    previous_config_id: zAgentConfigId.optional(),
+    current_config_id: zAgentConfigId.optional(),
+    current_generation: z.int().optional(),
+    edits: z.array(z.enum([
+        'applied',
+        'unchanged',
+        'text_not_found',
+        'path_not_found',
+        'not_applied'
+    ])).optional(),
+    code: zErrorCode.optional(),
+    error: z.string().optional()
+});
+
+export const zEditAgentConfigsResponse = z.object({
+    data: z.array(zAgentConfigEditResult),
+    next_cursor: z.string().nullable()
 });
 
 /**
@@ -4842,6 +4943,27 @@ export const zResolveAgentConfigToolsPath = z.object({
  * Resolved config tools.
  */
 export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
+
+export const zEditAgentConfigsBody = zEditAgentConfigsRequest;
+
+export const zEditAgentConfigsHeaders = z.object({
+    'Idempotency-Key': z.string().min(1).max(255).optional()
+});
+
+export const zEditAgentConfigsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zEditAgentConfigsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Results for this page of targets.
+ */
+export const zEditAgentConfigsResponse2 = zEditAgentConfigsResponse;
 
 export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 

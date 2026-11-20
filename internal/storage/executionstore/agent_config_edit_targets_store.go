@@ -1,0 +1,89 @@
+package executionstore
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+)
+
+type AgentConfigEditProfileAgent struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+type AgentConfigEditProfileAgentsWindow struct {
+	CreatedBefore time.Time
+	After         AgentConfigEditProfileAgent
+}
+
+func (s *Store) ListAgentConfigEditProfileAgents(
+	ctx context.Context,
+	projectID, profileID uuid.UUID,
+	window AgentConfigEditProfileAgentsWindow,
+	limit int,
+) ([]AgentConfigEditProfileAgent, error) {
+	rows, err := s.q.ListAgentConfigEditProfileAgents(ctx, dbsqlc.ListAgentConfigEditProfileAgentsParams{
+		ProjectID:      projectID,
+		AgentProfileID: &profileID,
+		CreatedBefore:  window.CreatedBefore,
+		AfterCreatedAt: window.After.CreatedAt,
+		AfterID:        window.After.ID,
+		RowLimit:       int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list agent config edit profile agents: %w", err)
+	}
+	agents := make([]AgentConfigEditProfileAgent, 0, len(rows))
+	for _, row := range rows {
+		agents = append(agents, AgentConfigEditProfileAgent(row))
+	}
+	return agents, nil
+}
+
+type AgentConfigEditTargetCheck struct {
+	Profiles int64
+	Agents   int64
+	Cutoff   time.Time
+}
+
+func (s *Store) CheckAgentConfigEditTargets(
+	ctx context.Context,
+	projectID uuid.UUID,
+	profileIDs, agentIDs []uuid.UUID,
+	profileKeys []string,
+) (AgentConfigEditTargetCheck, error) {
+	keys := make([]string, len(profileKeys))
+	for i, key := range profileKeys {
+		keys[i] = agentProfileRetargetIdempotencyKey(key)
+	}
+	row, err := s.q.CheckAgentConfigEditTargets(ctx, dbsqlc.CheckAgentConfigEditTargetsParams{
+		ProjectID: projectID, ProfileIds: profileIDs, AgentIds: agentIDs, ProfileKeys: keys,
+	})
+	if err != nil {
+		return AgentConfigEditTargetCheck{}, fmt.Errorf("check agent config edit targets: %w", err)
+	}
+	return AgentConfigEditTargetCheck(row), nil
+}
+
+func (s *Store) AgentConfigChangeByIdempotencyKey(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+	key string,
+) (uuid.UUID, bool, error) {
+	input, found, err := loadAgentInputByIdempotencyMaybeTx(ctx, s.pool, projectID, agentID, "agent_config_change", key)
+	return input.AgentConfigID, found, err
+}
+
+func (s *Store) AgentProfileVersionByIdempotencyKey(
+	ctx context.Context,
+	projectID, profileID uuid.UUID,
+	key string,
+) (uuid.UUID, int, bool, error) {
+	version, found, err := loadAgentProfileVersionByIdempotencyKeyMaybeTx(
+		ctx, s.q, projectID, profileID, agentProfileRetargetIdempotencyKey(key),
+	)
+	return version.AgentConfigID, int(version.Generation), found, err
+}
