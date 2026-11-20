@@ -94,7 +94,12 @@ function authOptionsForSubmit(
   return {}
 }
 
-function authValid(value: Pick<OtelExporterFormValues, 'authKind' | 'authHeaderName' | 'authUsername' | 'credentialSecretId'>) {
+function authValid(
+  value: Pick<
+    OtelExporterFormValues,
+    'authKind' | 'authHeaderName' | 'authUsername' | 'credentialSecretId'
+  >,
+) {
   if (value.authKind === 'none') return true
   if (!value.credentialSecretId) return false
   if (value.authKind === 'api_key_header') return value.authHeaderName.trim().length > 0
@@ -303,7 +308,10 @@ export function OtelExporterDialog({
             <FieldGroup>
               <form.Field name="variant">
                 {(field) => (
-                  <OtelVariantSelect value={field.state.value} onValueChange={handleVariantChange} />
+                  <OtelVariantSelect
+                    value={field.state.value}
+                    onValueChange={handleVariantChange}
+                  />
                 )}
               </form.Field>
               <div className="grid items-start gap-4 sm:grid-cols-2">

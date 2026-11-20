@@ -134,7 +134,8 @@ export function applyVariantSwitch(input: VariantSwitchInput) {
       : input.encoding
 
   const nextHeaderRows =
-    originChanged || variants.some((candidate) => matchesPresetTextHeaders(candidate, input.headerRows))
+    originChanged ||
+    variants.some((candidate) => matchesPresetTextHeaders(candidate, input.headerRows))
       ? textRowsFromRecord(preset.textHeaders)
       : input.headerRows
 

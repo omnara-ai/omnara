@@ -98,7 +98,9 @@ export function AgentTraces({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-3">
-      {turnsQuery.isPending && !activeTurnId && <Spinner className="text-muted-foreground size-4" />}
+      {turnsQuery.isPending && !activeTurnId && (
+        <Spinner className="text-muted-foreground size-4" />
+      )}
       {turnsQuery.isError && (
         <div className="flex items-center gap-2">
           <p role="alert" className="text-destructive text-sm">
