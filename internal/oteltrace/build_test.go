@@ -205,8 +205,12 @@ func TestBuildLinksTurnsAcrossAgents(t *testing.T) {
 	spawnCall, parentTurn := uuid.MustParse("00000000-0000-7000-8000-0000000000c1"),
 		uuid.MustParse("00000000-0000-7000-8000-0000000000c2")
 	childTurn := uuid.MustParse("00000000-0000-7000-8000-0000000000c3")
-	turn.Links = []Link{{Kind: LinkSpawnedBy, AgentID: "agt_parent", TurnID: parentTurn, ToolCallID: spawnCall}}
-	turn.ToolCalls[0].Links = []Link{{Kind: LinkSpawned, AgentID: "agt_child", TurnID: childTurn}}
+	turn.Links = []Link{{
+		Kind: LinkSpawnedBy, AgentID: "agt_parent", TurnID: parentTurn, PublicTurnID: "trn_parent", ToolCallID: spawnCall,
+	}}
+	turn.ToolCalls[0].Links = []Link{{
+		Kind: LinkSpawned, AgentID: "agt_child", TurnID: childTurn, PublicTurnID: "trn_child",
+	}}
 	spans := buildSpans(turn, VariantOTel)
 	root, chat, tool := spans[0], spans[2], spans[4]
 	if root.Links().Len() != 1 || chat.Links().Len() != 0 || tool.Links().Len() != 1 {
@@ -224,7 +228,10 @@ func TestBuildLinksTurnsAcrossAgents(t *testing.T) {
 	if agent, _ := received.Attributes().Get("omnara.link.agent.id"); agent.AsString() != "agt_parent" {
 		t.Fatalf("unexpected linked agent: %s", agent.AsString())
 	}
-	wantSummary := `[{"kind":"spawned_by","agent_id":"agt_parent","trace_id":"` + TraceID(parentTurn).String() +
+	if linkedTurn, _ := received.Attributes().Get("omnara.link.turn.id"); linkedTurn.AsString() != "trn_parent" {
+		t.Fatalf("unexpected linked turn: %s", linkedTurn.AsString())
+	}
+	wantSummary := `[{"kind":"spawned_by","agent_id":"agt_parent","turn_id":"trn_parent","trace_id":"` + TraceID(parentTurn).String() +
 		`","span_id":"` + spanID("tool_call", spawnCall).String() + `"}]`
 	if got := attribute(t, root, "omnara.links"); got != wantSummary {
 		t.Fatalf("links are repeated as an attribute for backends that drop them, got %s", got)
@@ -297,5 +304,29 @@ func TestBuildBoundsContentAndReportsIt(t *testing.T) {
 	}
 	if _, ok := buildSpans(testTurn(), VariantOTel)[0].Attributes().Get("omnara.trace.content_truncated"); ok {
 		t.Fatal("an uncut trace must not be marked")
+	}
+}
+
+func TestBuildIncludesAllOpeningInputs(t *testing.T) {
+	turn := testTurn()
+	secondOpening := Event{
+		Kind: events.KindAgentInput, IsOpening: true, CreatedAt: turn.Events[0].CreatedAt.Add(100 * time.Millisecond),
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"also check Langfuse"}]`),
+	}
+	turn.Events = append([]Event{turn.Events[0], secondOpening}, turn.Events[1:]...)
+
+	root := buildSpans(turn, VariantOTel)[0]
+	want := `[{"role":"user","parts":[{"type":"text","content":"find otel docs"}]},` +
+		`{"role":"user","parts":[{"type":"text","content":"also check Langfuse"}]}]`
+	if got := attribute(t, root, "gen_ai.input.messages"); got != want {
+		t.Fatalf("root input messages = %s, want %s", got, want)
+	}
+	langfuseRoot := buildSpans(turn, VariantLangfuse)[0]
+	if got := attribute(t, langfuseRoot, "langfuse.observation.input"); got != "find otel docs\nalso check Langfuse" {
+		t.Fatalf("langfuse root input = %q", got)
+	}
+	langsmithRoot := buildSpans(turn, VariantLangSmith)[0]
+	if got := attribute(t, langsmithRoot, "gen_ai.prompt"); got != "find otel docs\nalso check Langfuse" {
+		t.Fatalf("langsmith root input = %q", got)
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -555,6 +556,8 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 		CancelOpenInteractions: true,
 		IdempotencyScope:       subagentMessageIdempotencyScope,
 		IdempotencyKey:         "tool_call:" + t.input.ToolCallID.String(),
+		sourceLinkKind:         oteltrace.LinkMessageFrom,
+		sourceToolCallID:       t.input.ToolCallID,
 	}, contentBlocks); err != nil {
 		return fmt.Errorf("deliver message to subagent: %w", err)
 	}
@@ -576,6 +579,7 @@ func LaunchSubagentForToolCall(
 		if input.Subagent == nil || input.Subagent.ParentAgentID != tx.input.AgentID {
 			return nil, errors.New("subagent launch must name the calling agent as parent")
 		}
+		input.spawnSourceToolCallID = tx.input.ToolCallID
 		result, err := tx.store.launchAgentTx(ctx, tx.unit, tx.q, input)
 		if err != nil {
 			return nil, err

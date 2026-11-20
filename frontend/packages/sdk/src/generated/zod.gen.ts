@@ -389,18 +389,7 @@ export const zOtelTrace = z.object({
     resourceSpans: z.array(z.record(z.string(), z.unknown()))
 });
 
-export const zOtelExporterScopeType = z.enum([
-    'org',
-    'project',
-    'agent'
-]);
-
-/**
- * Exports every agent in the organization.
- */
-export const zOrgOtelExporterScope = z.object({
-    type: z.enum(['org'])
-});
+export const zOtelExporterScopeType = z.enum(['project', 'agent']);
 
 /**
  * Exports every agent in one project.
@@ -420,10 +409,27 @@ export const zAgentOtelExporterScope = z.object({
 });
 
 export const zOtelExporterScope = z.discriminatedUnion('type', [
-    zOrgOtelExporterScope.extend({ type: z.literal('org') }),
     zProjectOtelExporterScope.extend({ type: z.literal('project') }),
     zAgentOtelExporterScope.extend({ type: z.literal('agent') })
 ]);
+
+/**
+ * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
+ */
+export const zOtelExporterAuthKind = z.enum([
+    'none',
+    'bearer_token',
+    'api_key_header',
+    'basic'
+]);
+
+/**
+ * Non-secret authentication settings. Must be empty for none and bearer_token. With api_key_header, set {"header_name":"..."}. With basic, set {"username":"..."} (for Langfuse, use the public key).
+ */
+export const zOtelExporterAuthOptions = z.object({
+    header_name: z.string().min(1).optional(),
+    username: z.string().min(1).max(1024).optional()
+});
 
 /**
  * Plain request headers sent with every export, by header name.
@@ -678,7 +684,7 @@ export const zListEventWebhooksResponse = z.object({
 });
 
 /**
- * Request headers whose values come from organization-owned generic secrets, by header name. Use these for credentials such as Authorization.
+ * Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
  */
 export const zOtelExporterSecretHeaders = z.record(z.string(), zSecretId);
 
@@ -687,6 +693,9 @@ export const zCreateOtelExporterRequest = z.object({
     scope: zOtelExporterScope,
     variant: zOtelTraceVariant.optional(),
     encoding: zOtelExporterEncoding.optional().default('protobuf'),
+    auth_kind: zOtelExporterAuthKind.optional().default('none'),
+    auth_options: zOtelExporterAuthOptions.optional(),
+    credential_secret_id: zSecretId.optional(),
     headers: zOtelExporterHeaders.optional(),
     secret_headers: zOtelExporterSecretHeaders.optional(),
     sample_percent: zOtelExporterSamplePercent.optional().default(100)
@@ -696,6 +705,9 @@ export const zUpdateOtelExporterRequest = z.object({
     endpoint: z.string().min(1).max(2048).optional(),
     variant: zOtelTraceVariant.optional(),
     encoding: zOtelExporterEncoding.optional(),
+    auth_kind: zOtelExporterAuthKind.optional(),
+    auth_options: zOtelExporterAuthOptions.optional(),
+    credential_secret_id: zSecretId.nullish(),
     headers: zOtelExporterHeaders.optional(),
     secret_headers: zOtelExporterSecretHeaders.optional(),
     sample_percent: zOtelExporterSamplePercent.optional()
@@ -708,6 +720,9 @@ export const zOtelExporter = z.object({
     scope: zOtelExporterScope,
     variant: zOtelTraceVariant,
     encoding: zOtelExporterEncoding,
+    auth_kind: zOtelExporterAuthKind,
+    auth_options: zOtelExporterAuthOptions,
+    credential_secret_id: zSecretId.optional(),
     headers: zOtelExporterHeaders,
     secret_headers: zOtelExporterSecretHeaders,
     sample_percent: zOtelExporterSamplePercent,

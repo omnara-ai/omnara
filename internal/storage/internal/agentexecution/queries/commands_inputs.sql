@@ -10,7 +10,8 @@ FROM agent_inputs WHERE agent_id=sqlc.arg(agent_id) AND
 
 -- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
- integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for)
+ integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for,
+ source_link_kind,source_tool_call_id,source_model_output_id)
 SELECT sqlc.arg(id),a.project_id,a.id,
  CASE WHEN sqlc.narg(scheduled_for)::timestamptz IS NULL THEN 'received' ELSE 'scheduled' END,CASE WHEN sqlc.arg(kind)::text='content' THEN coalesce((
  SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
@@ -18,7 +19,8 @@ SELECT sqlc.arg(id),a.project_id,a.id,
  ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
  sqlc.narg(actor_id),sqlc.arg(kind),sqlc.arg(mode),sqlc.narg(target_id),sqlc.narg(config_id),
  sqlc.narg(scope),sqlc.narg(key),statement_timestamp(),sqlc.arg(metadata)::jsonb,
- sqlc.narg(scheduled_for)::timestamptz
+ sqlc.narg(scheduled_for)::timestamptz,
+ sqlc.narg(source_link_kind),sqlc.narg(source_tool_call_id),sqlc.narg(source_model_output_id)
 FROM agents a WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id) AND a.state='active'
 RETURNING id,queued_at;
 

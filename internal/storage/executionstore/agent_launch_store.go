@@ -40,6 +40,7 @@ type LaunchAgentInput struct {
 	InitialInput            *LaunchInitialInput
 	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
 	admission               *launchAdmission
+	spawnSourceToolCallID   uuid.UUID
 }
 
 type LaunchAgentResult struct {

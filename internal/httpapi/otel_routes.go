@@ -66,7 +66,6 @@ func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.Ote
 	scopeType := executionstore.OtelExporterScopeType(discriminator)
 	var projectID, agentID *string
 	switch scopeType {
-	case executionstore.OtelExporterScopeOrg:
 	case executionstore.OtelExporterScopeProject:
 		value, err := input.AsProjectOtelExporterScope()
 		if err != nil {
@@ -109,10 +108,6 @@ func parseOtelExporterScopeIDs(
 
 func otelExporterScopeResponse(scope executionstore.OtelExporterScope) (openapi.OtelExporterScope, error) {
 	var response openapi.OtelExporterScope
-	if scope.Type == executionstore.OtelExporterScopeOrg {
-		err := response.FromOrgOtelExporterScope(openapi.OrgOtelExporterScope{Type: openapi.OrgOtelExporterScopeTypeOrg})
-		return response, err
-	}
 	projectID, err := publicID(publicid.KindProject, scope.ProjectID)
 	if err != nil {
 		return response, err
@@ -131,6 +126,33 @@ func otelExporterScopeResponse(scope executionstore.OtelExporterScope) (openapi.
 		Type: openapi.AgentOtelExporterScopeTypeAgent, ProjectId: projectID, AgentId: agentID,
 	})
 	return response, err
+}
+
+func parseOtelExporterAuthOptions(input *openapi.OtelExporterAuthOptions) otelconfig.AuthOptions {
+	if input == nil {
+		return otelconfig.AuthOptions{}
+	}
+	var options otelconfig.AuthOptions
+	if input.HeaderName != nil {
+		options.HeaderName = *input.HeaderName
+	}
+	if input.Username != nil {
+		options.Username = *input.Username
+	}
+	return options
+}
+
+func otelExporterAuthOptionsResponse(options otelconfig.AuthOptions) openapi.OtelExporterAuthOptions {
+	response := openapi.OtelExporterAuthOptions{}
+	if options.HeaderName != "" {
+		value := options.HeaderName
+		response.HeaderName = &value
+	}
+	if options.Username != "" {
+		value := options.Username
+		response.Username = &value
+	}
+	return response
 }
 
 func parseOtelExporterSecretHeaders(input openapi.OtelExporterSecretHeaders) (map[string]uuid.UUID, error) {
@@ -162,10 +184,19 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 		Id: id, OrgId: orgID, Scope: scope, Endpoint: record.Settings.Endpoint,
 		Variant:       openapi.OtelTraceVariant(record.Settings.Variant),
 		Encoding:      openapi.OtelExporterEncoding(record.Settings.Encoding),
+		AuthKind:      openapi.OtelExporterAuthKind(record.Settings.AuthKind),
+		AuthOptions:   otelExporterAuthOptionsResponse(record.Settings.AuthOptions),
 		Headers:       openapi.OtelExporterHeaders{},
 		SecretHeaders: openapi.OtelExporterSecretHeaders{},
 		SamplePercent: record.Settings.SamplePercent,
 		CreatedAt:     record.CreatedAt, UpdatedAt: record.UpdatedAt,
+	}
+	if record.Settings.CredentialSecretID != uuid.Nil {
+		secretID, err := publicID(publicid.KindSecret, record.Settings.CredentialSecretID)
+		if err != nil {
+			return openapi.OtelExporter{}, err
+		}
+		result.CredentialSecretId = &secretID
 	}
 	maps.Copy(result.Headers, record.Settings.Headers)
 	for name, secretID := range record.Settings.SecretHeaders {
@@ -192,13 +223,27 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 		return nil, err
 	}
 	settings := otelconfig.Settings{
-		Endpoint: request.Body.Endpoint, Variant: oteltrace.VariantOTel, SamplePercent: 100,
+		Endpoint: request.Body.Endpoint, Variant: oteltrace.VariantOTel,
+		AuthKind: otelconfig.AuthKindNone, SamplePercent: 100,
 	}
 	if request.Body.Variant != nil {
 		settings.Variant = oteltrace.Variant(*request.Body.Variant)
 	}
 	if request.Body.Encoding != nil {
 		settings.Encoding = oteltrace.Encoding(*request.Body.Encoding)
+	}
+	if request.Body.AuthKind != nil {
+		settings.AuthKind = otelconfig.AuthKind(*request.Body.AuthKind)
+	}
+	if request.Body.AuthOptions != nil {
+		settings.AuthOptions = parseOtelExporterAuthOptions(request.Body.AuthOptions)
+	}
+	if request.Body.CredentialSecretId != nil {
+		secretID, ok := parseOpenAPIPublicID(publicid.KindSecret, *request.Body.CredentialSecretId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid credential_secret_id")
+		}
+		settings.CredentialSecretID = secretID
 	}
 	if request.Body.Headers != nil {
 		settings.Headers = *request.Body.Headers
@@ -337,6 +382,28 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 	if request.Body.Encoding != nil {
 		encoding := oteltrace.Encoding(*request.Body.Encoding)
 		input.Encoding = &encoding
+	}
+	if request.Body.AuthKind != nil {
+		authKind := otelconfig.AuthKind(*request.Body.AuthKind)
+		input.AuthKind = &authKind
+	}
+	if request.Body.AuthOptions != nil {
+		options := parseOtelExporterAuthOptions(request.Body.AuthOptions)
+		input.AuthOptions = &options
+	}
+	if request.Body.CredentialSecretId.IsSpecified() {
+		input.SetCredentialSecretID = true
+		if !request.Body.CredentialSecretId.IsNull() {
+			rawID, err := request.Body.CredentialSecretId.Get()
+			if err != nil {
+				return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid credential_secret_id")
+			}
+			secretID, ok := parseOpenAPIPublicID(publicid.KindSecret, rawID)
+			if !ok {
+				return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid credential_secret_id")
+			}
+			input.CredentialSecretID = secretID
+		}
 	}
 	if request.Body.Headers != nil {
 		input.Headers = *request.Body.Headers

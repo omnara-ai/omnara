@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -57,6 +58,23 @@ func deleteExpiredWebhookDeliveries(
 	recorder *metrics.EventWebhookBacklogRecorder,
 ) func(context.Context) maintenanceResult {
 	return deleteExpiredDeliveries(log, "event webhook deliveries", deleteExpired, recorder.RecordExpired)
+}
+
+func deleteExpiredOtelExportDeliveries(
+	log *slog.Logger,
+	deleteExpired func(context.Context, int32) ([]executionstore.OtelExportDelivery, error),
+) func(context.Context) maintenanceResult {
+	return deleteExpiredDeliveries(log, "otel export deliveries", func(ctx context.Context, limit int32) (int64, error) {
+		expired, err := deleteExpired(ctx, limit)
+		if err != nil {
+			return 0, err
+		}
+		logCtx := logpkg.WithLogger(ctx, log)
+		for _, delivery := range expired {
+			logent.OtelExportDeliveryExpired(logCtx, delivery)
+		}
+		return int64(len(expired)), nil
+	}, nil)
 }
 
 // deleteExpiredDeliveries cleans one batch of an outbound delivery queue;

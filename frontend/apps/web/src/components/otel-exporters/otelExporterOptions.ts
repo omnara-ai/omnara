@@ -1,8 +1,12 @@
-import type { OtelExporterEncoding, OtelExporterScope, OtelTraceVariant } from '@omnara/sdk'
+import type {
+  OtelExporterAuthKind,
+  OtelExporterEncoding,
+  OtelExporterScope,
+  OtelTraceVariant,
+} from '@omnara/sdk'
 
 import {
   type SecretRow,
-  secretRowsFromRecord,
   type TextRow,
   textRowsFromRecord,
 } from '@/components/key-value/keyValueRows'
@@ -18,6 +22,20 @@ export const otelVariantLabels: Record<OtelTraceVariant, string> = {
 export const otelEncodingLabels: Record<OtelExporterEncoding, string> = {
   protobuf: 'Protobuf',
   json: 'JSON',
+}
+
+export const otelAuthKinds: OtelExporterAuthKind[] = [
+  'none',
+  'bearer_token',
+  'api_key_header',
+  'basic',
+]
+
+export const otelAuthKindLabels: Record<OtelExporterAuthKind, string> = {
+  none: 'None',
+  bearer_token: 'Bearer token',
+  api_key_header: 'API key header',
+  basic: 'Basic auth',
 }
 
 /** The encodings each variant's backend accepts, its default first. Mirrors the API's rule. */
@@ -36,6 +54,31 @@ export const variantEndpoints: Record<OtelTraceVariant, string> = {
   langsmith: 'https://api.smith.langchain.com/otel/v1/traces',
 }
 
+interface VariantPreset {
+  authKind: OtelExporterAuthKind
+  authHeaderName: string
+  textHeaders: Record<string, string>
+}
+
+const variantPresets: Record<OtelTraceVariant, VariantPreset> = {
+  otel: { authKind: 'none', authHeaderName: '', textHeaders: {} },
+  langfuse: {
+    authKind: 'basic',
+    authHeaderName: '',
+    textHeaders: { 'x-langfuse-ingestion-version': '4' },
+  },
+  braintrust: {
+    authKind: 'bearer_token',
+    authHeaderName: '',
+    textHeaders: { 'x-bt-parent': 'project_id:' },
+  },
+  langsmith: {
+    authKind: 'api_key_header',
+    authHeaderName: 'x-api-key',
+    textHeaders: {},
+  },
+}
+
 /**
  * The endpoint to show after switching variant: the new backend's own, unless the user has
  * typed one that is not just another backend's default.
@@ -45,51 +88,72 @@ export function endpointForVariant(variant: OtelTraceVariant, current: string) {
   return untouched ? variantEndpoints[variant] : current
 }
 
-/**
- * The headers each backend needs. Secret headers hold credentials, so they start with no secret
- * chosen; text headers start with the value shown, which Braintrust's needs completing.
- */
-const variantHeaders: Record<OtelTraceVariant, { text: Record<string, string>; secret: string[] }> =
-  {
-    otel: { text: {}, secret: [] },
-    // Authorization is "Basic " plus base64 of "public key:secret key".
-    langfuse: { text: { 'x-langfuse-ingestion-version': '4' }, secret: ['Authorization'] },
-    // Authorization is "Bearer " plus an API key; x-bt-parent names the project to log to.
-    braintrust: { text: { 'x-bt-parent': 'project_id:' }, secret: ['Authorization'] },
-    langsmith: { text: {}, secret: ['x-api-key'] },
+function urlOrigin(value: string): string {
+  try {
+    return new URL(value.trim()).origin
+  } catch {
+    return ''
   }
+}
 
-function matchesPreset(variant: OtelTraceVariant, textRows: TextRow[], secretRows: SecretRow[]) {
-  const preset = variantHeaders[variant]
-  const text = Object.entries(preset.text)
+function matchesPresetTextHeaders(variant: OtelTraceVariant, textRows: TextRow[]) {
+  const text = Object.entries(variantPresets[variant].textHeaders)
   return (
     textRows.length === text.length &&
-    text.every(([key, value]) => textRows.some((row) => row.key === key && row.value === value)) &&
-    secretRows.length === preset.secret.length &&
-    preset.secret.every((key) => secretRows.some((row) => row.key === key && !row.secretId))
+    text.every(([key, value]) => textRows.some((row) => row.key === key && row.value === value))
   )
 }
 
+export interface VariantSwitchInput {
+  nextVariant: OtelTraceVariant
+  endpoint: string
+  encoding: OtelExporterEncoding
+  authKind: OtelExporterAuthKind
+  authHeaderName: string
+  authUsername: string
+  credentialSecretId: string
+  headerRows: TextRow[]
+  secretHeaderRows: SecretRow[]
+}
+
 /**
- * The header rows to show after switching variant: the new backend's own, unless the user has
- * already changed the rows from another backend's starting set.
+ * Computes the next form state when switching backend variant. Whenever automatic endpoint
+ * substitution changes the destination origin, credentials are cleared so secrets configured for
+ * one tracing host cannot be forwarded to another.
  */
-export function headersForVariant(
-  variant: OtelTraceVariant,
-  textRows: TextRow[],
-  secretRows: SecretRow[],
-) {
-  if (!variants.some((candidate) => matchesPreset(candidate, textRows, secretRows)))
-    return { textRows, secretRows }
-  const preset = variantHeaders[variant]
+export function applyVariantSwitch(input: VariantSwitchInput) {
+  const nextEndpoint = endpointForVariant(input.nextVariant, input.endpoint)
+  const originChanged =
+    nextEndpoint !== input.endpoint && urlOrigin(nextEndpoint) !== urlOrigin(input.endpoint)
+
+  const preset = variantPresets[input.nextVariant]
+  const [fallbackEncoding] = variantEncodings[input.nextVariant]
+  const nextEncoding =
+    fallbackEncoding && !variantEncodings[input.nextVariant].includes(input.encoding)
+      ? fallbackEncoding
+      : input.encoding
+
+  const nextHeaderRows =
+    originChanged || variants.some((candidate) => matchesPresetTextHeaders(candidate, input.headerRows))
+      ? textRowsFromRecord(preset.textHeaders)
+      : input.headerRows
+
+  const authUnset = input.authKind === 'none' || !input.credentialSecretId
+  const resetAuth = originChanged || authUnset
+
   return {
-    textRows: textRowsFromRecord(preset.text),
-    secretRows: secretRowsFromRecord(Object.fromEntries(preset.secret.map((key) => [key, '']))),
+    endpoint: nextEndpoint,
+    encoding: nextEncoding,
+    authKind: resetAuth ? preset.authKind : input.authKind,
+    authHeaderName: resetAuth ? preset.authHeaderName : input.authHeaderName,
+    authUsername: originChanged ? '' : resetAuth ? '' : input.authUsername,
+    credentialSecretId: originChanged ? '' : input.credentialSecretId,
+    headerRows: nextHeaderRows,
+    secretHeaderRows: originChanged ? [] : input.secretHeaderRows,
   }
 }
 
 /** Whether every resource the scope names has been chosen. */
 export function otelExporterScopeComplete(scope: OtelExporterScope) {
-  if (scope.type === 'org') return true
   return !!scope.project_id && (scope.type === 'project' || !!scope.agent_id)
 }

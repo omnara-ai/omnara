@@ -1,6 +1,9 @@
 import { useCreateOtelExporter, useUpdateOtelExporter } from '@omnara/react'
 import type {
+  CreateOtelExporterRequest,
   OtelExporter,
+  OtelExporterAuthKind,
+  OtelExporterAuthOptions,
   OtelExporterEncoding,
   OtelExporterScope,
   OtelTraceVariant,
@@ -18,9 +21,9 @@ import {
   textRowsValid,
 } from '@/components/key-value/keyValueRows'
 import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
+import { OtelExporterAuthFields } from '@/components/otel-exporters/OtelExporterAuthFields'
 import {
-  endpointForVariant,
-  headersForVariant,
+  applyVariantSwitch,
   otelEncodingLabels,
   otelExporterScopeComplete,
   variantEncodings,
@@ -52,6 +55,20 @@ import { errorMessage } from '@/lib/submit-status'
 
 const endpointHint = 'Enter the full traces URL, such as https://otel.example.com/v1/traces.'
 
+interface OtelExporterFormValues {
+  scope: OtelExporterScope
+  endpoint: string
+  variant: OtelTraceVariant
+  encoding: OtelExporterEncoding
+  authKind: OtelExporterAuthKind
+  authHeaderName: string
+  authUsername: string
+  credentialSecretId: string
+  headerRows: ReturnType<typeof textRowsFromRecord>
+  secretHeaderRows: ReturnType<typeof secretRowsFromRecord>
+  samplePercent: string
+}
+
 function endpointError(value: string) {
   try {
     return ['https:', 'http:'].includes(new URL(value.trim()).protocol) ? undefined : endpointHint
@@ -65,6 +82,122 @@ function samplePercentError(value: string) {
   return value.trim() !== '' && percent >= 0 && percent <= 100
     ? undefined
     : 'Enter a percentage from 0 to 100.'
+}
+
+function authOptionsForSubmit(
+  authKind: OtelExporterAuthKind,
+  authHeaderName: string,
+  authUsername: string,
+): OtelExporterAuthOptions {
+  if (authKind === 'api_key_header') return { header_name: authHeaderName.trim() }
+  if (authKind === 'basic') return { username: authUsername.trim() }
+  return {}
+}
+
+function authValid(value: Pick<OtelExporterFormValues, 'authKind' | 'authHeaderName' | 'authUsername' | 'credentialSecretId'>) {
+  if (value.authKind === 'none') return true
+  if (!value.credentialSecretId) return false
+  if (value.authKind === 'api_key_header') return value.authHeaderName.trim().length > 0
+  if (value.authKind === 'basic') {
+    const username = value.authUsername.trim()
+    return username.length > 0 && !username.includes(':')
+  }
+  return true
+}
+
+function defaultFormValues(exporter?: OtelExporter, projectId?: string): OtelExporterFormValues {
+  return {
+    scope: exporter?.scope ?? { type: 'project', project_id: projectId ?? '' },
+    endpoint: exporter?.endpoint ?? '',
+    variant: exporter?.variant ?? 'otel',
+    encoding: exporter?.encoding ?? 'protobuf',
+    authKind: exporter?.auth_kind ?? 'none',
+    authHeaderName: exporter?.auth_options.header_name ?? '',
+    authUsername: exporter?.auth_options.username ?? '',
+    credentialSecretId: exporter?.credential_secret_id ?? '',
+    headerRows: textRowsFromRecord(exporter?.headers ?? {}),
+    secretHeaderRows: secretRowsFromRecord(exporter?.secret_headers ?? {}),
+    samplePercent: String(exporter?.sample_percent ?? 100),
+  }
+}
+
+function buildBaseSettings(value: OtelExporterFormValues) {
+  return {
+    endpoint: value.endpoint.trim(),
+    variant: value.variant,
+    encoding: value.encoding,
+    auth_kind: value.authKind,
+    auth_options: authOptionsForSubmit(value.authKind, value.authHeaderName, value.authUsername),
+    headers: recordFromTextRows(value.headerRows) ?? {},
+    secret_headers: recordFromSecretRows(value.secretHeaderRows) ?? {},
+    sample_percent: Number(value.samplePercent),
+  }
+}
+
+function OtelExporterAdvancedFields({
+  id,
+  open,
+  onOpenChange,
+  variant,
+  encoding,
+  samplePercent,
+  onEncodingChange,
+  onSamplePercentChange,
+}: {
+  id: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  variant: OtelTraceVariant
+  encoding: OtelExporterEncoding
+  samplePercent: string
+  onEncodingChange: (value: OtelExporterEncoding) => void
+  onSamplePercentChange: (value: string) => void
+}) {
+  const sampleError = samplePercentError(samplePercent)
+  return (
+    <OverridesCollapsible title="Advanced" open={open} onOpenChange={onOpenChange}>
+      <div className="grid items-start gap-4 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor={id + '-encoding'}>Encoding</FieldLabel>
+          <Select
+            value={encoding}
+            disabled={variantEncodings[variant].length < 2}
+            onValueChange={(value) => {
+              const next = variantEncodings[variant].find((option) => option === value)
+              if (next) onEncodingChange(next)
+            }}
+          >
+            <SelectTrigger id={id + '-encoding'}>
+              <SelectValue>{otelEncodingLabels[encoding]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {variantEncodings[variant].map((value) => (
+                <SelectItem key={value} value={value}>
+                  {otelEncodingLabels[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={id + '-sample'}>Turn sample rate (%)</FieldLabel>
+          <Input
+            id={id + '-sample'}
+            type="number"
+            required
+            min={0}
+            max={100}
+            step="any"
+            value={samplePercent}
+            onChange={(event) => {
+              onSamplePercentChange(event.target.value)
+            }}
+          />
+          {sampleError && <FieldError>{sampleError}</FieldError>}
+        </Field>
+      </div>
+    </OverridesCollapsible>
+  )
 }
 
 export function OtelExporterDialog({
@@ -83,45 +216,68 @@ export function OtelExporterDialog({
   const update = useUpdateOtelExporter(orgId)
   const pending = create.isPending || update.isPending
   const [error, setError] = useState('')
-  // Encoding and sampling rarely change, so they stay folded away unless already customised.
   const [advancedOpen, setAdvancedOpen] = useState(
     exporter !== undefined && (exporter.encoding !== 'protobuf' || exporter.sample_percent !== 100),
   )
   const id = useId()
-  const initialScope: OtelExporterScope =
-    exporter?.scope ?? (projectId ? { type: 'project', project_id: projectId } : { type: 'org' })
-  const variant: OtelTraceVariant = exporter?.variant ?? 'otel'
-  const encoding: OtelExporterEncoding = exporter?.encoding ?? 'protobuf'
   const form = useForm({
-    defaultValues: {
-      scope: initialScope,
-      endpoint: exporter?.endpoint ?? '',
-      variant,
-      encoding,
-      headerRows: textRowsFromRecord(exporter?.headers ?? {}),
-      secretHeaderRows: secretRowsFromRecord(exporter?.secret_headers ?? {}),
-      samplePercent: String(exporter?.sample_percent ?? 100),
-    },
+    defaultValues: defaultFormValues(exporter, projectId),
     onSubmit: async ({ value }) => {
       if (pending || !valid(value)) return
       setError('')
-      const settings = {
-        endpoint: value.endpoint.trim(),
-        variant: value.variant,
-        encoding: value.encoding,
-        headers: recordFromTextRows(value.headerRows) ?? {},
-        secret_headers: recordFromSecretRows(value.secretHeaderRows) ?? {},
-        sample_percent: Number(value.samplePercent),
-      }
+      const baseSettings = buildBaseSettings(value)
       try {
-        if (exporter) await update.mutateAsync({ ...settings, exporterID: exporter.id })
-        else await create.mutateAsync({ ...settings, scope: value.scope })
+        if (exporter) {
+          await update.mutateAsync({
+            ...baseSettings,
+            credential_secret_id: value.authKind === 'none' ? null : value.credentialSecretId,
+            exporterID: exporter.id,
+          })
+        } else {
+          const request: CreateOtelExporterRequest = { ...baseSettings, scope: value.scope }
+          if (value.authKind !== 'none') request.credential_secret_id = value.credentialSecretId
+          await create.mutateAsync(request)
+        }
         onClose()
       } catch (err) {
         setError(errorMessage(err, 'Could not save exporter'))
       }
     },
   })
+
+  function handleVariantChange(next: OtelTraceVariant) {
+    const updated = applyVariantSwitch({
+      nextVariant: next,
+      endpoint: form.getFieldValue('endpoint'),
+      encoding: form.getFieldValue('encoding'),
+      authKind: form.getFieldValue('authKind'),
+      authHeaderName: form.getFieldValue('authHeaderName'),
+      authUsername: form.getFieldValue('authUsername'),
+      credentialSecretId: form.getFieldValue('credentialSecretId'),
+      headerRows: form.getFieldValue('headerRows'),
+      secretHeaderRows: form.getFieldValue('secretHeaderRows'),
+    })
+    form.setFieldValue('variant', next)
+    form.setFieldValue('endpoint', updated.endpoint)
+    form.setFieldValue('encoding', updated.encoding)
+    form.setFieldValue('authKind', updated.authKind)
+    form.setFieldValue('authHeaderName', updated.authHeaderName)
+    form.setFieldValue('authUsername', updated.authUsername)
+    form.setFieldValue('credentialSecretId', updated.credentialSecretId)
+    form.setFieldValue('headerRows', updated.headerRows)
+    form.setFieldValue('secretHeaderRows', updated.secretHeaderRows)
+  }
+
+  function handleAuthKindChange(nextKind: OtelExporterAuthKind) {
+    form.setFieldValue('authKind', nextKind)
+    if (nextKind === 'none') {
+      form.setFieldValue('credentialSecretId', '')
+      form.setFieldValue('authHeaderName', '')
+      form.setFieldValue('authUsername', '')
+    } else if (nextKind === 'api_key_header' && !form.getFieldValue('authHeaderName')) {
+      form.setFieldValue('authHeaderName', 'x-api-key')
+    }
+  }
 
   return (
     <Dialog
@@ -147,30 +303,7 @@ export function OtelExporterDialog({
             <FieldGroup>
               <form.Field name="variant">
                 {(field) => (
-                  <OtelVariantSelect
-                    value={field.state.value}
-                    onValueChange={(next) => {
-                      field.handleChange(next)
-                      form.setFieldValue(
-                        'endpoint',
-                        endpointForVariant(next, form.getFieldValue('endpoint')),
-                      )
-                      const headers = headersForVariant(
-                        next,
-                        form.getFieldValue('headerRows'),
-                        form.getFieldValue('secretHeaderRows'),
-                      )
-                      form.setFieldValue('headerRows', headers.textRows)
-                      form.setFieldValue('secretHeaderRows', headers.secretRows)
-                      // A backend that takes one encoding moves the exporter onto it.
-                      const [fallback] = variantEncodings[next]
-                      if (
-                        fallback &&
-                        !variantEncodings[next].includes(form.getFieldValue('encoding'))
-                      )
-                        form.setFieldValue('encoding', fallback)
-                    }}
-                  />
+                  <OtelVariantSelect value={field.state.value} onValueChange={handleVariantChange} />
                 )}
               </form.Field>
               <div className="grid items-start gap-4 sm:grid-cols-2">
@@ -221,6 +354,36 @@ export function OtelExporterDialog({
               </form.Field>
               <form.Subscribe
                 selector={(state) => ({
+                  variant: state.values.variant,
+                  authKind: state.values.authKind,
+                  authHeaderName: state.values.authHeaderName,
+                  authUsername: state.values.authUsername,
+                  credentialSecretId: state.values.credentialSecretId,
+                })}
+              >
+                {(auth) => (
+                  <OtelExporterAuthFields
+                    orgId={orgId}
+                    variant={auth.variant}
+                    authKind={auth.authKind}
+                    authHeaderName={auth.authHeaderName}
+                    authUsername={auth.authUsername}
+                    credentialSecretId={auth.credentialSecretId}
+                    onAuthKindChange={handleAuthKindChange}
+                    onAuthHeaderNameChange={(next) => {
+                      form.setFieldValue('authHeaderName', next)
+                    }}
+                    onAuthUsernameChange={(next) => {
+                      form.setFieldValue('authUsername', next)
+                    }}
+                    onCredentialSecretIdChange={(next) => {
+                      form.setFieldValue('credentialSecretId', next)
+                    }}
+                  />
+                )}
+              </form.Subscribe>
+              <form.Subscribe
+                selector={(state) => ({
                   headerRows: state.values.headerRows,
                   secretHeaderRows: state.values.secretHeaderRows,
                 })}
@@ -229,9 +392,9 @@ export function OtelExporterDialog({
                   <KeyValueEditor
                     orgId={orgId}
                     enabled
-                    label="Headers"
+                    label="Extra headers"
                     itemLabel="Header"
-                    keyPlaceholder="Authorization"
+                    keyPlaceholder="x-custom-header"
                     textRows={headerRows}
                     secretRows={secretHeaderRows}
                     onChange={({ textRows, secretRows }) => {
@@ -241,68 +404,30 @@ export function OtelExporterDialog({
                   />
                 )}
               </form.Subscribe>
-              <OverridesCollapsible
-                title="Advanced"
-                open={advancedOpen}
-                onOpenChange={setAdvancedOpen}
+              <form.Subscribe
+                selector={(state) => ({
+                  variant: state.values.variant,
+                  encoding: state.values.encoding,
+                  samplePercent: state.values.samplePercent,
+                })}
               >
-                <div className="grid items-start gap-4 sm:grid-cols-2">
-                  <form.Subscribe selector={(state) => state.values.variant}>
-                    {(selectedVariant) => (
-                      <form.Field name="encoding">
-                        {(field) => (
-                          <Field>
-                            <FieldLabel htmlFor={id + '-encoding'}>Encoding</FieldLabel>
-                            <Select
-                              value={field.state.value}
-                              disabled={variantEncodings[selectedVariant].length < 2}
-                              onValueChange={(value) => {
-                                const next = variantEncodings[selectedVariant].find(
-                                  (option) => option === value,
-                                )
-                                if (next) field.handleChange(next)
-                              }}
-                            >
-                              <SelectTrigger id={id + '-encoding'}>
-                                <SelectValue>{otelEncodingLabels[field.state.value]}</SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {variantEncodings[selectedVariant].map((value) => (
-                                  <SelectItem key={value} value={value}>
-                                    {otelEncodingLabels[value]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-                        )}
-                      </form.Field>
-                    )}
-                  </form.Subscribe>
-                  <form.Field name="samplePercent">
-                    {(field) => (
-                      <Field>
-                        <FieldLabel htmlFor={id + '-sample'}>Turn sample rate (%)</FieldLabel>
-                        <Input
-                          id={id + '-sample'}
-                          type="number"
-                          required
-                          min={0}
-                          max={100}
-                          step="any"
-                          value={field.state.value}
-                          onChange={(event) => {
-                            field.handleChange(event.target.value)
-                          }}
-                        />
-                        {samplePercentError(field.state.value) && (
-                          <FieldError>{samplePercentError(field.state.value)}</FieldError>
-                        )}
-                      </Field>
-                    )}
-                  </form.Field>
-                </div>
-              </OverridesCollapsible>
+                {({ variant, encoding, samplePercent }) => (
+                  <OtelExporterAdvancedFields
+                    id={id}
+                    open={advancedOpen}
+                    onOpenChange={setAdvancedOpen}
+                    variant={variant}
+                    encoding={encoding}
+                    samplePercent={samplePercent}
+                    onEncodingChange={(next) => {
+                      form.setFieldValue('encoding', next)
+                    }}
+                    onSamplePercentChange={(next) => {
+                      form.setFieldValue('samplePercent', next)
+                    }}
+                  />
+                )}
+              </form.Subscribe>
               {error && (
                 <p role="alert" className="text-destructive text-sm">
                   {error}
@@ -328,16 +453,11 @@ export function OtelExporterDialog({
   )
 }
 
-function valid(value: {
-  scope: OtelExporterScope
-  endpoint: string
-  headerRows: Parameters<typeof textRowsValid>[0]
-  secretHeaderRows: Parameters<typeof secretRowsValid>[0]
-  samplePercent: string
-}) {
+function valid(value: OtelExporterFormValues) {
   return (
     otelExporterScopeComplete(value.scope) &&
     !endpointError(value.endpoint) &&
+    authValid(value) &&
     !samplePercentError(value.samplePercent) &&
     textRowsValid(value.headerRows) &&
     value.headerRows.every((row) => !!row.value) &&

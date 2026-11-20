@@ -1,12 +1,10 @@
 import { expect, it } from 'vitest'
 
-import { endpointForVariant, headersForVariant, variantEndpoints } from './otelExporterOptions'
+import { secretRowsFromRecord, textRowsFromRecord } from '@/components/key-value/keyValueRows'
 
-function keys(rows: { key: string }[]) {
-  return rows.map((row) => row.key)
-}
+import { applyVariantSwitch, endpointForVariant, variantEndpoints } from './otelExporterOptions'
 
-it("fills in a backend's endpoint and headers until the user changes them", () => {
+it("fills in a backend's endpoint, auth preset, and headers until customized", () => {
   expect(endpointForVariant('langfuse', '')).toBe(variantEndpoints.langfuse)
   expect(endpointForVariant('braintrust', variantEndpoints.langfuse)).toBe(
     variantEndpoints.braintrust,
@@ -16,20 +14,64 @@ it("fills in a backend's endpoint and headers until the user changes them", () =
     'https://collector.internal/v1/traces',
   )
 
-  const langfuse = headersForVariant('langfuse', [], [])
-  expect(langfuse.textRows.map((row) => [row.key, row.value])).toEqual([
+  const langfuse = applyVariantSwitch({
+    nextVariant: 'langfuse',
+    endpoint: '',
+    encoding: 'json',
+    authKind: 'none',
+    authHeaderName: '',
+    authUsername: '',
+    credentialSecretId: '',
+    headerRows: [],
+    secretHeaderRows: [],
+  })
+  expect(langfuse.endpoint).toBe(variantEndpoints.langfuse)
+  expect(langfuse.authKind).toBe('basic')
+  expect(langfuse.encoding).toBe('json')
+  expect(langfuse.headerRows.map((row) => [row.key, row.value])).toEqual([
     ['x-langfuse-ingestion-version', '4'],
   ])
-  expect(langfuse.secretRows.map((row) => [row.key, row.secretId])).toEqual([['Authorization', '']])
 
-  // Untouched rows follow the variant; rows the user has filled in are kept.
-  const langsmith = headersForVariant('langsmith', langfuse.textRows, langfuse.secretRows)
-  expect([keys(langsmith.textRows), keys(langsmith.secretRows)]).toEqual([[], ['x-api-key']])
-  const [authorization] = langfuse.secretRows
-  const chosen = authorization ? [{ ...authorization, secretId: 'sec_1' }] : []
-  const kept = headersForVariant('braintrust', langfuse.textRows, chosen)
-  expect([keys(kept.textRows), kept.secretRows]).toEqual([['x-langfuse-ingestion-version'], chosen])
-  expect(
-    keys(headersForVariant('otel', langsmith.textRows, langsmith.secretRows).secretRows),
-  ).toEqual([])
+  // Switching to a different backend origin clears credentials so secrets from
+  // Langfuse are never forwarded to Braintrust.
+  const braintrust = applyVariantSwitch({
+    nextVariant: 'braintrust',
+    endpoint: langfuse.endpoint,
+    encoding: langfuse.encoding,
+    authKind: langfuse.authKind,
+    authHeaderName: langfuse.authHeaderName,
+    authUsername: 'pk-lf-123',
+    credentialSecretId: 'sec_langfuse',
+    headerRows: langfuse.headerRows,
+    secretHeaderRows: secretRowsFromRecord({ 'x-extra': 'sec_extra' }),
+  })
+  expect(braintrust.endpoint).toBe(variantEndpoints.braintrust)
+  expect(braintrust.encoding).toBe('protobuf')
+  expect(braintrust.authKind).toBe('bearer_token')
+  expect(braintrust.authUsername).toBe('')
+  expect(braintrust.credentialSecretId).toBe('')
+  expect(braintrust.secretHeaderRows).toEqual([])
+  expect(braintrust.headerRows.map((row) => [row.key, row.value])).toEqual([
+    ['x-bt-parent', 'project_id:'],
+  ])
+
+  // Switching variant while keeping a custom endpoint preserves credentials on the same origin.
+  const custom = applyVariantSwitch({
+    nextVariant: 'langsmith',
+    endpoint: 'https://collector.internal/v1/traces',
+    encoding: 'protobuf',
+    authKind: 'bearer_token',
+    authHeaderName: '',
+    authUsername: '',
+    credentialSecretId: 'sec_collector',
+    headerRows: textRowsFromRecord({ 'x-team': 'infra' }),
+    secretHeaderRows: secretRowsFromRecord({ 'x-extra': 'sec_extra' }),
+  })
+  expect(custom.endpoint).toBe('https://collector.internal/v1/traces')
+  expect(custom.authKind).toBe('bearer_token')
+  expect(custom.credentialSecretId).toBe('sec_collector')
+  expect(custom.headerRows.map((row) => [row.key, row.value])).toEqual([['x-team', 'infra']])
+  expect(custom.secretHeaderRows.map((row) => [row.key, row.secretId])).toEqual([
+    ['x-extra', 'sec_extra'],
+  ])
 })

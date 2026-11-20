@@ -15,6 +15,7 @@ func OtelExportDeliveryAttempt(
 	event := log.NewEvent(ctx, "otel_export.delivery_attempt", log.Fields{
 		"org.id":                  delivery.OrgID,
 		"agent.id":                delivery.AgentID,
+		"turn.id":                 delivery.TurnID,
 		"otel_export.delivery_id": delivery.ID,
 		"otel_export.exporter_id": delivery.ExporterID,
 		"otel_export.attempt":     delivery.AttemptCount,
@@ -51,10 +52,20 @@ func OtelExportPartialSuccess(ctx context.Context, rejectedSpans int64) {
 	log.Attach(ctx, log.Fields{"otel_export.rejected_spans": rejectedSpans})
 }
 
-func OtelExportDeliveryResult(ctx context.Context, outcome, cause string, err error) {
+func OtelExportDeliveryResult(ctx context.Context, outcome, cause string, err error, retryAt time.Time) {
 	log.Attach(ctx, log.Fields{"otel_export.outcome": outcome, "otel_export.cause": cause})
 	log.Error(ctx, err)
+	if !retryAt.IsZero() {
+		log.Attach(ctx, log.Fields{"otel_export.retry_at": retryAt})
+	}
 	switch outcome {
+	case "gave_up":
+		log.Attach(ctx, log.Fields{"otel_export.gave_up": true})
+		if cause == "recipient" || cause == "configuration" {
+			log.Level(ctx, log.WarnLevel)
+		} else {
+			log.Level(ctx, log.ErrorLevel)
+		}
 	case "dropped", "retry_scheduled", "partially_rejected", "unacknowledged":
 		log.Level(ctx, log.WarnLevel)
 	case "retry_failed", "complete_failed":
@@ -62,6 +73,26 @@ func OtelExportDeliveryResult(ctx context.Context, outcome, cause string, err er
 	case "canceled":
 		log.Level(ctx, log.DebugLevel)
 	}
+}
+
+// OtelExportDeliveryExpired logs metadata only when an undelivered trace ages
+// out of the delivery window; trace spans and agent content are never logged.
+func OtelExportDeliveryExpired(ctx context.Context, delivery executionstore.OtelExportDelivery) {
+	fields := log.Fields{
+		"org.id":                  delivery.OrgID,
+		"agent.id":                delivery.AgentID,
+		"turn.id":                 delivery.TurnID,
+		"otel_export.delivery_id": delivery.ID,
+		"otel_export.exporter_id": delivery.ExporterID,
+		"otel_export.attempt":     delivery.AttemptCount,
+		"otel_export.outcome":     "expired",
+	}
+	if !delivery.CreatedAt.IsZero() {
+		fields["otel_export.age_seconds"] = max(time.Since(delivery.CreatedAt).Seconds(), 0)
+	}
+	event := log.NewEvent(ctx, "otel_export.delivery_expired", fields)
+	event.Level(log.WarnLevel)
+	event.Done(ctx)
 }
 
 func OtelExportStoreFailed(ctx context.Context, operation string, err error) {

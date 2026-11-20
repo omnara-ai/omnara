@@ -33,6 +33,10 @@ function LinkedAgent({
         <Link
           to="/projects/$projectId/agents/$agentId/traces"
           params={{ projectId, agentId: link.agentId }}
+          search={{
+            turn: link.turnId || undefined,
+            span: link.spanId || undefined,
+          }}
           className="type-body-small truncate hover:underline"
         >
           {name === '' ? link.agentId : name}

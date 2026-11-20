@@ -1,10 +1,12 @@
 package executionstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
+	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -27,7 +30,6 @@ const MaxOtelExportersPerOrg = 100
 type OtelExporterScopeType string
 
 const (
-	OtelExporterScopeOrg     OtelExporterScopeType = "org"
 	OtelExporterScopeProject OtelExporterScopeType = "project"
 	OtelExporterScopeAgent   OtelExporterScopeType = "agent"
 )
@@ -41,8 +43,6 @@ type OtelExporterScope struct {
 func (scope OtelExporterScope) Validate() error {
 	valid := false
 	switch scope.Type {
-	case OtelExporterScopeOrg:
-		valid = scope.ProjectID == uuid.Nil && scope.AgentID == uuid.Nil
 	case OtelExporterScopeProject:
 		valid = scope.ProjectID != uuid.Nil && scope.AgentID == uuid.Nil
 	case OtelExporterScopeAgent:
@@ -54,14 +54,12 @@ func (scope OtelExporterScope) Validate() error {
 	return nil
 }
 
-func otelExporterScopeFromColumns(projectID, agentID *uuid.UUID) OtelExporterScope {
+func otelExporterScopeFromColumns(projectID uuid.UUID, agentID *uuid.UUID) OtelExporterScope {
 	scope := OtelExporterScope{
-		Type: OtelExporterScopeOrg, ProjectID: storeutil.IDFromPtr(projectID), AgentID: storeutil.IDFromPtr(agentID),
+		Type: OtelExporterScopeProject, ProjectID: projectID, AgentID: storeutil.IDFromPtr(agentID),
 	}
 	if agentID != nil {
 		scope.Type = OtelExporterScopeAgent
-	} else if projectID != nil {
-		scope.Type = OtelExporterScopeProject
 	}
 	return scope
 }
@@ -94,14 +92,18 @@ type ListOtelExportersResult struct {
 }
 
 type UpdateOtelExporterInput struct {
-	OrgID         uuid.UUID
-	ExporterID    uuid.UUID
-	Endpoint      *string
-	Variant       *oteltrace.Variant
-	Encoding      *oteltrace.Encoding
-	Headers       map[string]string
-	SecretHeaders map[string]uuid.UUID
-	SamplePercent *float64
+	OrgID                 uuid.UUID
+	ExporterID            uuid.UUID
+	Endpoint              *string
+	Variant               *oteltrace.Variant
+	Encoding              *oteltrace.Encoding
+	AuthKind              *otelconfig.AuthKind
+	AuthOptions           *otelconfig.AuthOptions
+	SetCredentialSecretID bool
+	CredentialSecretID    uuid.UUID
+	Headers               map[string]string
+	SecretHeaders         map[string]uuid.UUID
+	SamplePercent         *float64
 }
 
 func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, error) {
@@ -109,9 +111,16 @@ func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, er
 		ID: row.ID, OrgID: row.OrgID, Scope: otelExporterScopeFromColumns(row.ProjectID, row.AgentID),
 		Settings: otelconfig.Settings{
 			Endpoint: row.Endpoint, Variant: oteltrace.Variant(row.Variant),
-			Encoding: oteltrace.Encoding(row.Encoding), SamplePercent: row.SamplePercent,
+			Encoding: oteltrace.Encoding(row.Encoding), AuthKind: otelconfig.AuthKind(row.AuthKind),
+			CredentialSecretID: storeutil.IDFromPtr(row.CredentialSecretID),
+			SamplePercent:      row.SamplePercent,
 		},
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+	if len(row.AuthOptions) > 0 {
+		if err := json.Unmarshal(row.AuthOptions, &record.Settings.AuthOptions); err != nil {
+			return OtelExporterRecord{}, fmt.Errorf("decode exporter auth options: %w", err)
+		}
 	}
 	if err := json.Unmarshal(row.Headers, &record.Settings.Headers); err != nil {
 		return OtelExporterRecord{}, fmt.Errorf("decode exporter headers: %w", err)
@@ -135,35 +144,74 @@ func (s *Store) readOtelExporterSecret(ctx context.Context, orgID, secretID uuid
 	return record.Payload[secrets.KeyValue], nil
 }
 
-func (s *Store) validateOtelExporterSettings(
-	ctx context.Context, orgID uuid.UUID, settings otelconfig.Settings,
-) (otelconfig.Settings, error) {
-	settings, err := otelconfig.Validate(settings, s.endpointAllowlist)
-	if err != nil {
-		return otelconfig.Settings{}, storeerr.InvalidRequest(err)
+func otelExporterReferencedSecretIDs(settings otelconfig.Settings) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(settings.SecretHeaders)+1)
+	if settings.CredentialSecretID != uuid.Nil {
+		ids = append(ids, settings.CredentialSecretID)
 	}
-	for name, secretID := range settings.SecretHeaders {
-		value, err := s.readOtelExporterSecret(ctx, orgID, secretID)
-		if errors.Is(err, storeerr.ErrNotFound) {
-			return otelconfig.Settings{}, storeerr.InvalidRequest(
-				fmt.Errorf("secret header %s must reference an organization-owned generic secret", name))
-		}
-		if err != nil {
-			return otelconfig.Settings{}, err
-		}
-		if err := otelconfig.ValidateHeaderValue(name, value); err != nil {
-			return otelconfig.Settings{}, storeerr.InvalidRequest(err)
-		}
+	for _, secretID := range settings.SecretHeaders {
+		ids = append(ids, secretID)
 	}
-	return settings, nil
+	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	return slices.Compact(ids)
 }
 
-func encodeOtelExporterHeaders(settings otelconfig.Settings) (headers, secretHeaders json.RawMessage, err error) {
+func (s *Store) lockAndValidateOtelExporterSecretsTx(
+	ctx context.Context, tx pgx.Tx, orgID uuid.UUID, settings otelconfig.Settings,
+) error {
+	referenced := otelExporterReferencedSecretIDs(settings)
+	if len(referenced) == 0 {
+		return nil
+	}
+	values := make(map[uuid.UUID]string, len(referenced))
+	for _, secretID := range referenced {
+		facts, err := secretops.LockReference(ctx, tx, orgID, secretID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
+		}
+		if err != nil {
+			return err
+		}
+		if facts.OwnerKind != secretstore.SecretOwnerOrg ||
+			facts.ManagementKind != management.Tenant ||
+			facts.Kind != secrets.KindGeneric {
+			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
+		}
+		value, err := s.readOtelExporterSecret(ctx, orgID, secretID)
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
+		}
+		if err != nil {
+			return err
+		}
+		values[secretID] = value
+	}
+	if settings.CredentialSecretID != uuid.Nil {
+		if _, _, err := otelconfig.FormatAuthHeader(
+			settings.AuthKind, settings.AuthOptions, values[settings.CredentialSecretID],
+		); err != nil {
+			return storeerr.InvalidRequest(err)
+		}
+	}
+	for name, secretID := range settings.SecretHeaders {
+		if err := otelconfig.ValidateHeaderValue(name, values[secretID]); err != nil {
+			return storeerr.InvalidRequest(err)
+		}
+	}
+	return nil
+}
+
+func encodeOtelExporterJSON(
+	settings otelconfig.Settings,
+) (authOptions, headers, secretHeaders json.RawMessage, err error) {
+	if authOptions, err = json.Marshal(settings.AuthOptions); err != nil {
+		return nil, nil, nil, err
+	}
 	if headers, err = json.Marshal(settings.Headers); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	secretHeaders, err = json.Marshal(settings.SecretHeaders)
-	return headers, secretHeaders, err
+	return authOptions, headers, secretHeaders, err
 }
 
 func otelExporterConflict(err error) error {
@@ -178,9 +226,9 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	if err := input.Scope.Validate(); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	settings, err := s.validateOtelExporterSettings(ctx, input.OrgID, input.Settings)
+	settings, err := otelconfig.Validate(input.Settings, s.endpointAllowlist)
 	if err != nil {
-		return OtelExporterRecord{}, err
+		return OtelExporterRecord{}, storeerr.InvalidRequest(err)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -188,19 +236,14 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	if input.Scope.Type == OtelExporterScopeOrg {
-		err = lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID)
-	} else {
-		var project dbsqlc.GetProjectByIDRow
-		project, err = q.GetProjectByID(ctx, dbsqlc.GetProjectByIDParams{ID: input.Scope.ProjectID})
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && project.OrgID != input.OrgID) {
-			return OtelExporterRecord{}, storeerr.ErrNotFound
-		}
-		if err == nil {
-			err = lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.Scope.ProjectID)
-		}
+	project, err := q.GetProjectByID(ctx, dbsqlc.GetProjectByIDParams{ID: input.Scope.ProjectID})
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && project.OrgID != input.OrgID) {
+		return OtelExporterRecord{}, storeerr.ErrNotFound
 	}
 	if err != nil {
+		return OtelExporterRecord{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.Scope.ProjectID); err != nil {
 		return OtelExporterRecord{}, err
 	}
 	if input.Scope.Type == OtelExporterScopeAgent {
@@ -217,6 +260,9 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	if err := lockResourceCreation(ctx, q, "otel_exporters", input.OrgID.String()); err != nil {
 		return OtelExporterRecord{}, err
 	}
+	if err := s.lockAndValidateOtelExporterSecretsTx(ctx, tx, input.OrgID, settings); err != nil {
+		return OtelExporterRecord{}, err
+	}
 	existing, err := q.CountOrgOtelExporters(ctx, dbsqlc.CountOrgOtelExportersParams{OrgID: input.OrgID})
 	if err != nil {
 		return OtelExporterRecord{}, err
@@ -225,15 +271,16 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 		return OtelExporterRecord{}, resourceguard.LimitExceeded(
 			"OpenTelemetry exporters per organization", MaxOtelExportersPerOrg)
 	}
-	headers, secretHeaders, err := encodeOtelExporterHeaders(settings)
+	authOptions, headers, secretHeaders, err := encodeOtelExporterJSON(settings)
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
 	row, err := q.InsertOtelExporter(ctx, dbsqlc.InsertOtelExporterParams{
-		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.Scope.ProjectID),
+		OrgID: input.OrgID, ProjectID: input.Scope.ProjectID,
 		AgentID: storeutil.IDFromNil(input.Scope.AgentID), Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Encoding: string(settings.Encoding),
-		Headers:  headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
+		Encoding: string(settings.Encoding), AuthKind: string(settings.AuthKind), AuthOptions: authOptions,
+		CredentialSecretID: storeutil.IDFromNil(settings.CredentialSecretID),
+		Headers:            headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if err != nil {
 		return OtelExporterRecord{}, otelExporterConflict(err)
@@ -325,6 +372,19 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	if input.Encoding != nil {
 		settings.Encoding = *input.Encoding
 	}
+	if input.AuthKind != nil {
+		settings.AuthKind = *input.AuthKind
+	}
+	if input.AuthOptions != nil {
+		settings.AuthOptions = *input.AuthOptions
+	} else if input.AuthKind != nil && settings.AuthKind != current.Settings.AuthKind {
+		settings.AuthOptions = otelconfig.AuthOptions{}
+	}
+	if input.SetCredentialSecretID {
+		settings.CredentialSecretID = input.CredentialSecretID
+	} else if input.AuthKind != nil && settings.AuthKind == otelconfig.AuthKindNone {
+		settings.CredentialSecretID = uuid.Nil
+	}
 	if input.Headers != nil {
 		settings.Headers = input.Headers
 	}
@@ -334,17 +394,21 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	if input.SamplePercent != nil {
 		settings.SamplePercent = *input.SamplePercent
 	}
-	if settings, err = s.validateOtelExporterSettings(ctx, input.OrgID, settings); err != nil {
+	if settings, err = otelconfig.Validate(settings, s.endpointAllowlist); err != nil {
+		return OtelExporterRecord{}, storeerr.InvalidRequest(err)
+	}
+	if err := s.lockAndValidateOtelExporterSecretsTx(ctx, tx, input.OrgID, settings); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	headers, secretHeaders, err := encodeOtelExporterHeaders(settings)
+	authOptions, headers, secretHeaders, err := encodeOtelExporterJSON(settings)
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
 	row, err = q.UpdateOtelExporter(ctx, dbsqlc.UpdateOtelExporterParams{
 		OrgID: input.OrgID, ID: input.ExporterID, Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Encoding: string(settings.Encoding),
-		Headers:  headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
+		Encoding: string(settings.Encoding), AuthKind: string(settings.AuthKind), AuthOptions: authOptions,
+		CredentialSecretID: storeutil.IDFromNil(settings.CredentialSecretID),
+		Headers:            headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound

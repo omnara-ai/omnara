@@ -8,9 +8,10 @@ import {
   AgentCardStat,
   AgentCardTime,
 } from '@/components/agents/AgentCardList'
-import { Bot, Building2, Folder, FunnelIcon, KeyRound, PlusIcon } from '@/components/icons'
+import { Bot, Folder, FunnelIcon, KeyRound, PlusIcon } from '@/components/icons'
 import { OtelExporterDialog } from '@/components/otel-exporters/OtelExporterDialog'
 import {
+  otelAuthKindLabels,
   otelEncodingLabels,
   otelVariantLabels,
 } from '@/components/otel-exporters/otelExporterOptions'
@@ -23,19 +24,16 @@ import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { errorMessage } from '@/lib/submit-status'
 
-const scopeIcons = { org: Building2, project: Folder, agent: Bot }
+const scopeIcons = { project: Folder, agent: Bot }
 
 /**
- * The organization's exporters. Inside a project the list narrows to the exporters that cover
- * it: the project's own, its agents', and the organization-wide ones.
+ * The organization's exporters fetched in a single list. Inside a project the list narrows
+ * to the project's own and its agents' exporters.
  */
 export function OtelExportersSection({ orgId, projectId }: { orgId: string; projectId?: string }) {
   const query = useOtelExporters(orgId)
   const exporters = useInfiniteQueryItems(query).filter(
-    (exporter) =>
-      projectId === undefined ||
-      exporter.scope.type === 'org' ||
-      exporter.scope.project_id === projectId,
+    (exporter) => projectId === undefined || exporter.scope.project_id === projectId,
   )
   const remove = useDeleteOtelExporter(orgId)
   const [editing, setEditing] = useState<OtelExporter | 'new' | null>(null)
@@ -55,7 +53,7 @@ export function OtelExportersSection({ orgId, projectId }: { orgId: string; proj
         <ul className="flex flex-col gap-2">
           {exporters.map((exporter) => {
             const ScopeIcon = scopeIcons[exporter.scope.type]
-            const headers =
+            const extraHeaders =
               Object.keys(exporter.headers).length + Object.keys(exporter.secret_headers).length
             return (
               <li key={exporter.id}>
@@ -75,6 +73,12 @@ export function OtelExportersSection({ orgId, projectId }: { orgId: string; proj
                       <span className="shrink-0">{otelVariantLabels[exporter.variant]}</span>
                       <span aria-hidden="true">·</span>
                       <span className="shrink-0">{otelEncodingLabels[exporter.encoding]}</span>
+                      {exporter.auth_kind !== 'none' && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="shrink-0">{otelAuthKindLabels[exporter.auth_kind]}</span>
+                        </>
+                      )}
                     </>
                   }
                   meta={
@@ -110,8 +114,8 @@ export function OtelExportersSection({ orgId, projectId }: { orgId: string; proj
                       />
                       <AgentCardStat
                         icon={KeyRound}
-                        label={headers === 1 ? 'header' : 'headers'}
-                        value={headers}
+                        label={extraHeaders === 1 ? 'header' : 'headers'}
+                        value={extraHeaders}
                       />
                     </>
                   }

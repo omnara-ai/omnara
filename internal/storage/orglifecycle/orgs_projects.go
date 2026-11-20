@@ -498,7 +498,7 @@ func (s *Service) deleteProjectOnce(
 		return nil, err
 	}
 	if err := q.DeleteProjectOtelExporters(ctx, dbsqlc.DeleteProjectOtelExportersParams{
-		OrgID: orgID, ProjectID: &projectID,
+		OrgID: orgID, ProjectID: projectID,
 	}); err != nil {
 		return nil, fmt.Errorf("delete project otel exporters: %w", err)
 	}

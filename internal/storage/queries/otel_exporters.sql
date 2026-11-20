@@ -1,14 +1,16 @@
 -- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent
+    org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+    headers, secret_headers, sample_percent
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent,
-          created_at, updated_at, deleted_at;
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+          headers, secret_headers, sample_percent, created_at, updated_at, deleted_at;
 
 -- name: GetOtelExporter :one
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.encoding, exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
@@ -16,12 +18,13 @@ WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
 
 -- name: ListOtelExporters :many
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.encoding, exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = sqlc.arg(org_id)
   AND (NOT sqlc.arg(filter_scope)::boolean OR (
-    exporter.project_id IS NOT DISTINCT FROM sqlc.narg(project_id)::uuid
+    exporter.project_id = sqlc.narg(project_id)::uuid
     AND exporter.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
   ))
   AND exporter.deleted_at IS NULL
@@ -37,11 +40,12 @@ SELECT count(*) FROM otel_exporters
 WHERE org_id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateOtelExporter :one
-UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, headers = $6, secret_headers = $7,
-    sample_percent = $8, updated_at = statement_timestamp()
+UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind = $6, auth_options = $7,
+    credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
+    updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent,
-          created_at, updated_at, deleted_at;
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+          headers, secret_headers, sample_percent, created_at, updated_at, deleted_at;
 
 -- name: DeleteOtelExporter :execrows
 UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
@@ -57,8 +61,7 @@ UPDATE otel_exporters SET deleted_at = transaction_timestamp(), updated_at = tra
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
 -- name: DeleteProjectOtelExportDeliveries :exec
--- Turns of a deleted project's agents are dropped whichever exporter they
--- were queued for, organization-wide ones included.
+-- Turns of a deleted project's agents are dropped when the project is deleted.
 DELETE FROM otel_export_deliveries delivery
 USING agents agent
 WHERE agent.id = delivery.agent_id
@@ -75,7 +78,7 @@ JOIN agents agent ON agent.id = turn.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
-    AND (exporter.project_id IS NULL OR exporter.project_id = agent.project_id)
+    AND exporter.project_id = agent.project_id
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE turn.agent_id = sqlc.arg(agent_id)
   AND turn.id = ANY(sqlc.arg(turn_ids)::uuid[])
@@ -116,13 +119,15 @@ RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id,
 -- name: CompleteOtelExportDelivery :exec
 DELETE FROM otel_export_deliveries WHERE id = $1 AND claim_token = $2;
 
--- name: RetryOtelExportDelivery :exec
+-- name: RetryOtelExportDelivery :one
 UPDATE otel_export_deliveries
 SET next_attempt_at = statement_timestamp() + sqlc.arg(delay_seconds)::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
-WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token);
+WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token)
+RETURNING next_attempt_at, next_attempt_at >= created_at
+    + sqlc.arg(delivery_window_seconds)::double precision * interval '1 second' AS gave_up;
 
--- name: DeleteExpiredOtelExportDeliveries :execrows
+-- name: DeleteExpiredOtelExportDeliveries :many
 WITH candidates AS (
     SELECT id FROM otel_export_deliveries
     WHERE created_at <= statement_timestamp()
@@ -134,7 +139,9 @@ WITH candidates AS (
 )
 DELETE FROM otel_export_deliveries delivery
 USING candidates
-WHERE delivery.id = candidates.id;
+WHERE delivery.id = candidates.id
+RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.turn_id,
+    delivery.attempt_count, delivery.created_at;
 
 -- name: GetTurnTraceContext :one
 SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent_name,
@@ -175,26 +182,94 @@ LIMIT sqlc.arg(row_limit);
 
 -- name: ListTurnTraceToolCalls :many
 -- Newest first, so a turn with more calls than the limit keeps its latest.
-SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
-       result.outcome, result.completed_at
-FROM tool_call_read_projection call
-JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
-WHERE call.agent_id = sqlc.arg(agent_id)
-  AND call.turn_id = sqlc.arg(turn_id)
-ORDER BY call.created_at DESC, call.id DESC
-LIMIT sqlc.arg(row_limit);
+-- Bounds each argument value and cumulative argument bytes read in SQL before
+-- transferring rows to the worker.
+WITH recent AS (
+    SELECT call.id, call.name, call.provider_call_id, call.input::text AS raw_input,
+           octet_length(call.input::text) AS input_bytes,
+           call.created_at, result.outcome, result.completed_at
+    FROM tool_call_read_projection call
+    JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
+    WHERE call.agent_id = sqlc.arg(agent_id)
+      AND call.turn_id = sqlc.arg(turn_id)
+    ORDER BY call.created_at DESC, call.id DESC
+    LIMIT sqlc.arg(row_limit)
+), budgeted AS (
+    SELECT id, name, provider_call_id, raw_input, input_bytes, created_at, outcome, completed_at,
+           sum(least(input_bytes, sqlc.arg(max_value_bytes)::integer))
+               OVER (ORDER BY created_at DESC, id DESC) AS cumulative_bytes
+    FROM recent
+)
+SELECT id, name, provider_call_id,
+       (CASE
+           WHEN cumulative_bytes > sqlc.arg(max_total_bytes)::bigint THEN ''::text
+           WHEN input_bytes > sqlc.arg(max_value_bytes)::integer THEN left(raw_input, sqlc.arg(max_value_chars)::integer)
+           ELSE raw_input
+       END)::text AS input_text,
+       (cumulative_bytes > sqlc.arg(max_total_bytes)::bigint
+           OR input_bytes > sqlc.arg(max_value_bytes)::integer)::boolean AS input_truncated,
+       created_at, outcome, completed_at
+FROM budgeted
+ORDER BY created_at DESC, id DESC;
+
+-- name: ListTurnTraceEvents :many
+-- Newest first, bounded by row count and cumulative content-block bytes read
+-- before rows leave Postgres. Oversized single events clip each block in JSONB
+-- so tool_call structure and valid JSON survive; events past the cumulative
+-- budget omit content blocks and flag content_truncated.
+WITH recent AS (
+    SELECT projection.sequence, projection.event_kind, projection.is_opening_event,
+           projection.model_call_context_id, projection.tool_call_id, projection.model_stop_reason,
+           projection.content_blocks, projection.created_at,
+           octet_length(projection.content_blocks::text) AS content_bytes
+    FROM agent_event_read_projection projection
+    WHERE projection.project_id = sqlc.arg(project_id)
+      AND projection.agent_id = sqlc.arg(agent_id)
+      AND projection.turn_id = sqlc.arg(turn_id)
+    ORDER BY projection.sequence DESC
+    LIMIT sqlc.arg(row_limit)
+), budgeted AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes,
+           sum(least(content_bytes, sqlc.arg(max_event_bytes)::integer))
+               OVER (ORDER BY sequence DESC) AS cumulative_bytes
+    FROM recent
+)
+SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
+       (CASE
+           WHEN cumulative_bytes > sqlc.arg(max_total_bytes)::bigint THEN '[]'::jsonb
+           WHEN content_bytes > sqlc.arg(max_event_bytes)::integer THEN coalesce((
+               SELECT jsonb_agg(
+                   CASE
+                       WHEN elem.block ? 'text' AND octet_length(elem.block->>'text') > sqlc.arg(max_value_bytes)::integer
+                           THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', sqlc.arg(max_value_chars)::integer)))
+                       WHEN elem.block ? 'value' AND octet_length((elem.block->'value')::text) > sqlc.arg(max_value_bytes)::integer
+                           THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, sqlc.arg(max_value_chars)::integer)))
+                       WHEN elem.block ? 'input' AND octet_length((elem.block->'input')::text) > sqlc.arg(max_value_bytes)::integer
+                           THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, sqlc.arg(max_value_chars)::integer)))
+                       ELSE elem.block
+                   END
+               )
+               FROM jsonb_array_elements(content_blocks) AS elem(block)
+           ), '[]'::jsonb)
+           ELSE content_blocks
+       END)::jsonb AS content_blocks,
+       (cumulative_bytes > sqlc.arg(max_total_bytes)::bigint
+           OR content_bytes > sqlc.arg(max_event_bytes)::integer)::boolean AS content_truncated,
+       created_at
+FROM budgeted
+ORDER BY sequence DESC;
 
 -- name: ListTurnTraceInputSources :many
--- An input another agent sent carries, in its idempotency key, the tool call
--- or model output it came from.
-SELECT input.idempotency_scope, input.input_idempotency_key
+-- Explicit provenance facts recorded by the cross-agent operation that created
+-- the input, never derived from caller-controlled idempotency keys.
+SELECT input.source_link_kind, input.source_tool_call_id, input.source_model_output_id
 FROM agent_events event
 JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
 WHERE event.agent_id = sqlc.arg(agent_id)
   AND event.turn_id = sqlc.arg(turn_id)
   AND event.event_kind = 'agent_input'
-  AND input.idempotency_scope IS NOT NULL
-  AND input.input_idempotency_key IS NOT NULL
+  AND input.source_link_kind IS NOT NULL
 ORDER BY event.sequence
 LIMIT sqlc.arg(row_limit);
 
@@ -213,18 +288,13 @@ WHERE output.id = sqlc.arg(model_output_id)
   AND agent.project_id = sqlc.arg(project_id);
 
 -- name: ListTurnTraceSentInputs :many
--- The subagent turns that received what this turn's spawn_agent and
--- send_agent_message calls sent.
-SELECT call.id AS tool_call_id, call.name AS tool_name, input.agent_id, event.turn_id
-FROM tool_call_read_projection call
-JOIN agents child ON child.parent_agent_id = call.agent_id
-JOIN agent_inputs input ON input.project_id = child.project_id AND input.agent_id = child.id
-    AND ((input.idempotency_scope = 'content_input'
-            AND input.input_idempotency_key = 'launch:spawn:' || call.id::text || ':content-input')
-        OR (input.idempotency_scope = 'subagent_message'
-            AND input.input_idempotency_key = 'tool_call:' || call.id::text))
+-- The subagent turns that received what this turn's retained spawn_agent and
+-- send_agent_message calls sent, restricted to the retained tool calls.
+SELECT input.source_tool_call_id AS tool_call_id, input.source_link_kind, input.agent_id, event.turn_id
+FROM agent_inputs input
+JOIN agents child ON child.id = input.agent_id AND child.parent_agent_id = sqlc.arg(agent_id)
 JOIN agent_events event ON event.agent_id = input.agent_id AND event.agent_input_id = input.id
-WHERE call.agent_id = sqlc.arg(agent_id)
-  AND call.turn_id = sqlc.arg(turn_id)
-  AND call.name IN ('spawn_agent', 'send_agent_message')
-ORDER BY event.sequence;
+WHERE input.source_tool_call_id = ANY(sqlc.arg(tool_call_ids)::uuid[])
+  AND input.source_link_kind IN ('spawned_by', 'message_from')
+ORDER BY event.sequence
+LIMIT sqlc.arg(row_limit);

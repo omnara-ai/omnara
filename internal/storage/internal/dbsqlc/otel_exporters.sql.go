@@ -105,7 +105,7 @@ func (q *Queries) CountOrgOtelExporters(ctx context.Context, arg CountOrgOtelExp
 	return count, err
 }
 
-const deleteExpiredOtelExportDeliveries = `-- name: DeleteExpiredOtelExportDeliveries :execrows
+const deleteExpiredOtelExportDeliveries = `-- name: DeleteExpiredOtelExportDeliveries :many
 WITH candidates AS (
     SELECT id FROM otel_export_deliveries
     WHERE created_at <= statement_timestamp()
@@ -118,6 +118,8 @@ WITH candidates AS (
 DELETE FROM otel_export_deliveries delivery
 USING candidates
 WHERE delivery.id = candidates.id
+RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.turn_id,
+    delivery.attempt_count, delivery.created_at
 `
 
 type DeleteExpiredOtelExportDeliveriesParams struct {
@@ -125,12 +127,42 @@ type DeleteExpiredOtelExportDeliveriesParams struct {
 	LimitCount            int32
 }
 
-func (q *Queries) DeleteExpiredOtelExportDeliveries(ctx context.Context, arg DeleteExpiredOtelExportDeliveriesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteExpiredOtelExportDeliveries, arg.DeliveryWindowSeconds, arg.LimitCount)
+type DeleteExpiredOtelExportDeliveriesRow struct {
+	ID           uuid.UUID
+	OrgID        uuid.UUID
+	ExporterID   uuid.UUID
+	AgentID      uuid.UUID
+	TurnID       uuid.UUID
+	AttemptCount int32
+	CreatedAt    time.Time
+}
+
+func (q *Queries) DeleteExpiredOtelExportDeliveries(ctx context.Context, arg DeleteExpiredOtelExportDeliveriesParams) ([]DeleteExpiredOtelExportDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, deleteExpiredOtelExportDeliveries, arg.DeliveryWindowSeconds, arg.LimitCount)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []DeleteExpiredOtelExportDeliveriesRow{}
+	for rows.Next() {
+		var i DeleteExpiredOtelExportDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ExporterID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.AttemptCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteOtelExporter = `-- name: DeleteOtelExporter :execrows
@@ -179,8 +211,7 @@ type DeleteProjectOtelExportDeliveriesParams struct {
 	ProjectID uuid.UUID
 }
 
-// Turns of a deleted project's agents are dropped whichever exporter they
-// were queued for, organization-wide ones included.
+// Turns of a deleted project's agents are dropped when the project is deleted.
 func (q *Queries) DeleteProjectOtelExportDeliveries(ctx context.Context, arg DeleteProjectOtelExportDeliveriesParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectOtelExportDeliveries, arg.OrgID, arg.ProjectID)
 	return err
@@ -193,7 +224,7 @@ WHERE org_id = $1 AND project_id = $2 AND deleted_at IS NULL
 
 type DeleteProjectOtelExportersParams struct {
 	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
+	ProjectID uuid.UUID
 }
 
 // A deleted project retires its own and its agents' exporters.
@@ -210,7 +241,7 @@ JOIN agents agent ON agent.id = turn.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
-    AND (exporter.project_id IS NULL OR exporter.project_id = agent.project_id)
+    AND exporter.project_id = agent.project_id
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE turn.agent_id = $1
   AND turn.id = ANY($2::uuid[])
@@ -235,7 +266,8 @@ func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOt
 
 const getOtelExporter = `-- name: GetOtelExporter :one
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.encoding, exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
@@ -258,6 +290,9 @@ func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,
+		&i.AuthKind,
+		&i.AuthOptions,
+		&i.CredentialSecretID,
 		&i.Headers,
 		&i.SecretHeaders,
 		&i.SamplePercent,
@@ -366,23 +401,27 @@ func (q *Queries) GetTurnTraceContext(ctx context.Context, arg GetTurnTraceConte
 
 const insertOtelExporter = `-- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent
+    org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+    headers, secret_headers, sample_percent
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent,
-          created_at, updated_at, deleted_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+          headers, secret_headers, sample_percent, created_at, updated_at, deleted_at
 `
 
 type InsertOtelExporterParams struct {
-	OrgID         uuid.UUID
-	ProjectID     *uuid.UUID
-	AgentID       *uuid.UUID
-	Endpoint      string
-	Variant       string
-	Encoding      string
-	Headers       json.RawMessage
-	SecretHeaders json.RawMessage
-	SamplePercent float64
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            *uuid.UUID
+	Endpoint           string
+	Variant            string
+	Encoding           string
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+	SamplePercent      float64
 }
 
 func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporterParams) (OtelExporter, error) {
@@ -393,6 +432,9 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 		arg.Endpoint,
 		arg.Variant,
 		arg.Encoding,
+		arg.AuthKind,
+		arg.AuthOptions,
+		arg.CredentialSecretID,
 		arg.Headers,
 		arg.SecretHeaders,
 		arg.SamplePercent,
@@ -406,6 +448,9 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,
+		&i.AuthKind,
+		&i.AuthOptions,
+		&i.CredentialSecretID,
 		&i.Headers,
 		&i.SecretHeaders,
 		&i.SamplePercent,
@@ -418,12 +463,13 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 
 const listOtelExporters = `-- name: ListOtelExporters :many
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.encoding, exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = $1
   AND (NOT $2::boolean OR (
-    exporter.project_id IS NOT DISTINCT FROM $3::uuid
+    exporter.project_id = $3::uuid
     AND exporter.agent_id IS NOT DISTINCT FROM $4::uuid
   ))
   AND exporter.deleted_at IS NULL
@@ -470,6 +516,9 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 			&i.Endpoint,
 			&i.Variant,
 			&i.Encoding,
+			&i.AuthKind,
+			&i.AuthOptions,
+			&i.CredentialSecretID,
 			&i.Headers,
 			&i.SecretHeaders,
 			&i.SamplePercent,
@@ -487,15 +536,125 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 	return items, nil
 }
 
+const listTurnTraceEvents = `-- name: ListTurnTraceEvents :many
+WITH recent AS (
+    SELECT projection.sequence, projection.event_kind, projection.is_opening_event,
+           projection.model_call_context_id, projection.tool_call_id, projection.model_stop_reason,
+           projection.content_blocks, projection.created_at,
+           octet_length(projection.content_blocks::text) AS content_bytes
+    FROM agent_event_read_projection projection
+    WHERE projection.project_id = $5
+      AND projection.agent_id = $6
+      AND projection.turn_id = $7
+    ORDER BY projection.sequence DESC
+    LIMIT $8
+), budgeted AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes,
+           sum(least(content_bytes, $2::integer))
+               OVER (ORDER BY sequence DESC) AS cumulative_bytes
+    FROM recent
+)
+SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
+       (CASE
+           WHEN cumulative_bytes > $1::bigint THEN '[]'::jsonb
+           WHEN content_bytes > $2::integer THEN coalesce((
+               SELECT jsonb_agg(
+                   CASE
+                       WHEN elem.block ? 'text' AND octet_length(elem.block->>'text') > $3::integer
+                           THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', $4::integer)))
+                       WHEN elem.block ? 'value' AND octet_length((elem.block->'value')::text) > $3::integer
+                           THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, $4::integer)))
+                       WHEN elem.block ? 'input' AND octet_length((elem.block->'input')::text) > $3::integer
+                           THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, $4::integer)))
+                       ELSE elem.block
+                   END
+               )
+               FROM jsonb_array_elements(content_blocks) AS elem(block)
+           ), '[]'::jsonb)
+           ELSE content_blocks
+       END)::jsonb AS content_blocks,
+       (cumulative_bytes > $1::bigint
+           OR content_bytes > $2::integer)::boolean AS content_truncated,
+       created_at
+FROM budgeted
+ORDER BY sequence DESC
+`
+
+type ListTurnTraceEventsParams struct {
+	MaxTotalBytes int64
+	MaxEventBytes int32
+	MaxValueBytes int32
+	MaxValueChars int32
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	TurnID        uuid.UUID
+	RowLimit      int32
+}
+
+type ListTurnTraceEventsRow struct {
+	Sequence           int64
+	EventKind          string
+	IsOpeningEvent     bool
+	ModelCallContextID *uuid.UUID
+	ToolCallID         *uuid.UUID
+	ModelStopReason    *string
+	ContentBlocks      json.RawMessage
+	ContentTruncated   bool
+	CreatedAt          time.Time
+}
+
+// Newest first, bounded by row count and cumulative content-block bytes read
+// before rows leave Postgres. Oversized single events clip each block in JSONB
+// so tool_call structure and valid JSON survive; events past the cumulative
+// budget omit content blocks and flag content_truncated.
+func (q *Queries) ListTurnTraceEvents(ctx context.Context, arg ListTurnTraceEventsParams) ([]ListTurnTraceEventsRow, error) {
+	rows, err := q.db.Query(ctx, listTurnTraceEvents,
+		arg.MaxTotalBytes,
+		arg.MaxEventBytes,
+		arg.MaxValueBytes,
+		arg.MaxValueChars,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.TurnID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnTraceEventsRow{}
+	for rows.Next() {
+		var i ListTurnTraceEventsRow
+		if err := rows.Scan(
+			&i.Sequence,
+			&i.EventKind,
+			&i.IsOpeningEvent,
+			&i.ModelCallContextID,
+			&i.ToolCallID,
+			&i.ModelStopReason,
+			&i.ContentBlocks,
+			&i.ContentTruncated,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurnTraceInputSources = `-- name: ListTurnTraceInputSources :many
-SELECT input.idempotency_scope, input.input_idempotency_key
+SELECT input.source_link_kind, input.source_tool_call_id, input.source_model_output_id
 FROM agent_events event
 JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
 WHERE event.agent_id = $1
   AND event.turn_id = $2
   AND event.event_kind = 'agent_input'
-  AND input.idempotency_scope IS NOT NULL
-  AND input.input_idempotency_key IS NOT NULL
+  AND input.source_link_kind IS NOT NULL
 ORDER BY event.sequence
 LIMIT $3
 `
@@ -507,12 +666,13 @@ type ListTurnTraceInputSourcesParams struct {
 }
 
 type ListTurnTraceInputSourcesRow struct {
-	IdempotencyScope    *string
-	InputIdempotencyKey *string
+	SourceLinkKind      *string
+	SourceToolCallID    *uuid.UUID
+	SourceModelOutputID *uuid.UUID
 }
 
-// An input another agent sent carries, in its idempotency key, the tool call
-// or model output it came from.
+// Explicit provenance facts recorded by the cross-agent operation that created
+// the input, never derived from caller-controlled idempotency keys.
 func (q *Queries) ListTurnTraceInputSources(ctx context.Context, arg ListTurnTraceInputSourcesParams) ([]ListTurnTraceInputSourcesRow, error) {
 	rows, err := q.db.Query(ctx, listTurnTraceInputSources, arg.AgentID, arg.TurnID, arg.RowLimit)
 	if err != nil {
@@ -522,7 +682,7 @@ func (q *Queries) ListTurnTraceInputSources(ctx context.Context, arg ListTurnTra
 	items := []ListTurnTraceInputSourcesRow{}
 	for rows.Next() {
 		var i ListTurnTraceInputSourcesRow
-		if err := rows.Scan(&i.IdempotencyScope, &i.InputIdempotencyKey); err != nil {
+		if err := rows.Scan(&i.SourceLinkKind, &i.SourceToolCallID, &i.SourceModelOutputID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -628,37 +788,33 @@ func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTrace
 }
 
 const listTurnTraceSentInputs = `-- name: ListTurnTraceSentInputs :many
-SELECT call.id AS tool_call_id, call.name AS tool_name, input.agent_id, event.turn_id
-FROM tool_call_read_projection call
-JOIN agents child ON child.parent_agent_id = call.agent_id
-JOIN agent_inputs input ON input.project_id = child.project_id AND input.agent_id = child.id
-    AND ((input.idempotency_scope = 'content_input'
-            AND input.input_idempotency_key = 'launch:spawn:' || call.id::text || ':content-input')
-        OR (input.idempotency_scope = 'subagent_message'
-            AND input.input_idempotency_key = 'tool_call:' || call.id::text))
+SELECT input.source_tool_call_id AS tool_call_id, input.source_link_kind, input.agent_id, event.turn_id
+FROM agent_inputs input
+JOIN agents child ON child.id = input.agent_id AND child.parent_agent_id = $1
 JOIN agent_events event ON event.agent_id = input.agent_id AND event.agent_input_id = input.id
-WHERE call.agent_id = $1
-  AND call.turn_id = $2
-  AND call.name IN ('spawn_agent', 'send_agent_message')
+WHERE input.source_tool_call_id = ANY($2::uuid[])
+  AND input.source_link_kind IN ('spawned_by', 'message_from')
 ORDER BY event.sequence
+LIMIT $3
 `
 
 type ListTurnTraceSentInputsParams struct {
-	AgentID uuid.UUID
-	TurnID  uuid.UUID
+	AgentID     *uuid.UUID
+	ToolCallIds []uuid.UUID
+	RowLimit    int32
 }
 
 type ListTurnTraceSentInputsRow struct {
-	ToolCallID uuid.UUID
-	ToolName   string
-	AgentID    uuid.UUID
-	TurnID     uuid.UUID
+	ToolCallID     *uuid.UUID
+	SourceLinkKind *string
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
 }
 
-// The subagent turns that received what this turn's spawn_agent and
-// send_agent_message calls sent.
+// The subagent turns that received what this turn's retained spawn_agent and
+// send_agent_message calls sent, restricted to the retained tool calls.
 func (q *Queries) ListTurnTraceSentInputs(ctx context.Context, arg ListTurnTraceSentInputsParams) ([]ListTurnTraceSentInputsRow, error) {
-	rows, err := q.db.Query(ctx, listTurnTraceSentInputs, arg.AgentID, arg.TurnID)
+	rows, err := q.db.Query(ctx, listTurnTraceSentInputs, arg.AgentID, arg.ToolCallIds, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +824,7 @@ func (q *Queries) ListTurnTraceSentInputs(ctx context.Context, arg ListTurnTrace
 		var i ListTurnTraceSentInputsRow
 		if err := rows.Scan(
 			&i.ToolCallID,
-			&i.ToolName,
+			&i.SourceLinkKind,
 			&i.AgentID,
 			&i.TurnID,
 		); err != nil {
@@ -683,35 +839,67 @@ func (q *Queries) ListTurnTraceSentInputs(ctx context.Context, arg ListTurnTrace
 }
 
 const listTurnTraceToolCalls = `-- name: ListTurnTraceToolCalls :many
-SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
-       result.outcome, result.completed_at
-FROM tool_call_read_projection call
-JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
-WHERE call.agent_id = $1
-  AND call.turn_id = $2
-ORDER BY call.created_at DESC, call.id DESC
-LIMIT $3
+WITH recent AS (
+    SELECT call.id, call.name, call.provider_call_id, call.input::text AS raw_input,
+           octet_length(call.input::text) AS input_bytes,
+           call.created_at, result.outcome, result.completed_at
+    FROM tool_call_read_projection call
+    JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
+    WHERE call.agent_id = $4
+      AND call.turn_id = $5
+    ORDER BY call.created_at DESC, call.id DESC
+    LIMIT $6
+), budgeted AS (
+    SELECT id, name, provider_call_id, raw_input, input_bytes, created_at, outcome, completed_at,
+           sum(least(input_bytes, $2::integer))
+               OVER (ORDER BY created_at DESC, id DESC) AS cumulative_bytes
+    FROM recent
+)
+SELECT id, name, provider_call_id,
+       (CASE
+           WHEN cumulative_bytes > $1::bigint THEN ''::text
+           WHEN input_bytes > $2::integer THEN left(raw_input, $3::integer)
+           ELSE raw_input
+       END)::text AS input_text,
+       (cumulative_bytes > $1::bigint
+           OR input_bytes > $2::integer)::boolean AS input_truncated,
+       created_at, outcome, completed_at
+FROM budgeted
+ORDER BY created_at DESC, id DESC
 `
 
 type ListTurnTraceToolCallsParams struct {
-	AgentID  uuid.UUID
-	TurnID   uuid.UUID
-	RowLimit int32
+	MaxTotalBytes int64
+	MaxValueBytes int32
+	MaxValueChars int32
+	AgentID       uuid.UUID
+	TurnID        uuid.UUID
+	RowLimit      int32
 }
 
 type ListTurnTraceToolCallsRow struct {
 	ID             uuid.UUID
 	Name           string
 	ProviderCallID string
-	Input          json.RawMessage
+	InputText      string
+	InputTruncated bool
 	CreatedAt      time.Time
 	Outcome        string
 	CompletedAt    time.Time
 }
 
 // Newest first, so a turn with more calls than the limit keeps its latest.
+// Bounds each argument value and cumulative argument bytes read in SQL before
+// transferring rows to the worker.
 func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceToolCallsParams) ([]ListTurnTraceToolCallsRow, error) {
-	rows, err := q.db.Query(ctx, listTurnTraceToolCalls, arg.AgentID, arg.TurnID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listTurnTraceToolCalls,
+		arg.MaxTotalBytes,
+		arg.MaxValueBytes,
+		arg.MaxValueChars,
+		arg.AgentID,
+		arg.TurnID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -723,7 +911,8 @@ func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceT
 			&i.ID,
 			&i.Name,
 			&i.ProviderCallID,
-			&i.Input,
+			&i.InputText,
+			&i.InputTruncated,
 			&i.CreatedAt,
 			&i.Outcome,
 			&i.CompletedAt,
@@ -738,41 +927,60 @@ func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceT
 	return items, nil
 }
 
-const retryOtelExportDelivery = `-- name: RetryOtelExportDelivery :exec
+const retryOtelExportDelivery = `-- name: RetryOtelExportDelivery :one
 UPDATE otel_export_deliveries
 SET next_attempt_at = statement_timestamp() + $1::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
 WHERE id = $2 AND claim_token = $3
+RETURNING next_attempt_at, next_attempt_at >= created_at
+    + $4::double precision * interval '1 second' AS gave_up
 `
 
 type RetryOtelExportDeliveryParams struct {
-	DelaySeconds float64
-	ID           uuid.UUID
-	ClaimToken   *uuid.UUID
+	DelaySeconds          float64
+	ID                    uuid.UUID
+	ClaimToken            *uuid.UUID
+	DeliveryWindowSeconds float64
 }
 
-func (q *Queries) RetryOtelExportDelivery(ctx context.Context, arg RetryOtelExportDeliveryParams) error {
-	_, err := q.db.Exec(ctx, retryOtelExportDelivery, arg.DelaySeconds, arg.ID, arg.ClaimToken)
-	return err
+type RetryOtelExportDeliveryRow struct {
+	NextAttemptAt time.Time
+	GaveUp        bool
+}
+
+func (q *Queries) RetryOtelExportDelivery(ctx context.Context, arg RetryOtelExportDeliveryParams) (RetryOtelExportDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, retryOtelExportDelivery,
+		arg.DelaySeconds,
+		arg.ID,
+		arg.ClaimToken,
+		arg.DeliveryWindowSeconds,
+	)
+	var i RetryOtelExportDeliveryRow
+	err := row.Scan(&i.NextAttemptAt, &i.GaveUp)
+	return i, err
 }
 
 const updateOtelExporter = `-- name: UpdateOtelExporter :one
-UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, headers = $6, secret_headers = $7,
-    sample_percent = $8, updated_at = statement_timestamp()
+UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind = $6, auth_options = $7,
+    credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
+    updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, headers, secret_headers, sample_percent,
-          created_at, updated_at, deleted_at
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+          headers, secret_headers, sample_percent, created_at, updated_at, deleted_at
 `
 
 type UpdateOtelExporterParams struct {
-	OrgID         uuid.UUID
-	ID            uuid.UUID
-	Endpoint      string
-	Variant       string
-	Encoding      string
-	Headers       json.RawMessage
-	SecretHeaders json.RawMessage
-	SamplePercent float64
+	OrgID              uuid.UUID
+	ID                 uuid.UUID
+	Endpoint           string
+	Variant            string
+	Encoding           string
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+	SamplePercent      float64
 }
 
 func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporterParams) (OtelExporter, error) {
@@ -782,6 +990,9 @@ func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporter
 		arg.Endpoint,
 		arg.Variant,
 		arg.Encoding,
+		arg.AuthKind,
+		arg.AuthOptions,
+		arg.CredentialSecretID,
 		arg.Headers,
 		arg.SecretHeaders,
 		arg.SamplePercent,
@@ -795,6 +1006,9 @@ func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporter
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,
+		&i.AuthKind,
+		&i.AuthOptions,
+		&i.CredentialSecretID,
 		&i.Headers,
 		&i.SecretHeaders,
 		&i.SamplePercent,

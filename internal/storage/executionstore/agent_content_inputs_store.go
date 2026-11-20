@@ -247,6 +247,8 @@ func createAgentContentInputTx(
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
 		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
 		SourceScheduledFor: input.SourceScheduledFor,
+		SourceLinkKind:     input.sourceLinkKind,
+		SourceToolCallID:   input.sourceToolCallID,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -327,6 +329,8 @@ type CreateAgentContentInputInput struct {
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
 	SourceScheduledFor     *time.Time                       `json:"scheduled_for,omitempty"`
 	MaxScheduledDelay      time.Duration                    `json:"-"`
+	sourceLinkKind         string
+	sourceToolCallID       uuid.UUID
 }
 
 func scheduledDelayLabel(delay time.Duration) string {

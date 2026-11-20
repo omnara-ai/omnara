@@ -12,7 +12,7 @@ export function OtelExportersPageContent({ projectId }: { projectId?: string }) 
         <p className="text-muted-foreground text-sm">
           {projectId
             ? 'Send agent turns in this project to an OpenTelemetry endpoint as traces.'
-            : 'Send agent turns to an OpenTelemetry endpoint as traces, for the whole organization, one project, or one agent.'}
+            : 'Send agent turns to an OpenTelemetry endpoint as traces, for one project or one agent.'}
         </p>
       </div>
       {canManageOrg(activeOrg.role) ? (

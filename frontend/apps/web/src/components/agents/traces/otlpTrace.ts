@@ -56,6 +56,7 @@ export interface TraceLink {
   /** How the linked span relates to this one, such as spawned_by or result_from. */
   kind: string
   agentId: string
+  turnId: string
   traceId: string
   spanId: string
 }
@@ -159,6 +160,7 @@ export function parseTrace(payload: OtelTrace): Trace | undefined {
           return {
             kind: attribute('omnara.link.kind'),
             agentId: attribute('omnara.link.agent.id'),
+            turnId: attribute('omnara.link.turn.id'),
             traceId: link.traceId,
             spanId: link.spanId,
           }
