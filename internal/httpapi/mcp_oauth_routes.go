@@ -143,7 +143,9 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "client_secret requires client_id")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
-	mcpURL, err := agentconfig.ValidateMCPURL(body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP)
+	mcpURL, err := agentconfig.ValidateMCPURL(
+		body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.endpointAllowlist,
+	)
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "mcp_url is invalid: "+err.Error())
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
@@ -154,7 +156,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	}
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpOAuthOutboundTimeout)
 	defer cancel()
-	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
+	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, s.server.mcpAuth)
 	if err != nil {
 		apiErr := mcpUpstreamFailure(
 			err,
@@ -275,7 +277,7 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
-			s.mcpOAuthHTTPClient,
+			s.mcpAuth.HTTPClient,
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
@@ -343,7 +345,7 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		Code:          code,
 		CodeVerifier:  flow.CodeVerifier,
 		Resource:      flow.Resource,
-		HTTPClient:    s.mcpOAuthHTTPClient,
+		HTTPClient:    s.mcpAuth.HTTPClient,
 	})
 	if err != nil {
 		logpkg.LoggerFromContext(r.Context()).WarnContext(r.Context(), "mcp oauth code exchange failed", "error", err)
@@ -410,7 +412,7 @@ func (s *Server) saveMCPOAuthSecret(
 		flowData.SecretName,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
-		metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata, flow.EndpointURL)
+		metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -436,7 +438,7 @@ func (s *Server) saveMCPOAuthSecret(
 	if existing.Kind != secretstore.SecretKindOAuthTokenSet {
 		return uuid.Nil, fmt.Errorf("secret %q already exists with kind %q", flowData.SecretName, existing.Kind)
 	}
-	metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata, flow.EndpointURL)
+	metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -454,17 +456,15 @@ func (s *Server) saveMCPOAuthSecret(
 }
 
 // mcpOAuthSecretMetadata merges the flow's metadata for the saved secret:
-// mcp_url and provided pairs always win, then existing pairs are kept in
+// provided pairs always win, then existing pairs other than mcp_url are kept in
 // sorted key order while they fit the metadata limits, so re-authorizing
 // never fails on metadata carried over from the stored secret.
 func mcpOAuthSecretMetadata(
 	existing json.RawMessage,
 	provided resourcemeta.Metadata,
-	mcpURL string,
 ) (resourcemeta.Metadata, error) {
 	metadata := resourcemeta.Metadata{}
 	maps.Copy(metadata, provided)
-	metadata[secrets.KeyMCPURL] = mcpURL
 	if len(existing) == 0 {
 		return metadata, nil
 	}
@@ -476,7 +476,7 @@ func mcpOAuthSecretMetadata(
 		if len(metadata) >= resourcemeta.MaxEntries {
 			break
 		}
-		if _, ok := metadata[key]; ok {
+		if _, ok := metadata[key]; ok || key == secrets.KeyMCPURL {
 			continue
 		}
 		if resourcemeta.ValidateEntry(key, decoded[key]) != nil {

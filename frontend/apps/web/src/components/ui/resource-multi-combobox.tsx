@@ -13,6 +13,7 @@ import {
   type ResourceComboboxConfig,
   useResourceComboboxRootProps,
 } from '@/components/ui/resource-combobox-core'
+import { isImeComposing } from '@/lib/ime-composition'
 
 export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfig<TItem>) {
   return function BoundResourceMultiCombobox({
@@ -34,7 +35,13 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
     onValueChange: (items: TItem[]) => void
     closeOnSelect?: boolean
   }) {
-    const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
+    const debouncing = search?.debouncing ?? false
+    const rootProps = useResourceComboboxRootProps(
+      config,
+      search,
+      debouncing ? [] : items,
+      disabled,
+    )
     const [open, setOpen] = useState(false)
 
     return (
@@ -62,11 +69,19 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
               </ComboboxChip>
             ))}
           </ComboboxValue>
-          <ComboboxChipsInput aria-label={id ? undefined : placeholder} placeholder={placeholder} />
+          <ComboboxChipsInput
+            aria-label={id ? undefined : placeholder}
+            placeholder={placeholder}
+            onKeyDown={(event) => {
+              if (open && event.key === 'Enter' && !isImeComposing(event.nativeEvent)) {
+                event.preventDefault()
+              }
+            }}
+          />
         </ComboboxChips>
         <ResourceComboboxContent
           config={config}
-          pending={pending}
+          pending={pending || debouncing}
           emptyMessage={emptyMessage}
           query={query}
           action={action}

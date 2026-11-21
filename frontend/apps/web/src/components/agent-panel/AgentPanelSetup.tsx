@@ -50,11 +50,11 @@ interface Actions {
 export function AgentPanelSetup({
   panel,
   onConnected,
-  onClose,
+  settings = false,
 }: {
   panel: AgentPanel
   onConnected: () => void
-  onClose?: () => void
+  settings?: boolean
 }) {
   const create = useCreateAssistantAgent()
   const update = useUpdateAgentPanel()
@@ -153,7 +153,7 @@ export function AgentPanelSetup({
           </p>
         )}
       </div>
-      {onClose != null && (
+      {settings && (
         <footer className="flex shrink-0 gap-2 border-t p-3">
           {panel.selection != null && (
             <Button
@@ -172,7 +172,7 @@ export function AgentPanelSetup({
             variant="ghost"
             disabled={pending}
             onClick={() => {
-              void update.mutateAsync({ enabled: false }).then(onClose, () => undefined)
+              update.mutate({ enabled: false })
             }}
           >
             Turn off panel

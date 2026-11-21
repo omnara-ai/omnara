@@ -78,15 +78,10 @@ async function render(routes: FakeRoute[], settings = false) {
   cache.setQueryData(getCurrentUserQueryKey({ client }), currentUser([owner, admin]))
   cache.setQueryData(getAgentPanelQueryKey({ client }), panel)
   const connected = vi.fn()
-  const closed = vi.fn()
   function Harness() {
     const query = useAgentPanel()
     return query.data == null ? null : (
-      <AgentPanelSetup
-        panel={query.data}
-        onConnected={connected}
-        onClose={settings ? closed : undefined}
-      />
+      <AgentPanelSetup panel={query.data} onConnected={connected} settings={settings} />
     )
   }
   await act(async () => {
@@ -99,7 +94,7 @@ async function render(routes: FakeRoute[], settings = false) {
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  return { api, connected, closed }
+  return { api, connected }
 }
 
 async function click(element: Element | null | undefined) {
@@ -254,7 +249,7 @@ it('shares settings pending state and shows a failed update before allowing reco
     finish = resolve
   })
   let calls = 0
-  const { api, closed } = await render(
+  const { api } = await render(
     [
       {
         method: 'PATCH',
@@ -282,10 +277,11 @@ it('shares settings pending state and shows a failed update before allowing reco
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('Try again')
     expect(button('Turn off panel')?.disabled).toBe(false)
   })
-  expect(closed).not.toHaveBeenCalled()
   await click(button('Turn off panel'))
   await waitForUI(() => {
-    expect(closed).toHaveBeenCalledOnce()
+    expect(panel.enabled).toBe(false)
+    expect(button('Turn off panel')?.disabled).toBe(false)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
   })
   expect(api.requestsTo('PATCH', '/api/v1/me/agent-panel').map(({ body }) => body)).toEqual([
     { agent_id: null },

@@ -52,8 +52,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 	}))
 	defer server.Close()
 
-	daemonHome := filepath.Join(t.TempDir(), "daemon-home")
-	setConfiguredDaemonEnvironment(t, daemonHome, server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	fileDir := t.TempDir()
 	path := filepath.Join(fileDir, "shot.png")
 	if err := os.WriteFile(path, []byte("artifact bytes"), 0o600); err != nil {
@@ -89,7 +88,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 			err := runFileTransfer(context.Background(),
 				processcmd.FileTransferUpload,
 				processID,
-				test.path, &result)
+				test.path, connection, &result)
 			if err != nil {
 				t.Fatalf("upload artifact: %v", err)
 			}
@@ -121,14 +120,16 @@ func TestFileTransferUploadResendsTheWholeFileAfterRateLimit(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"path":%q,"digest":%q}`, "/artifacts/"+artifactID, digest)
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, t.TempDir(), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	path := filepath.Join(t.TempDir(), "shot.png")
 	if err := os.WriteFile(path, []byte("artifact bytes"), 0o600); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
 
 	var result bytes.Buffer
-	if err := runFileTransfer(context.Background(), processcmd.FileTransferUpload, processID, path, &result); err != nil {
+	if err := runFileTransfer(
+		context.Background(), processcmd.FileTransferUpload, processID, path, connection, &result,
+	); err != nil {
 		t.Fatalf("upload artifact: %v", err)
 	}
 	want := `{"path":"/artifacts/` + artifactID + `","digest":"` + digest + `"}` + "\n"
@@ -143,7 +144,7 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, t.TempDir(), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	tests := []struct {
 		name string
@@ -188,7 +189,7 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 			err := runFileTransfer(context.Background(),
 				processcmd.FileTransferUpload,
 				processID,
-				path, &result)
+				path, connection, &result)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -219,9 +220,9 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "redirect-home"), redirect.URL, "")
+	connection := testFileTransferConnection(redirect.URL)
 	direction := processcmd.FileTransferUpload
-	err := runFileTransfer(context.Background(), direction, processID, path, io.Discard)
+	err := runFileTransfer(context.Background(), direction, processID, path, connection, io.Discard)
 	if err == nil {
 		t.Fatal("redirected upload succeeded")
 	}
@@ -233,8 +234,8 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 		_, _ = io.WriteString(w, strings.Repeat("x", daemonprotocol.MaxMessageBytes+1))
 	}))
 	defer largeResponse.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "large-response-home"), largeResponse.URL, "")
-	err = runFileTransfer(context.Background(), direction, processID, path, io.Discard)
+	connection = testFileTransferConnection(largeResponse.URL)
+	err = runFileTransfer(context.Background(), direction, processID, path, connection, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "response is too large") {
 		t.Fatalf("oversized response error = %v", err)
 	}

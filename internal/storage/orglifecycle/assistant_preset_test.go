@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -15,12 +16,28 @@ import (
 
 func TestAssistantPresetPreservesOperatorPolicy(t *testing.T) {
 	model := modelstore.ConfiguredModelSummaryRecord{ID: uuid.New(), Name: "model", ProviderConfigName: "provider"}
-	for _, allowLocal := range []bool{false, true} {
-		t.Run(map[bool]string{false: "blocked", true: "allowed"}[allowLocal], func(t *testing.T) {
+	allowlist, err := ssrf.ParseAllowlist([]string{"10.23.0.4:8080"})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name       string
+		url        string
+		allowLocal bool
+		allowlist  *ssrf.Allowlist
+		wantError  string
+	}{
+		{name: "loopback blocked", url: "http://localhost:8080/mcp", wantError: "url scheme must be https"},
+		{name: "development loopback", url: "http://localhost:8080/mcp", allowLocal: true},
+		{name: "private blocked", url: "http://10.23.0.4:8080/mcp", wantError: "url scheme must be https"},
+		{name: "private allowed", url: "http://10.23.0.4:8080/mcp", allowlist: allowlist},
+		{name: "wrong port blocked", url: "http://10.23.0.4:8081/mcp", allowlist: allowlist, wantError: "url scheme must be https"},
+		{name: "wrong address blocked", url: "http://10.23.0.5:8080/mcp", allowlist: allowlist, wantError: "url scheme must be https"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			compiled, err := compileAssistantPreset(CreateAssistantAgentInput{
-				MCPURL: "http://localhost:8080/mcp",
+				MCPURL: test.url,
 				AgentConfigOptions: agentconfig.CompileOptions{
-					AllowInsecureLocalMCPHTTP: allowLocal,
+					AllowInsecureLocalMCPHTTP: test.allowLocal,
+					EndpointAllowlist:         test.allowlist,
 					ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 						return agentconfig.ResolvedModelSelection{}, errors.New("must use the assistant's selected model")
 					},
@@ -29,12 +46,12 @@ func TestAssistantPresetPreservesOperatorPolicy(t *testing.T) {
 					},
 				},
 			}, model, uuid.New())
-			if !allowLocal {
-				require.ErrorContains(t, err, "targets loopback")
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
 				return
 			}
 			require.NoError(t, err)
-			require.Contains(t, compiled.Source, "http://localhost:8080/mcp")
+			require.Contains(t, compiled.Source, test.url)
 		})
 	}
 }

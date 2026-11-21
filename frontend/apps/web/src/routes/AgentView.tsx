@@ -243,6 +243,7 @@ export function AgentView() {
         mcpConnections={data.mcp_connections}
         profile={profile}
         canManage={project?.access.can_manage ?? false}
+        canOperate={canOperate}
       />
     </SidebarProvider>
   )

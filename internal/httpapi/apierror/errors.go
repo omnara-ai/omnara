@@ -27,6 +27,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeFileReadOnly:            {http.StatusConflict, "file access is read-only"},
 	openapi.ErrorCodeExpectedDigestRequired:  {http.StatusConflict, "expected_digest is required"},
 	openapi.ErrorCodeNotAFile:                {http.StatusBadRequest, "path is not a file"},
+	openapi.ErrorCodePathNotFound:            {http.StatusNotFound, "path not found"},
 	openapi.ErrorCodeGone:                    {http.StatusGone, "gone"},
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
@@ -62,6 +63,7 @@ type sentinelMapping struct {
 // to 401/unauthorized before requests reach handlers.
 var sentinelCodes = []sentinelMapping{
 	{storeerr.ErrAgentBacklogFull, openapi.ErrorCodeAgentBacklogFull, true},
+	{storeerr.ErrAgentScheduledInputsFull, openapi.ErrorCodeAgentBacklogFull, true},
 	{storeerr.ErrNotFound, openapi.ErrorCodeNotFound, false},
 	{storeerr.ErrInvalidRequest, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrNoClaimableAgentWakeup, openapi.ErrorCodeInvalidRequest, false},

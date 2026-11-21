@@ -43,6 +43,12 @@ export function AgentPanel({ children }: { children: ReactNode }) {
   const launcher = useRef<HTMLButtonElement>(null)
   const selection = panel?.selection
 
+  if (panel?.enabled === false && (expanded || opened || settings)) {
+    setExpanded(false)
+    setOpened(false)
+    setSettings(false)
+  }
+
   function close() {
     setExpanded(false)
     launcher.current?.focus()
@@ -112,7 +118,6 @@ export function AgentPanel({ children }: { children: ReactNode }) {
               onConnected={() => {
                 setSettings(false)
               }}
-              onClose={close}
             />
           )}
         </dialog>
@@ -154,7 +159,6 @@ function PanelContents({
   settings,
   allowSetup,
   onConnected,
-  onClose,
 }: {
   panel: Panel
   opened: boolean
@@ -162,7 +166,6 @@ function PanelContents({
   settings: boolean
   allowSetup: boolean
   onConnected: () => void
-  onClose: () => void
 }) {
   const activeOrg = useContext(ActiveOrgContext)
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -205,11 +208,7 @@ function PanelContents({
           errorComponent={PanelContentError}
         >
           <Suspense fallback={<p className="text-muted-foreground p-4 text-sm">Loading setup…</p>}>
-            <LazyAgentPanelSetup
-              panel={panel}
-              onConnected={onConnected}
-              onClose={settings ? onClose : undefined}
-            />
+            <LazyAgentPanelSetup panel={panel} onConnected={onConnected} settings={settings} />
           </Suspense>
         </CatchBoundary>
       )}

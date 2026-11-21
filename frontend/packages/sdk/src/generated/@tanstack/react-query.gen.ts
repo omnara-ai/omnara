@@ -2825,7 +2825,7 @@ export const updateAgentConfigMutation = (options?: Partial<Options<UpdateAgentC
 /**
  * Create agent input
  *
- * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call.
+ * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call. Set scheduled_for to hold the message until a future time: it is stored with state scheduled, listed with the waiting backlog, and joins the back of its delivery backlog once that time passes.
  */
 export const createAgentInputMutation = (options?: Partial<Options<CreateAgentInputData>>): UseMutationOptions<CreateAgentInputResponse, CreateAgentInputError, Options<CreateAgentInputData>> => {
     const mutationOptions: UseMutationOptions<CreateAgentInputResponse, CreateAgentInputError, Options<CreateAgentInputData>> = {
@@ -3191,7 +3191,7 @@ export const listQueuedBacklogInputsQueryKey = (options: Options<ListQueuedBackl
 /**
  * List waiting backlog inputs
  *
- * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending. Scheduled inputs (state scheduled) follow, ordered by scheduled_for ascending, then id ascending.
  */
 export const listQueuedBacklogInputsOptions = (options: Options<ListQueuedBacklogInputsData>): UnusedSkipTokenOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, ListQueuedBacklogInputsResponse, ReturnType<typeof listQueuedBacklogInputsQueryKey>> & { queryKey: DataTag<ReturnType<typeof listQueuedBacklogInputsQueryKey>, ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError> } => queryOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, ListQueuedBacklogInputsResponse, ReturnType<typeof listQueuedBacklogInputsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3211,7 +3211,7 @@ export const listQueuedBacklogInputsInfiniteQueryKey = (options: Options<ListQue
 /**
  * List waiting backlog inputs
  *
- * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending. Scheduled inputs (state scheduled) follow, ordered by scheduled_for ascending, then id ascending.
  */
 export const listQueuedBacklogInputsInfiniteOptions = (options: Options<ListQueuedBacklogInputsData>): Omit<UnusedSkipTokenInfiniteOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, InfiniteData<ListQueuedBacklogInputsResponse>, QueryKey<Options<ListQueuedBacklogInputsData>>, string | Pick<QueryKey<Options<ListQueuedBacklogInputsData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListQueuedBacklogInputsData>>, InfiniteData<ListQueuedBacklogInputsResponse>, ListQueuedBacklogInputsError> }, 'initialData'> => {
     const opts = infiniteQueryOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, InfiniteData<ListQueuedBacklogInputsResponse>, QueryKey<Options<ListQueuedBacklogInputsData>>, string | Pick<QueryKey<Options<ListQueuedBacklogInputsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3240,6 +3240,8 @@ export const listQueuedBacklogInputsInfiniteOptions = (options: Options<ListQueu
 
 /**
  * Cancel queued backlog input
+ *
+ * Cancels a waiting queued input, or a scheduled input that has not been released yet.
  */
 export const cancelQueuedBacklogInputMutation = (options?: Partial<Options<CancelQueuedBacklogInputData>>): UseMutationOptions<CancelQueuedBacklogInputResponse, CancelQueuedBacklogInputError, Options<CancelQueuedBacklogInputData>> => {
     const mutationOptions: UseMutationOptions<CancelQueuedBacklogInputResponse, CancelQueuedBacklogInputError, Options<CancelQueuedBacklogInputData>> = {

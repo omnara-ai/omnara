@@ -8,18 +8,57 @@ export type ClientOptions = {
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export type AgentConfigDefinition = {
+    /**
+     * GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents.
+     */
     git_credentials?: AgentConfigDefinitionGitCredentials;
+    /**
+     * System prompt: the agent's job, boundaries, and when to ask a human.
+     */
     instruction: string;
+    /**
+     * Integrations that show the agent's questions and approvals outside the dashboard, keyed by integration name. Not passed to subagents.
+     */
     interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    /**
+     * BYO machines and machine pools the agent can run commands on.
+     */
     machine_sources?: AgentConfigDefinitionMachineSources;
+    /**
+     * Maximum subagent nesting depth. Defaults to 1, so subagents cannot spawn their own.
+     */
     max_depth?: number;
+    /**
+     * Maximum active subagents across all keys. Unset means no overall limit.
+     */
     max_subagents?: number;
+    /**
+     * MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
+     */
     mcp?: AgentConfigDefinitionMcpServers;
+    /**
+     * Project memory stores the agent can access at /memory/{name}/.
+     */
     memory_stores?: AgentConfigDefinitionMemoryStores;
+    /**
+     * Model the agent runs on, with optional overrides of its defaults.
+     */
     model: AgentConfigDefinitionModel;
+    /**
+     * Skills the agent can load. The project must own or be granted each one.
+     */
     skills?: AgentConfigDefinitionSkills;
+    /**
+     * Subagents the agent can spawn, keyed by name.
+     */
     subagents?: AgentConfigDefinitionSubagents;
+    /**
+     * Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults.
+     */
     tools?: AgentConfigDefinitionTools;
+    /**
+     * Config format version. Optional; set it to pin the format.
+     */
     version?: 'v1';
 };
 
@@ -42,13 +81,16 @@ export type AgentConfigToolsDefinition = {
  * Integration whose git credentials the agent's machines use.
  */
 export type AgentConfigDefinitionGitCredentials = {
+    /**
+     * Name of a GitHub integration in the project.
+     */
     integration: string;
     /**
      * GitHub repository IDs the credentials can access. Defaults to every repository the installation can access.
      */
     repository_ids?: Array<number>;
     /**
-     * Prevents pushing, even if the integration allows it.
+     * Prevents pushing and opening or approving pull requests, even if the integration allows it.
      */
     read_only?: boolean;
 };
@@ -68,20 +110,50 @@ export type AgentConfigDefinitionInteractionHandlers = {
 } | null;
 
 export type AgentConfigDefinitionMcpAuth = {
+    /**
+     * AWS region to sign for. Required for sigv4 only.
+     */
     region?: string;
+    /**
+     * Secret holding the credential: generic for bearer, oauth_token_set for oauth, aws_credentials for sigv4.
+     */
     secret_id: string;
+    /**
+     * AWS service to sign for, such as aws-mcp. Required for sigv4 only.
+     */
     service?: string;
+    /**
+     * bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs requests with AWS SigV4.
+     */
     type: 'bearer' | 'oauth' | 'sigv4';
 };
 
 export type AgentConfigDefinitionMcpServer = {
+    /**
+     * How to authenticate to the server. Omit if it needs none.
+     */
     auth?: AgentConfigDefinitionMcpAuth;
+    /**
+     * Whether tools are enabled unless overridden in tools. Defaults to true.
+     */
     default_enabled?: boolean | null;
+    /**
+     * Keep the server's tools out of context until tool_search loads them. Defaults to false.
+     */
     deferred?: boolean;
+    /**
+     * Default permission for the server's tools. Defaults to always_ask.
+     */
     permission?: AgentConfigDefinitionToolPermission;
+    /**
+     * Per-tool overrides, keyed by the tool's name on the server.
+     */
     tools?: {
         [key: string]: AgentConfigDefinitionMcpTool;
     };
+    /**
+     * HTTPS URL of the server's MCP endpoint.
+     */
     url: string;
 };
 
@@ -90,8 +162,17 @@ export type AgentConfigDefinitionMcpServers = {
 } | null;
 
 export type AgentConfigDefinitionMcpTool = {
+    /**
+     * Overrides the server's deferred setting. Null inherits it.
+     */
     deferred?: boolean | null;
+    /**
+     * Enables or hides the tool. Null follows the server's default_enabled.
+     */
     enabled?: boolean | null;
+    /**
+     * Overrides the server's permission for this tool.
+     */
     permission?: AgentConfigDefinitionToolPermission;
 };
 
@@ -100,21 +181,57 @@ export type AgentConfigDefinitionMachineSource = ({
 } | {
     [key: string]: unknown;
 }) & {
+    /**
+     * Working directory for the agent's processes. Overrides the machine or pool default.
+     */
     cwd?: string;
+    /**
+     * Pools only. Delete a machine after this many idle minutes; 0 disables. Unset inherits the grant or pool setting.
+     */
     delete_after_idle_minutes?: 0 | number;
+    /**
+     * Describes this source to the agent.
+     */
     description?: string;
+    /**
+     * Environment variables for the agent's processes. A null value removes an inherited variable.
+     */
     env_overlay?: {
         [key in EnvironmentVariableName]?: string | null;
     } | null;
+    /**
+     * Pools only. Machines to create at launch. Defaults to 1 and cannot exceed max_machines.
+     */
     initial_num_machines?: number;
+    /**
+     * Pools only. vCPUs for new machines, within pool and project limits.
+     */
     machine_cpu?: number;
+    /**
+     * Pools only. Memory in MB for new machines, within pool and project limits.
+     */
     machine_memory_mb?: number;
+    /**
+     * Name of a BYO machine granted to the project. Set this or machine_pool_name.
+     */
     machine_name?: ResourceNameReference;
+    /**
+     * Name of a machine pool granted to the project. Set this or machine_name.
+     */
     machine_pool_name?: ResourceNameReference;
+    /**
+     * Pools only. Provider options applied over the pool and grant options.
+     */
     machine_provider_options_overlay?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Pools only. Most machines the agent can hold from this pool. Defaults to 1.
+     */
     max_machines?: number;
+    /**
+     * Environment variables set from secrets, keyed by variable name. A null value removes an inherited variable.
+     */
     secret_env_overlay?: {
         [key in EnvironmentVariableName]?: string | null;
     } | null;
@@ -123,22 +240,46 @@ export type AgentConfigDefinitionMachineSource = ({
 export type AgentConfigDefinitionMachineSources = Array<AgentConfigDefinitionMachineSource> | null;
 
 export type AgentConfigDefinitionMemoryStore = {
+    /**
+     * Name of a memory store in the project.
+     */
     name: MemoryStoreName;
+    /**
+     * read, or read_write if the store also allows agent writes.
+     */
     access: 'read' | 'read_write';
 };
 
 export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore> | null;
 
 export type AgentConfigDefinitionModel = {
+    /**
+     * Prompt caching: none, short (provider default), or long (extended where available). Unset uses the model's default.
+     */
     cache_retention?: 'none' | 'short' | 'long';
     /**
      * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
+    /**
+     * Default output allowance per request. Overrides the model's default; max_output_tokens is the cap.
+     */
     default_max_output_tokens?: number;
+    /**
+     * Configured model name under provider_config.
+     */
     name: ResourceNameReference;
+    /**
+     * Name of the organization's model provider.
+     */
     provider_config: ResourceNameReference;
+    /**
+     * Reasoning effort, such as low, medium, or high, for models that support it.
+     */
     reasoning?: {
+        /**
+         * Reasoning effort, such as low, medium, or high.
+         */
         effort: string;
     };
 };
@@ -146,29 +287,71 @@ export type AgentConfigDefinitionModel = {
 export type AgentConfigDefinitionSkills = Array<string> | null;
 
 export type AgentConfigDefinitionSubagent = {
+    /**
+     * Archive these subagents after this many idle minutes. Unset never archives them for being idle.
+     */
     archive_after_idle_minutes?: number;
+    /**
+     * Tells the model when to spawn this subagent.
+     */
     description?: string;
+    /**
+     * Changes to the subagent's instruction.
+     */
     instruction?: AgentConfigDefinitionSubagentInstruction;
+    /**
+     * Maximum active subagents from this key. Unset means no per-key limit.
+     */
     max_instances?: number;
+    /**
+     * Model overrides. Omit provider_config and name to keep the base model.
+     */
     model?: AgentConfigDefinitionSubagentModel;
+    /**
+     * Agent profile to launch from. Required when type is profile.
+     */
     profile?: ResourceNameReference;
+    /**
+     * profile launches from a profile's current config; self copies this agent's config.
+     */
     type: 'profile' | 'self';
 };
 
 export type AgentConfigDefinitionSubagentInstruction = {
+    /**
+     * Text appended to the base instruction.
+     */
     append?: string;
 };
 
 export type AgentConfigDefinitionSubagentModel = {
+    /**
+     * Overrides the base model's prompt caching.
+     */
     cache_retention?: 'none' | 'short' | 'long';
     /**
      * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
+    /**
+     * Overrides the base model's default output allowance.
+     */
     default_max_output_tokens?: number;
+    /**
+     * Configured model name. Set with provider_config to switch models.
+     */
     name?: ResourceNameReference;
+    /**
+     * Model provider name. Set with name to switch models.
+     */
     provider_config?: ResourceNameReference;
+    /**
+     * Overrides the base model's reasoning effort.
+     */
     reasoning?: {
+        /**
+         * Reasoning effort, such as low, medium, or high.
+         */
         effort: string;
     };
 };
@@ -178,11 +361,29 @@ export type AgentConfigDefinitionSubagents = {
 } | null;
 
 export type AgentConfigDefinitionTool = {
+    /**
+     * Keep the tool out of context until tool_search loads it. Defaults to false.
+     */
     deferred?: boolean;
+    /**
+     * Custom tools only. Tells the model what the tool does.
+     */
     description?: string;
+    /**
+     * Set to false to disable the tool, including default tools.
+     */
     enabled?: boolean | null;
+    /**
+     * Custom tools only. JSON Schema for the tool's arguments.
+     */
     input_schema?: AgentConfigDefinitionToolInputSchema;
+    /**
+     * Overrides the tool's default permission. GET /tool-catalog lists defaults and modes.
+     */
     permission?: AgentConfigDefinitionToolPermission;
+    /**
+     * built_in for an Omnara tool, custom for a tool your system runs.
+     */
     type?: 'built_in' | 'custom';
 };
 
@@ -190,18 +391,33 @@ export type AgentConfigDefinitionTool = {
  * A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.
  */
 export type AgentConfigDefinitionToolInputSchema = {
+    /**
+     * Arguments, keyed by name, as JSON Schemas.
+     */
     properties?: {
         [key: string]: {
             [key: string]: unknown;
         };
     };
+    /**
+     * Names of required arguments.
+     */
     required?: Array<string>;
+    /**
+     * Root type of the argument schema.
+     */
     type: 'object';
     [key: string]: unknown;
 };
 
 export type AgentConfigDefinitionToolPermission = {
+    /**
+     * always_allow, always_ask (wait for human approval), or always_deny.
+     */
     mode: string;
+    /**
+     * Mode-specific settings. Current modes take none.
+     */
     parameters?: {
         [key: string]: unknown;
     };
@@ -239,12 +455,12 @@ export type SkillName = string;
 export type MemoryStoreName = string;
 
 /**
- * Sort order for named resources that expose created and modified timestamps.
+ * Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
  */
 export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' | '-created_at' | 'created_at';
 
 /**
- * Sort order for named resources that expose a created timestamp.
+ * Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
  */
 export type CreatedResourceListSort = 'name' | '-name' | '-created_at' | 'created_at';
 
@@ -289,7 +505,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'path_not_found' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -369,7 +585,7 @@ export type UpdateEventWebhookRequest = {
      */
     scope?: EventWebhookScope;
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url?: string;
     event_types?: Array<EventWebhookEventType>;
@@ -381,7 +597,7 @@ export type UpdateEventWebhookRequest = {
 
 export type CreateEventWebhookRequest = {
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url: string;
     event_types: Array<EventWebhookEventType>;
@@ -396,7 +612,7 @@ export type EventWebhookEventType = 'agent_input' | 'model_output' | 'tool_resul
 
 export type EventWebhook = {
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url: string;
     event_types: Array<EventWebhookEventType>;
@@ -452,19 +668,19 @@ export type ConfiguredModelRevisionId = string;
 export type ProjectModelGrantId = string;
 
 /**
- * Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+ * Wire protocol the model endpoint speaks.
  */
 export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'anthropic-messages';
 
 /**
- * How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+ * How the credential is sent: as a bearer token, in the header named by auth_options.header_name, or signed with AWS SigV4.
  */
 export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
 
 export type ModelProviderAuthKindResponse = string;
 
 /**
- * Provider-specific flavor of the API format: default, openrouter, or bedrock.
+ * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock.
  */
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
@@ -488,13 +704,13 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
 export type CreateModelProviderConfigRequest = {
     name: ResourceName;
     /**
-     * Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
+     * Built-in provider settings: openai, openrouter, anthropic, or openlake. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
      */
-    preset?: 'openai' | 'openrouter' | 'anthropic';
+    preset?: 'openai' | 'openrouter' | 'anthropic' | 'openlake';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL.
      */
     base_url?: string;
     /**
@@ -514,8 +730,17 @@ export type CreateModelProviderConfigRequest = {
      * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
+        /**
+         * Header that carries the API key when auth_kind is api_key_header.
+         */
         header_name?: string;
+        /**
+         * AWS service to sign for when auth_kind is sigv4.
+         */
         service?: string;
+        /**
+         * AWS region to sign for when auth_kind is sigv4.
+         */
         region?: string;
     };
     credential_secret_id: SecretId;
@@ -538,7 +763,7 @@ export type CreateModelProviderConfigRequest = {
  */
 export type UpdateModelProviderConfigRequest = {
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL.
      */
     base_url?: string;
     /**
@@ -558,8 +783,17 @@ export type UpdateModelProviderConfigRequest = {
      * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
+        /**
+         * Header that carries the API key when auth_kind is api_key_header.
+         */
         header_name?: string;
+        /**
+         * AWS service to sign for when auth_kind is sigv4.
+         */
         service?: string;
+        /**
+         * AWS region to sign for when auth_kind is sigv4.
+         */
         region?: string;
     };
     credential_secret_id?: SecretId;
@@ -578,28 +812,70 @@ export type UpdateModelProviderConfigRequest = {
 };
 
 export type ModelProviderConfig = {
+    /**
+     * Identifies this provider config.
+     */
     id: ModelProviderConfigId;
+    /**
+     * Organization that owns this provider config.
+     */
     org_id: OrganizationId;
+    /**
+     * Whether the organization manages this provider or the Omnara installation provisions and manages it.
+     */
     management_kind: ManagementKind;
+    /**
+     * Name agent configs use to reference this provider as model.provider_config.
+     */
     name: ResourceName;
+    /**
+     * Wire protocol Omnara speaks to this provider.
+     */
     api_format: ModelApiFormat;
+    /**
+     * Provider-specific flavor of the API format.
+     */
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
+     * Provider endpoint base URL.
      */
     base_url: string;
+    /**
+     * Path under base_url that model requests are sent to.
+     */
     endpoint_path: string;
+    /**
+     * Total deadline for one provider attempt, including reasoning and response streaming.
+     */
     request_timeout_ms: number;
+    /**
+     * Longest wait for response headers or more response data; heartbeats count as activity.
+     */
     idle_timeout_ms: number;
+    /**
+     * How Omnara sends the credential to the provider.
+     */
     auth_kind: ModelProviderAuthKindResponse;
     /**
      * Non-secret authentication settings for this provider config.
      */
     auth_options: {
+        /**
+         * Header that carries the API key when auth_kind is api_key_header.
+         */
         header_name?: string;
+        /**
+         * AWS service to sign for when auth_kind is sigv4.
+         */
         service?: string;
+        /**
+         * AWS region to sign for when auth_kind is sigv4.
+         */
         region?: string;
     };
+    /**
+     * Secret holding the credential Omnara sends to the provider.
+     */
     credential_secret_id: SecretId;
     /**
      * Extra HTTP headers sent with every request to this provider.
@@ -613,7 +889,13 @@ export type ModelProviderConfig = {
     secret_headers: {
         [key: string]: SecretId;
     };
+    /**
+     * When the provider config was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the provider config was last changed.
+     */
     updated_at: Timestamp;
 };
 
@@ -708,7 +990,7 @@ export type CreateConfiguredModelRequest = {
      */
     supports_reasoning?: boolean;
     /**
-     * Default reasoning effort to send for models/API formats that support effort-style reasoning controls. Requires supports_reasoning=true. When supported_reasoning_efforts is present, this value must be listed there.
+     * Reasoning effort sent by default, such as low, medium, or high. Requires supports_reasoning; must be listed in supported_reasoning_efforts when that is set.
      */
     default_reasoning_effort?: string;
     /**
@@ -716,7 +998,7 @@ export type CreateConfiguredModelRequest = {
      */
     supported_reasoning_efforts?: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities?: Array<string>;
     /**
@@ -760,7 +1042,7 @@ export type UpdateConfiguredModelRequest = {
      */
     supports_reasoning?: boolean;
     /**
-     * Default reasoning effort to send for models/API formats that support effort-style reasoning controls. Requires supports_reasoning=true. When supported_reasoning_efforts is present, this value must be listed there.
+     * Reasoning effort sent by default, such as low, medium, or high. Requires supports_reasoning; must be listed in supported_reasoning_efforts when that is set.
      */
     default_reasoning_effort?: string;
     /**
@@ -768,7 +1050,7 @@ export type UpdateConfiguredModelRequest = {
      */
     supported_reasoning_efforts?: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities?: Array<string>;
     /**
@@ -822,7 +1104,7 @@ export type ConfiguredModel = {
      */
     supported_reasoning_efforts: Array<string>;
     /**
-     * Input types this configured model accepts. Omnara recognizes text, image, and file; an empty list leaves capabilities unspecified.
+     * Input types this configured model accepts. Omnara recognizes text, image, file, and audio; an empty list leaves capabilities unspecified.
      */
     input_modalities: Array<string>;
     /**
@@ -844,6 +1126,9 @@ export type ConfiguredModelList = {
  * Grant a project access to a configured model. Optional fields can narrow the model's limits for this project; omitted fields inherit from the org-level configured model.
  */
 export type CreateProjectModelGrantRequest = {
+    /**
+     * Configured model the project can use.
+     */
     configured_model_id: ConfiguredModelId;
     /**
      * Optional project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
@@ -854,7 +1139,7 @@ export type CreateProjectModelGrantRequest = {
      */
     max_output_tokens?: number;
     /**
-     * Optional project default per-request output-token cap.
+     * Default output allowance per request for this project; agents can raise it up to max_output_tokens. Omit to inherit the configured model's.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -867,11 +1152,11 @@ export type CreateProjectModelGrantRequest = {
      */
     supports_reasoning?: boolean;
     /**
-     * Optional project default reasoning effort.
+     * Reasoning effort this project uses by default, such as low or high. Omit to inherit the configured model's.
      */
     default_reasoning_effort?: string;
     /**
-     * Optional project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+     * Reasoning efforts this project may use, limited to the configured model's. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort too.
      */
     supported_reasoning_efforts?: Array<string>;
     /**
@@ -897,9 +1182,12 @@ export type UpdateProjectModelGrantRequest = {
      */
     max_output_tokens?: number | null;
     /**
-     * Project default per-request output-token cap.
+     * Default output allowance per request for this project; agents can raise it up to max_output_tokens. Null inherits the configured model's.
      */
     default_max_output_tokens?: number | null;
+    /**
+     * Overrides the model's prompt caching for this project. Null inherits it.
+     */
     default_cache_retention?: ModelCacheRetention | null;
     /**
      * Project-level tool-use gate. Can disable tools, but cannot enable tools when the configured model does not support them.
@@ -910,19 +1198,19 @@ export type UpdateProjectModelGrantRequest = {
      */
     supports_reasoning?: boolean | null;
     /**
-     * Project default reasoning effort.
+     * Reasoning effort this project uses by default. Null inherits the configured model's.
      */
     default_reasoning_effort?: string | null;
     /**
-     * Project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+     * Reasoning efforts this project may use, limited to the configured model's. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort too.
      */
     supported_reasoning_efforts?: Array<string>;
     /**
-     * Project subset of configured-model input types.
+     * Input types this project may send, such as text, image, or file; limited to the configured model's.
      */
     input_modalities?: Array<string>;
     /**
-     * Project subset of configured-model output types.
+     * Output types this project may receive, limited to the configured model's.
      */
     output_modalities?: Array<string>;
 };
@@ -1194,10 +1482,25 @@ export type SkillGrantCreateRequest = {
 };
 
 export type SkillGrant = {
+    /**
+     * Identifies this grant; use it to revoke the project's access.
+     */
     id: SkillGrantId;
+    /**
+     * Organization the grant and its skill belong to.
+     */
     org_id: OrganizationId;
+    /**
+     * Skill shared by this grant.
+     */
     skill_id: SkillId;
+    /**
+     * Project that can attach the skill through this grant.
+     */
     target_project_id: ProjectId;
+    /**
+     * When the skill was granted to the project.
+     */
     created_at: Timestamp;
 };
 
@@ -1283,7 +1586,7 @@ export type McpoAuthStartRequest = {
 };
 
 /**
- * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
+ * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL when the metadata has room for it, so the key is reserved and at most 15 user pairs are accepted.
  */
 export type McpoAuthStartMetadata = {
     [key: string]: string;
@@ -1446,9 +1749,12 @@ export type ResolvedAgentConfigTool = {
  * An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
  */
 export type CreateAgentConfigRequest = {
+    /**
+     * Config to compile: YAML or JSON text, or a JSON object when source_format is json.
+     */
     source: AgentConfigSourceInput;
     /**
-     * Format of source: yaml or json.
+     * Encoding of source.
      */
     source_format: 'yaml' | 'json';
 };
@@ -1462,49 +1768,97 @@ export type AgentConfigSourceInput = string | AgentConfigDefinition;
  * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export type UpdateAgentConfigRequest = {
+    /**
+     * Config to compile: YAML or JSON text, or a JSON object when source_format is json.
+     */
     source: AgentConfigSourceInput;
     /**
-     * Format of source: yaml or json.
+     * Encoding of source.
      */
     source_format: 'yaml' | 'json';
     expected_current_config_id?: AgentConfigId;
 };
 
 export type ToolPermissionSelection = {
+    /**
+     * Permission mode applied by default.
+     */
     mode: string;
+    /**
+     * Parameters for the default mode.
+     */
     parameters: {
         [key: string]: unknown;
     };
 };
 
 export type ToolPermissionMode = {
+    /**
+     * Mode name to set as permission.mode in an agent config.
+     */
     name: string;
+    /**
+     * Display label for the mode.
+     */
     label: string;
+    /**
+     * What the mode does when a tool is called.
+     */
     description: string;
+    /**
+     * JSON Schema for the mode's permission.parameters.
+     */
     parameters_schema: {
         [key: string]: unknown;
     };
 };
 
 export type ToolPermissionProfile = {
+    /**
+     * Permission these tools get when a config does not set one.
+     */
     default_permission: ToolPermissionSelection;
+    /**
+     * Permission modes a config can set for these tools.
+     */
     permission_modes: Array<ToolPermissionMode>;
 };
 
 export type ToolCatalogEntry = {
+    /**
+     * Name to list under tools in an agent config to enable this tool.
+     */
     name: string;
+    /**
+     * What the tool does.
+     */
     description: string;
     /**
      * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
      */
     implicit?: boolean;
+    /**
+     * Permission the tool gets when a config does not set one.
+     */
     default_permission: ToolPermissionSelection;
+    /**
+     * Permission modes a config can set for this tool.
+     */
     permission_modes: Array<ToolPermissionMode>;
 };
 
 export type ToolCatalog = {
+    /**
+     * Built-in tools available in this deployment.
+     */
     built_in_tools: Array<ToolCatalogEntry>;
+    /**
+     * Default permission and allowed modes for custom tools.
+     */
     custom_tool_permissions: ToolPermissionProfile;
+    /**
+     * Default permission and allowed modes for MCP tools.
+     */
     mcp_tool_permissions: ToolPermissionProfile;
 };
 
@@ -1565,7 +1919,7 @@ export type ListMcpServersResponse = {
 
 export type McpServerToolsRequest = {
     /**
-     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     * Streamable HTTP MCP endpoint.
      */
     url: string;
     auth: McpServerAuth;
@@ -1990,18 +2344,39 @@ export type ListAgentProfilesResponse = {
 };
 
 export type AgentCronTriggerTarget = {
+    /**
+     * agent: send each message to an existing agent.
+     */
     type: 'agent';
+    /**
+     * Agent that receives each message.
+     */
     agent_id: AgentId;
+    /**
+     * How each message is delivered: queued (default) or steering.
+     */
     delivery_mode?: CronTriggerDeliveryMode;
 };
 
 export type AgentProfileCronTriggerTarget = {
+    /**
+     * profile: launch a new agent on each run.
+     */
     type: 'profile';
+    /**
+     * Profile to launch a new agent from on each run.
+     */
     agent_profile_id: AgentProfileId;
 };
 
 export type IntegrationCronTriggerTarget = {
+    /**
+     * integration: hand each run to an integration.
+     */
     type: 'integration';
+    /**
+     * Integration that handles each run.
+     */
     integration_id: IntegrationId;
     /**
      * Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
@@ -2141,6 +2516,9 @@ export type CreateAgentRequest = ({
 } | {
     config_source: CreateAgentConfigRequest;
 }) & {
+    /**
+     * Agent profile to launch. Runs its current config unless config or config_source is set.
+     */
     profile?: AgentProfileId;
     config?: AgentConfigId;
     config_source?: CreateAgentConfigRequest;
@@ -2175,6 +2553,9 @@ export type CreateAgentRequest = ({
  * Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
  */
 export type AgentLaunchInitialInput = {
+    /**
+     * Text blocks that make up the agent's first message.
+     */
     content_blocks: Array<TextContentBlock>;
     /**
      * Optional external actor for API key authentication. User-authenticated requests must omit this field. Without it, the authenticated user or API key is the actor.
@@ -2329,27 +2710,48 @@ export type ModelStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
 export type ModelOutputStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'content_filter' | 'error';
 
 /**
- * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ * Arbitrary key-value labels. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
  */
 export type ContentBlockMetadata = Metadata;
 
 export type TextContentBlock = {
+    /**
+     * text: a plain-text block.
+     */
     type: 'text';
+    /**
+     * Block text: the message in agent inputs, or text from the model or a tool in events.
+     */
     text: string;
+    /**
+     * Key-value metadata. omnara_ keys are reserved.
+     */
     metadata?: ContentBlockMetadata;
 };
 
 /**
- * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents. Audio (WAV, MP3, M4A, FLAC) is sent directly only to Chat Completions models whose input modalities explicitly include audio, and M4A and FLAC only through OpenRouter; otherwise the model receives the artifact ID and the filename.
  */
 export type InlineMediaContentBlock = {
+    /**
+     * media: a base64-encoded file in data.
+     */
     type: 'media';
-    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    /**
+     * MIME type of the file in data.
+     */
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'audio/wav' | 'audio/mpeg' | 'audio/mp4' | 'audio/flac' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    /**
+     * Filename saved with the stored file and shown to models that can't read the file directly.
+     */
     filename?: string;
     /**
      * Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
      */
     data: string;
+    /**
+     * Key-value metadata. omnara_ keys are reserved.
+     */
     metadata?: ContentBlockMetadata;
 };
 
@@ -2437,10 +2839,15 @@ export type AgentInputDeliveryMode = 'queued' | 'steering' | 'immediate';
 
 export type CreateAgentInputDeliveryMode = 'queued' | 'steering';
 
+/**
+ * scheduled while a content input waits for its scheduled_for time, received once it is waiting for the agent, resolved when the agent has processed it, or canceled.
+ */
+export type AgentInputState = 'scheduled' | 'received' | 'resolved' | 'canceled';
+
 export type AgentInput = {
     id: AgentInputId;
     agent_id: AgentId;
-    state: string;
+    state: AgentInputState;
     delivery_mode: AgentInputDeliveryMode;
     input_kind: AgentInputKind;
     /**
@@ -2453,6 +2860,10 @@ export type AgentInput = {
     input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
+    /**
+     * Time this input was scheduled to join the agent's backlog. Present only for content inputs created with scheduled_for; it stays set after the input is released.
+     */
+    scheduled_for?: Timestamp;
 };
 
 export type AgentMachineBindingState = 'attached' | 'released';
@@ -2488,12 +2899,33 @@ export type AgentMachineBinding = {
  * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export type MachineFailureReport = {
+    /**
+     * Setup or daemon step that failed.
+     */
     stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
+    /**
+     * Exit status of the failed startup script or daemon install; omitted for other stages.
+     */
     exit_status?: number;
+    /**
+     * End of the failed step's output, for diagnosis.
+     */
     output_tail: string;
+    /**
+     * True when earlier output was dropped or output capture failed.
+     */
     output_truncated: boolean;
+    /**
+     * Daemon version that was running when a daemon update failed.
+     */
     daemon_version?: string;
+    /**
+     * Version the daemon was trying to update to when the update failed.
+     */
     target_version?: string;
+    /**
+     * When the failure was reported.
+     */
     reported_at: Timestamp;
 };
 
@@ -2523,7 +2955,7 @@ export type ToolInput = {
 };
 
 /**
- * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ * Arbitrary key-value labels stored with the resource.
  */
 export type Metadata = {
     [key: string]: string;
@@ -2541,9 +2973,16 @@ export type CreateAgentInputRequest = {
      * At most 20 inline media blocks per submission, each holding up to 10 MiB of decoded media and up to 24 MiB decoded across the submission. Non-media blocks may hold up to 1 MiB combined. The whole request body is capped at 48 MiB.
      */
     content_blocks: Array<CreateAgentInputContentBlock>;
+    /**
+     * queued (default) waits until the agent is free; steering reaches it at its next model call.
+     */
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
-     * Only valid when delivery_mode is steering. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
+     * Future time at which the message joins the agent's backlog. Until then the input has state scheduled and can be canceled. An agent holds at most 25 scheduled inputs. Delivery follows within about a minute of this time, using delivery_mode. Must be in the future and at most 90 days away.
+     */
+    scheduled_for?: Timestamp;
+    /**
+     * Only valid when delivery_mode is steering and scheduled_for is omitted. When true, atomically cancels open interactions associated with the current turn's unfinished tool calls before creating the steering input. Their parent tool calls complete as canceled; the turn, runtime, and unrelated tool calls are preserved.
      */
     cancel_open_interactions?: boolean;
     /**
@@ -3092,9 +3531,12 @@ export type InteractionForm = {
 };
 
 export type InteractionAnswer = {
+    /**
+     * Zero-based indices of the chosen options. Pick one unless the question allows multiple.
+     */
     option_indices: Array<number>;
     /**
-     * Optional companion text when the selected option allows it.
+     * Free text sent with an option whose allows_text is true.
      */
     text?: string;
 };
@@ -3111,6 +3553,9 @@ export type AgentInteractionKind = 'permission' | 'question';
 export type AgentInteractionState = 'open' | 'resolved' | 'canceled';
 
 export type ResolveAgentInteractionRequest = {
+    /**
+     * One answer per question, in order.
+     */
     answers: Array<InteractionAnswer>;
     /**
      * External actor to attribute to the generated interaction_response agent input, upserted by (provider_tenant_id, provider_user_id) atomically with the resolution; a rejected request writes no actor. Only allowed for non-user principals; requests authenticated as a user must omit it and are attributed to the user's omnara actor. When a non-user request omits it, the generated input has no actor attribution.
@@ -3205,9 +3650,21 @@ export type Actor = {
  * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
  */
 export type ExternalActorParams = {
+    /**
+     * Your tenant or namespace for the user. With provider_user_id, identifies the actor.
+     */
     provider_tenant_id?: string;
+    /**
+     * The user's ID in your system. With provider_tenant_id, identifies the actor.
+     */
     provider_user_id: string;
+    /**
+     * Display name for the actor.
+     */
     display_name?: string;
+    /**
+     * Key-value attributes for the actor. Replaces stored metadata when sent.
+     */
     metadata?: Metadata;
 };
 
@@ -3222,15 +3679,27 @@ export type ListAgentInteractionsResponse = {
 };
 
 export type OrgSecretOwnerInput = {
+    /**
+     * org: owned by the organization. Projects need a grant to use it.
+     */
     kind: 'org';
 };
 
 export type ProjectSecretOwnerInput = {
+    /**
+     * project: owned by one project.
+     */
     kind: 'project';
+    /**
+     * Owning project.
+     */
     project_id: ProjectId;
 };
 
 export type UserSecretOwnerInput = {
+    /**
+     * user: owned by the calling user, for personal credentials. Projects need a grant to use it.
+     */
     kind: 'user';
 };
 
@@ -3246,16 +3715,31 @@ export type SecretOwnerInput = ({
 } & UserSecretOwnerInput);
 
 export type OrgSecretOwner = {
+    /**
+     * org: the organization owns the secret.
+     */
     kind: 'org';
 };
 
 export type ProjectSecretOwner = {
+    /**
+     * project: a single project owns the secret.
+     */
     kind: 'project';
+    /**
+     * Project that owns the secret.
+     */
     project_id: ProjectId;
 };
 
 export type UserSecretOwner = {
+    /**
+     * user: a user owns the secret.
+     */
     kind: 'user';
+    /**
+     * User who owns the secret.
+     */
     user_id: UserId;
 };
 
@@ -3268,51 +3752,117 @@ export type SecretOwner = ({
 } & UserSecretOwner);
 
 export type GenericSecretMaterial = {
+    /**
+     * generic: a single value, such as an API key.
+     */
     kind: 'generic';
+    /**
+     * The secret value, up to 64 KiB.
+     */
     value: string;
 };
 
 export type OAuthRefreshSecretMaterial = {
+    /**
+     * Refresh token exchanged at token_endpoint for new access tokens.
+     */
     refresh_token: string;
     /**
-     * Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     * OAuth token endpoint used to refresh the access token. Must be HTTPS, except for loopback hosts in local development.
      */
     token_endpoint: string;
+    /**
+     * OAuth client ID.
+     */
     client_id: string;
+    /**
+     * OAuth client secret sent with refresh requests. Omit if the client has none.
+     */
     client_secret?: string;
+    /**
+     * Resource indicator sent with refresh requests.
+     */
     resource: string;
 };
 
 export type OAuthTokenSetSecretMaterial = {
+    /**
+     * oauth_token_set: OAuth tokens for MCP servers that use oauth auth.
+     */
     kind: 'oauth_token_set';
+    /**
+     * Access token sent to the MCP server; replaced on each refresh.
+     */
     access_token: string;
+    /**
+     * Seconds until the access token expires. Omit if it doesn't expire.
+     */
     access_token_expires_in_seconds?: number;
+    /**
+     * Refresh material. Without it, the token can't be renewed once it expires.
+     */
     refresh?: OAuthRefreshSecretMaterial;
+    /**
+     * OpenID Connect ID token, if one was issued.
+     */
     id_token?: string;
+    /**
+     * URL of the MCP server the tokens were issued for.
+     */
     mcp_url?: string;
+    /**
+     * Granted scopes, space-separated.
+     */
     scopes?: string;
+    /**
+     * Token type, such as Bearer.
+     */
     token_type?: string;
 };
 
 export type AwsCredentialsSecretMaterial = {
+    /**
+     * aws_credentials: AWS access keys used to sign requests with SigV4.
+     */
     kind: 'aws_credentials';
+    /**
+     * AWS access key ID.
+     */
     access_key_id: string;
+    /**
+     * AWS secret access key.
+     */
     secret_access_key: string;
+    /**
+     * Session token for temporary credentials. Not refreshed automatically.
+     */
     session_token?: string;
+    /**
+     * IAM role to assume through STS before signing.
+     */
     role_arn?: string;
     /**
-     * Requires role_arn.
+     * External ID sent to STS when assuming role_arn.
      */
     external_id?: string;
 };
 
 export type GitHubAppCredentialsSecretMaterial = {
+    /**
+     * github_app_credentials: a GitHub App's ID, private key, and webhook secret.
+     */
     kind: 'github_app_credentials';
+    /**
+     * GitHub App ID, not the installation ID.
+     */
     app_id: string;
     /**
      * Unencrypted RSA private key in PEM format. Stored encrypted.
      */
     private_key: string;
+    /**
+     * The App's webhook secret, used to verify webhook signatures.
+     */
     webhook_secret: string;
 };
 
@@ -3352,16 +3902,49 @@ export type SecretGrantCreateRequest = {
 export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials' | 'github_app_credentials';
 
 export type Secret = {
+    /**
+     * Identifies the secret; other resources reference it by this ID instead of storing the value.
+     */
     id: SecretId;
+    /**
+     * Organization the secret belongs to.
+     */
     org_id: OrganizationId;
+    /**
+     * Whether the organization manages this secret or the Omnara installation provisions and manages it.
+     */
     management_kind: ManagementKind;
+    /**
+     * Who owns the secret; a project can use it without a grant only if the project owns it.
+     */
     owner: SecretOwner;
+    /**
+     * Display name of the secret.
+     */
     name: ResourceName;
+    /**
+     * What type of credential the secret holds, which determines its payload fields.
+     */
     kind: SecretKind;
+    /**
+     * Caller-supplied key-value labels on the secret.
+     */
     metadata: Metadata;
+    /**
+     * Version of the value currently in use; each rotation increments it.
+     */
     current_version_number: number;
+    /**
+     * Names of the fields stored in the current value, such as value or access_token; values are never returned.
+     */
     payload_keys: Array<string>;
+    /**
+     * When the secret was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the secret's name, metadata, or current version last changed.
+     */
     updated_at: Timestamp;
 };
 
@@ -3398,10 +3981,25 @@ export type ListProjectSecretAccessesResponse = {
 };
 
 export type SecretGrant = {
+    /**
+     * Identifies this grant; use it to revoke the project's access.
+     */
     id: SecretGrantId;
+    /**
+     * Organization the grant and its secret belong to.
+     */
     org_id: OrganizationId;
+    /**
+     * Secret shared by this grant.
+     */
     secret_id: SecretId;
+    /**
+     * Project that can use the secret through this grant.
+     */
     target_project_id: ProjectId;
+    /**
+     * When the secret was granted to the project.
+     */
     created_at: Timestamp;
 };
 
@@ -3420,22 +4018,55 @@ export type CreateOrganizationRequest = {
 };
 
 export type CreateOrganizationResponse = {
+    /**
+     * The newly created organization.
+     */
     org: Organization;
+    /**
+     * Default project created along with the organization.
+     */
     project: Project;
+    /**
+     * The caller's owner membership in the new organization.
+     */
     membership: OrganizationMembership;
 };
 
 export type Organization = {
+    /**
+     * Identifies the organization.
+     */
     id: OrganizationId;
+    /**
+     * Display name of the organization.
+     */
     name: ResourceName;
+    /**
+     * When the organization was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the organization record was last changed.
+     */
     updated_at: Timestamp;
 };
 
 export type OrganizationMembership = {
+    /**
+     * Organization the user belongs to.
+     */
     org_id: OrganizationId;
+    /**
+     * User who holds this membership.
+     */
     user_id: UserId;
+    /**
+     * The user's organization role, which sets what they can do in the org.
+     */
     role: string;
+    /**
+     * When the user joined the organization; role changes do not update it.
+     */
     created_at: Timestamp;
 };
 
@@ -3552,7 +4183,7 @@ export type Artifact = {
  * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
+    provider: 'agent37' | 'arker' | 'docker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
@@ -3596,10 +4227,25 @@ export type MachinePoolConnectionCheckError = {
 };
 
 export type CreateMachinePoolRequestBase = {
+    /**
+     * Pool name, unique in the organization. Agent configs reference it as machine_pool_name.
+     */
     name: ResourceName;
+    /**
+     * Free-form description of the pool.
+     */
     description?: string;
+    /**
+     * Sandbox provider. Determines which size and limit fields are required.
+     */
     provider: string;
+    /**
+     * Default vCPUs per machine, between min_machine_cpu and max_machine_cpu.
+     */
     default_machine_cpu?: number;
+    /**
+     * Default memory per machine in MB, between min_machine_memory_mb and max_machine_memory_mb.
+     */
     default_machine_memory_mb?: number;
     /**
      * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
@@ -3613,36 +4259,72 @@ export type CreateMachinePoolRequestBase = {
     default_machine_secret_env?: {
         [key: string]: SecretId;
     };
+    /**
+     * Provider options for new machines, such as image, region, or startup_script. Keys depend on the provider.
+     */
     default_machine_provider_options: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes.
+     */
     default_cwd?: string;
+    /**
+     * Pool-wide provider settings, such as a workspace or domain, and allowlists for overrides. Keys depend on the provider.
+     */
     provider_config?: {
         [key: string]: unknown;
     };
+    /**
+     * Org-owned generic secret holding the provider API key.
+     */
     provider_auth_secret_id: SecretId;
     /**
-     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
+     * When true, Omnara deletes pool machines that keep running at the provider after their daemon goes inactive. Defaults to false.
      */
     runtime_protection_enabled?: boolean;
+    /**
+     * Most live machines across all projects. 0 blocks new machines.
+     */
     max_total_machines: number;
+    /**
+     * Most vCPUs across live machines.
+     */
     max_total_cpu?: number;
+    /**
+     * Most memory in MB across live machines.
+     */
     max_total_memory_mb?: number;
+    /**
+     * Fewest vCPUs per machine. 0 means no minimum.
+     */
     min_machine_cpu?: number;
+    /**
+     * Least memory per machine in MB. 0 means no minimum.
+     */
     min_machine_memory_mb?: number;
+    /**
+     * Most vCPUs per machine.
+     */
     max_machine_cpu?: number;
+    /**
+     * Most memory per machine in MB.
+     */
     max_machine_memory_mb?: number;
     /**
      * Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
      */
     delete_after_idle_minutes?: number;
+    /**
+     * Key-value metadata copied to the pool's machines.
+     */
     metadata?: MachineMetadata;
 };
 
 export type UpdateMachinePoolRequest = {
     name?: ResourceName;
     /**
-     * Optional description of the pool.
+     * Free-form description of the pool.
      */
     description?: string;
     /**
@@ -3666,7 +4348,7 @@ export type UpdateMachinePoolRequest = {
         [key: string]: SecretId;
     };
     /**
-     * Provider-specific options applied to new machines in the pool.
+     * Provider options for new machines, such as image, region, or startup_script. Keys depend on the provider.
      */
     default_machine_provider_options?: {
         [key: string]: unknown;
@@ -3676,14 +4358,14 @@ export type UpdateMachinePoolRequest = {
      */
     default_cwd?: string;
     /**
-     * Provider-specific settings for the pool.
+     * Pool-wide provider settings, such as a workspace or domain, and allowlists for overrides. Keys depend on the provider.
      */
     provider_config?: {
         [key: string]: unknown;
     };
     provider_auth_secret_id?: SecretId;
     /**
-     * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+     * When true, Omnara deletes pool machines that keep running at the provider after their daemon goes inactive.
      */
     runtime_protection_enabled?: boolean;
     /**
@@ -3796,33 +4478,105 @@ export type MachineAccessSourceKind = 'org_role' | 'project_machine_grant';
 export type ProjectMachineGrantSourceKind = 'explicit' | 'pool';
 
 export type Machine = {
+    /**
+     * Identifies the machine.
+     */
     id: MachineId;
+    /**
+     * Organization that owns the machine.
+     */
     org_id: OrganizationId;
+    /**
+     * Whether the machine is a bring-your-own computer or was created from a machine pool.
+     */
     source_kind: MachineSourceKind;
+    /**
+     * Pool the machine was created from; null for BYO machines.
+     */
     machine_pool_id?: MachinePoolId | null;
+    /**
+     * Machine name; agent configs reference a BYO machine by this as machine_name.
+     */
     display_name: ResourceName;
+    /**
+     * Free-form note about the machine; empty if none was set.
+     */
     description: string;
+    /**
+     * Sandbox provider that hosts a pool machine; byo for bring-your-own machines.
+     */
     provider: string;
+    /**
+     * Where the machine is in provisioning or deletion, independent of whether its daemon is connected.
+     */
     lifecycle_state: MachineLifecycleState;
+    /**
+     * Whether the machine's daemon is connected now; asleep means suspended but able to be woken.
+     */
     connection_state: MachineConnectionState;
+    /**
+     * Why the machine's latest daemon session ended, such as daemon_lease_expired.
+     */
     connection_state_reason?: string;
+    /**
+     * When the daemon last registered or sent a heartbeat; null if it has never connected.
+     */
     last_observed_at: Timestamp | null;
+    /**
+     * Default working directory for processes started on the machine.
+     */
     cwd: string;
+    /**
+     * Environment variables set for every process started on the machine.
+     */
     env: {
         [key: string]: string;
     };
+    /**
+     * Environment variable names mapped to secrets whose values are injected when processes start.
+     */
     secret_env: {
         [key: string]: SecretId;
     };
+    /**
+     * Machine-readable reason for the latest lifecycle change, such as idle_timeout; empty when none.
+     */
     lifecycle_reason_code: string;
+    /**
+     * Human-readable detail for lifecycle_reason_code; empty when none.
+     */
     lifecycle_reason_message: string;
+    /**
+     * Latest setup or daemon failure reported from the machine; omitted when none is recorded.
+     */
     failure_report?: MachineFailureReport;
+    /**
+     * When Omnara next works on provisioning or deleting the machine; null when nothing is scheduled.
+     */
     next_reconcile_after: Timestamp | null;
+    /**
+     * Number of times Omnara has tried to provision this machine.
+     */
     provision_attempts: number;
+    /**
+     * Number of times Omnara has tried to delete this machine.
+     */
     delete_attempts: number;
+    /**
+     * Key-value metadata attached to the machine.
+     */
     metadata: Metadata;
+    /**
+     * When the machine finished deleting; null while it still exists.
+     */
     deleted_at: Timestamp | null;
+    /**
+     * When the machine record was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the machine record last changed.
+     */
     updated_at: Timestamp;
 };
 
@@ -3842,7 +4596,7 @@ export type CreateMachineRequest = {
 export type ConnectByoMachineRequest = {
     display_name: ResourceName;
     /**
-     * Optional description of the machine.
+     * Free-form description stored with the machine.
      */
     description?: string;
     /**
@@ -3850,20 +4604,20 @@ export type ConnectByoMachineRequest = {
      */
     cwd?: string;
     /**
-     * Environment variables set for processes started on the machine.
+     * Environment variables for processes started on the machine.
      */
     env?: {
         [key: string]: string;
     };
     /**
-     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     * Environment variables set from secrets, keyed by variable name, for processes started on the machine.
      */
     secret_env?: {
         [key: string]: SecretId;
     };
     metadata?: MachineMetadata;
     /**
-     * Projects to grant the machine to in the same call (up to 100).
+     * Projects to grant the machine to in the same call.
      */
     project_ids?: Array<ProjectId>;
     /**
@@ -3873,12 +4627,21 @@ export type ConnectByoMachineRequest = {
 };
 
 export type ConnectByoMachineResponse = {
+    /**
+     * Newly created BYO machine.
+     */
     machine: Machine;
     /**
      * Opaque bearer credential.
      */
     token: string;
+    /**
+     * Stored details of the issued daemon token; the token itself is never returned again.
+     */
     token_record: MachineDaemonToken;
+    /**
+     * Grants created for the requested projects; empty when none were requested.
+     */
     project_grants: Array<ProjectMachineGrant>;
 };
 
@@ -3888,13 +4651,13 @@ export type UpdateMachineRequest = {
      */
     cwd?: string;
     /**
-     * Environment variables set for processes started on the machine.
+     * Environment variables for processes started on the machine. Replaces the whole map; omit to keep the current one.
      */
     env?: {
         [key: string]: string;
     };
     /**
-     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     * Environment variables set from secrets, keyed by variable name, for processes started on the machine.
      */
     secret_env?: {
         [key: string]: SecretId;
@@ -3905,17 +4668,53 @@ export type UpdateMachineRequest = {
  * Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.
  */
 export type MachineSummaryFields = {
+    /**
+     * Identifies the machine.
+     */
     id: MachineId;
+    /**
+     * Organization that owns the machine.
+     */
     org_id: OrganizationId;
+    /**
+     * Whether the machine is a bring-your-own computer or was created from a machine pool.
+     */
     source_kind: MachineSourceKind;
+    /**
+     * Machine name; agent configs reference a BYO machine by this as machine_name.
+     */
     display_name: ResourceName;
+    /**
+     * Free-form note about the machine; empty if none was set.
+     */
     description: string;
+    /**
+     * Sandbox provider that hosts a pool machine; byo for bring-your-own machines.
+     */
     provider: string;
+    /**
+     * Where the machine is in provisioning or deletion, independent of whether its daemon is connected.
+     */
     lifecycle_state: MachineLifecycleState;
+    /**
+     * Whether the machine's daemon is connected now.
+     */
     connection_state: MachineConnectionState;
+    /**
+     * When the daemon last registered or sent a heartbeat; null if it has never connected.
+     */
     last_observed_at: Timestamp | null;
+    /**
+     * When the machine finished deleting; null while it still exists.
+     */
     deleted_at: Timestamp | null;
+    /**
+     * When the machine record was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the machine record last changed.
+     */
     updated_at: Timestamp;
 };
 
@@ -3943,22 +4742,52 @@ export type ListVisibleMachinesResponse = {
 };
 
 export type ProjectMachineGrant = {
+    /**
+     * Identifies the machine grant.
+     */
     id: ProjectMachineGrantId;
+    /**
+     * Organization that owns the grant.
+     */
     org_id: OrganizationId;
+    /**
+     * Project the grant gives access to.
+     */
     project_id: ProjectId;
+    /**
+     * Machine the project's agents may use.
+     */
     machine_id: MachineId;
+    /**
+     * Whether the grant was made directly or created for a machine from a pool grant.
+     */
     source_kind: ProjectMachineGrantSourceKind;
+    /**
+     * Pool grant that created this grant; null for direct grants.
+     */
     project_machine_pool_grant_id?: ProjectMachinePoolGrantId | null;
+    /**
+     * Free-form note about the grant; empty if none was set.
+     */
     description: string;
+    /**
+     * Key-value metadata attached to the grant.
+     */
     metadata: Metadata;
+    /**
+     * When the grant was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the grant last changed.
+     */
     updated_at: Timestamp;
 };
 
 export type CreateProjectMachineGrantRequest = {
     machine_id: MachineId;
     /**
-     * Optional note about this grant.
+     * Free-form note stored with the grant.
      */
     description?: string;
     metadata?: Metadata;
@@ -3970,22 +4799,55 @@ export type CreateProjectMachineGrantResponse = {
 };
 
 export type ListProjectMachineGrantsResponse = {
+    /**
+     * Project's machine grants on this page, each with its machine.
+     */
     data: Array<ProjectMachineGrantListItem>;
+    /**
+     * Cursor for the next page, or null when this is the last page.
+     */
     next_cursor: string | null;
 };
 
 export type ProjectMachineGrantListItem = {
+    /**
+     * Grant that gives the project access to the machine.
+     */
     grant: ProjectMachineGrant;
+    /**
+     * Summary of the granted machine.
+     */
     machine: MachineSummary;
 };
 
 export type ProjectMachinePoolGrant = {
+    /**
+     * Identifies the pool grant.
+     */
     id: ProjectMachinePoolGrantId;
+    /**
+     * Organization that owns the grant.
+     */
     org_id: OrganizationId;
+    /**
+     * Project the grant lets create machines from the pool.
+     */
     project_id: ProjectId;
+    /**
+     * Pool the project may create machines from.
+     */
     machine_pool_id: MachinePoolId;
+    /**
+     * Free-form note about the grant; empty if none was set.
+     */
     description: string;
+    /**
+     * Default vCPUs for this project's machines from the pool; null uses the pool default.
+     */
     default_machine_cpu: number | null;
+    /**
+     * Default memory in MB for this project's machines from the pool; null uses the pool default.
+     */
     default_machine_memory_mb: number | null;
     /**
      * Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
@@ -3999,30 +4861,66 @@ export type ProjectMachinePoolGrant = {
     default_machine_secret_env_overlay: {
         [key: string]: string | null;
     };
+    /**
+     * Provider options layered over the pool's for this project's machines.
+     */
     default_machine_provider_options_overlay: {
         [key: string]: unknown;
     };
+    /**
+     * Working directory for this project's machines from the pool; empty uses the pool default.
+     */
     default_cwd: string;
+    /**
+     * Most live machines this project can have from the pool; null means only the pool limit applies.
+     */
     max_total_machines: number | null;
+    /**
+     * Most vCPUs across this project's live pool machines; null means only the pool limit applies.
+     */
     max_total_cpu: number | null;
+    /**
+     * Most memory in MB across this project's live pool machines; null means only the pool limit applies.
+     */
     max_total_memory_mb: number | null;
+    /**
+     * Fewest vCPUs one of this project's machines can request; null uses the pool minimum.
+     */
     min_machine_cpu: number | null;
+    /**
+     * Least memory in MB one of this project's machines can request; null uses the pool minimum.
+     */
     min_machine_memory_mb: number | null;
+    /**
+     * Most vCPUs one of this project's machines can request; null uses the pool maximum.
+     */
     max_machine_cpu: number | null;
+    /**
+     * Most memory in MB one of this project's machines can request; null uses the pool maximum.
+     */
     max_machine_memory_mb: number | null;
     /**
      * Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
      */
     delete_after_idle_minutes: 0 | number | null;
+    /**
+     * Key-value metadata attached to the grant.
+     */
     metadata: Metadata;
+    /**
+     * When the grant was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the grant last changed.
+     */
     updated_at: Timestamp;
 };
 
 export type CreateProjectMachinePoolGrantRequest = {
     machine_pool_id: MachinePoolId;
     /**
-     * Optional note about this grant.
+     * Free-form note stored with the grant.
      */
     description?: string;
     /**
@@ -4084,7 +4982,7 @@ export type CreateProjectMachinePoolGrantRequest = {
      */
     max_machine_memory_mb?: number;
     /**
-     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default.
      */
     delete_after_idle_minutes?: 0 | number;
     metadata?: Metadata;
@@ -4095,7 +4993,7 @@ export type CreateProjectMachinePoolGrantRequest = {
  */
 export type UpdateProjectMachinePoolGrantRequest = {
     /**
-     * Optional note about this grant.
+     * Free-form note stored with the grant.
      */
     description?: string;
     /**
@@ -4157,7 +5055,7 @@ export type UpdateProjectMachinePoolGrantRequest = {
      */
     max_machine_memory_mb?: number | null;
     /**
-     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged.
      */
     delete_after_idle_minutes?: 0 | number | null;
     metadata?: Metadata;
@@ -4193,14 +5091,41 @@ export type CreateMachineDaemonTokenRequest = {
 };
 
 export type MachineDaemonToken = {
+    /**
+     * Identifies the daemon token.
+     */
     id: MachineDaemonTokenId;
+    /**
+     * Organization that owns the token.
+     */
     org_id: OrganizationId;
+    /**
+     * Machine whose daemon authenticates with this token.
+     */
     machine_id: MachineId;
+    /**
+     * Label for the token; defaults to daemon.
+     */
     name: ResourceName;
+    /**
+     * Key-value metadata attached to the token.
+     */
     metadata: Metadata;
+    /**
+     * When the token was issued.
+     */
     created_at: Timestamp;
+    /**
+     * Approximate time the daemon last authenticated with this token; null if never used.
+     */
     last_used_at: Timestamp | null;
+    /**
+     * When the token was revoked; null while it is still valid.
+     */
     revoked_at: Timestamp | null;
+    /**
+     * Why the token was revoked, such as machine_deleted; empty while valid.
+     */
     revoke_reason: string;
 };
 
@@ -4309,10 +5234,25 @@ export type UpdateProjectRequest = {
  * Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
  */
 export type ProjectFields = {
+    /**
+     * Identifies the project.
+     */
     id: ProjectId;
+    /**
+     * Organization that owns the project.
+     */
     org_id: OrganizationId;
+    /**
+     * Display name of the project.
+     */
     name: ResourceName;
+    /**
+     * When the project was created.
+     */
     created_at: Timestamp;
+    /**
+     * When the project last changed.
+     */
     updated_at: Timestamp;
 };
 
@@ -4687,7 +5627,7 @@ export type GitHubIntegrationSettings = {
     /**
      * Let agents push code
      *
-     * Git credentials can push. Off by default: read-only.
+     * Git credentials can push and open or approve pull requests. Off by default: read-only.
      */
     code_write?: boolean;
 };
@@ -4835,7 +5775,13 @@ export type IntegrationConversation = {
 };
 
 export type IntegrationSubscriptionAttachment = {
+    /**
+     * Integration that forwards the conversation's activity.
+     */
     integration_id: IntegrationId;
+    /**
+     * Provider conversation to subscribe the agent to, such as a Slack channel.
+     */
     conversation: IntegrationConversation;
 };
 
@@ -4966,14 +5912,14 @@ export type ResourceNameFilter = string;
 export type MachineSourceKindFilter = MachineSourceKind;
 
 /**
- * Metadata key/value filters, encoded as metadata[key]=value.
+ * Return only secrets whose metadata includes these key-value pairs.
  */
 export type SecretMetadataFilter = {
     [key: string]: string;
 };
 
 /**
- * Filter secrets by material kind.
+ * Return only secrets that hold this type of credential.
  */
 export type SecretKindFilter = SecretKind;
 
@@ -4983,7 +5929,7 @@ export type SecretKindFilter = SecretKind;
 export type SkillOwnerKindFilter = 'org' | 'project' | 'user';
 
 /**
- * Required with owner_kind=project and invalid with other owner kinds.
+ * Owning project to filter by. Required when owner_kind is project.
  */
 export type SkillOwnerProjectIdFilter = ProjectId;
 
@@ -4998,7 +5944,7 @@ export type SkillAvailabilitySourceFilter = 'direct' | 'grant';
 export type SecretOwnerKindFilter = 'org' | 'project' | 'user';
 
 /**
- * Required with owner_kind=project and invalid with other owner kinds.
+ * Owning project to filter by. Required when owner_kind is project.
  */
 export type SecretOwnerProjectIdFilter = ProjectId;
 
@@ -8594,7 +9540,7 @@ export type ListSkillsData = {
          */
         owner_kind?: 'org' | 'project' | 'user';
         /**
-         * Required with owner_kind=project and invalid with other owner kinds.
+         * Owning project to filter by. Required when owner_kind is project.
          */
         owner_project_id?: ProjectId;
         sort?: ResourceListSort;
@@ -10274,7 +11220,7 @@ export type ListSecretsData = {
          */
         name?: string;
         /**
-         * Filter secrets by material kind.
+         * Return only secrets that hold this type of credential.
          */
         kind?: SecretKind;
         /**
@@ -10282,7 +11228,7 @@ export type ListSecretsData = {
          */
         owner_kind?: 'org' | 'project' | 'user';
         /**
-         * Required with owner_kind=project and invalid with other owner kinds.
+         * Owning project to filter by. Required when owner_kind is project.
          */
         owner_project_id?: ProjectId;
         /**
@@ -10290,7 +11236,7 @@ export type ListSecretsData = {
          */
         mcp_oauth_flow_id?: McpoAuthFlowId;
         /**
-         * Metadata key/value filters, encoded as metadata[key]=value.
+         * Return only secrets whose metadata includes these key-value pairs.
          */
         metadata?: {
             [key: string]: string;
@@ -14418,6 +15364,9 @@ export type ListAgentInteractionsData = {
         agentID: string;
     };
     query?: {
+        /**
+         * Return only interactions in this state. Omit to return all.
+         */
         state?: AgentInteractionState;
         /**
          * Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
@@ -15596,7 +16545,7 @@ export type ListProjectAvailableSecretsData = {
          */
         name?: string;
         /**
-         * Filter secrets by material kind.
+         * Return only secrets that hold this type of credential.
          */
         kind?: SecretKind;
         /**
@@ -15608,7 +16557,7 @@ export type ListProjectAvailableSecretsData = {
          */
         availability_source?: 'direct' | 'grant';
         /**
-         * Metadata key/value filters, encoded as metadata[key]=value.
+         * Return only secrets whose metadata includes these key-value pairs.
          */
         metadata?: {
             [key: string]: string;

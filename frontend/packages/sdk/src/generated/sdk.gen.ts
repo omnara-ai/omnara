@@ -2480,7 +2480,7 @@ export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: 
 /**
  * Create agent input
  *
- * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call.
+ * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call. Set scheduled_for to hold the message until a future time: it is stored with state scheduled, listed with the waiting backlog, and joins the back of its delivery backlog once that time passes.
  */
 export const createAgentInput = <ThrowOnError extends boolean = true>(options: Options<CreateAgentInputData, ThrowOnError>): RequestResult<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateAgentInputResponse),
@@ -2770,7 +2770,7 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
 /**
  * List waiting backlog inputs
  *
- * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending. Scheduled inputs (state scheduled) follow, ordered by scheduled_for ascending, then id ascending.
  */
 export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(options: Options<ListQueuedBacklogInputsData, ThrowOnError>): RequestResult<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError> => (options.client ?? client).get<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListQueuedBacklogInputsResponse),
@@ -2789,6 +2789,8 @@ export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(opt
 
 /**
  * Cancel queued backlog input
+ *
+ * Cancels a waiting queued input, or a scheduled input that has not been released yet.
  */
 export const cancelQueuedBacklogInput = <ThrowOnError extends boolean = true>(options: Options<CancelQueuedBacklogInputData, ThrowOnError>): RequestResult<CancelQueuedBacklogInputResponses, CancelQueuedBacklogInputErrors, ThrowOnError> => (options.client ?? client).post<CancelQueuedBacklogInputResponses, CancelQueuedBacklogInputErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCancelQueuedBacklogInputResponse),

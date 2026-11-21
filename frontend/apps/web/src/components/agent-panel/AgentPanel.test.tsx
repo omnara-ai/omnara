@@ -200,44 +200,59 @@ it('keeps the agent picker accessible when the selected conversation fails to lo
   }
 })
 
-it('stays collapsed after turning off in panel settings and re-enabling from Account', async () => {
-  let finishRefresh: () => void = () => undefined
-  const panelRefresh = new Promise<void>((resolve) => {
-    finishRefresh = resolve
-  })
-  const { container, api, button, cleanup } = await mountPanel({ panelRefresh })
-  try {
-    act(() => {
-      button('Assistant').click()
-      button('Assistant settings').click()
+it.each(['Turn off panel', 'Turn off assistant panel'])(
+  'stays collapsed after %s and re-enabling from Account',
+  async (offLabel) => {
+    let finishRefresh: () => void = () => undefined
+    const panelRefresh = new Promise<void>((resolve) => {
+      finishRefresh = resolve
     })
-    await act(() => vi.dynamicImportSettled())
-    await waitForUI(() => {
-      expect(button('Turn off panel')).toBeDefined()
-    })
-    act(() => {
-      button('Turn off panel').click()
-    })
-    await waitForUI(() => {
-      expect(button('Turn on assistant panel')).toBeDefined()
-      expect(container.textContent).not.toContain('Turn off panel')
-      expect(api.requestsTo('GET', '/api/v1/me/agent-panel')).toHaveLength(1)
-    })
-    // The PATCH response unmounts setup before its invalidation request finishes.
-    await act(async () => {
+    const { container, api, historyRequests, button, cleanup } = await mountPanel({ panelRefresh })
+    try {
+      act(() => {
+        button('Assistant').click()
+        button('Assistant settings').click()
+      })
+      await act(() => vi.dynamicImportSettled())
+      await waitForUI(() => {
+        expect(button('Turn off panel')).toBeDefined()
+      })
+      act(() => {
+        button(offLabel).click()
+      })
+      await waitForUI(() => {
+        expect(button('Turn on assistant panel')).toBeDefined()
+        expect(container.textContent).not.toContain('Turn off panel')
+        expect(api.requestsTo('GET', '/api/v1/me/agent-panel')).toHaveLength(1)
+      })
+      // The PATCH response unmounts setup before its invalidation request finishes.
+      await act(async () => {
+        finishRefresh()
+        await panelRefresh
+      })
+      await waitForUI(() => {
+        expect(button('Turn on assistant panel').disabled).toBe(false)
+      })
+      const historyCount = historyRequests.length
+      act(() => {
+        button('Turn on assistant panel').click()
+      })
+      await waitForUI(() => {
+        expect(button('Turn off assistant panel')).toBeDefined()
+        expect(button('Assistant').getAttribute('aria-expanded')).toBe('false')
+        expect(container.querySelector('#agent-panel')?.hasAttribute('open')).toBe(false)
+      })
+      expect(historyRequests).toHaveLength(historyCount)
+      act(() => {
+        button('Assistant').click()
+      })
+      await waitForUI(() => {
+        expect(historyRequests).toHaveLength(historyCount + 1)
+        expect(container.textContent).not.toContain('Turn off panel')
+      })
+    } finally {
       finishRefresh()
-      await panelRefresh
-    })
-    act(() => {
-      button('Turn on assistant panel').click()
-    })
-    await waitForUI(() => {
-      expect(button('Turn off assistant panel')).toBeDefined()
-      expect(button('Assistant').getAttribute('aria-expanded')).toBe('false')
-      expect(container.querySelector('#agent-panel')?.hasAttribute('open')).toBe(false)
-    })
-  } finally {
-    finishRefresh()
-    cleanup()
-  }
-})
+      cleanup()
+    }
+  },
+)

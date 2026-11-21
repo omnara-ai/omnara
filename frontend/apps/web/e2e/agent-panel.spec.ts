@@ -129,6 +129,12 @@ test('creates a personal assistant and keeps its conversation across organizatio
   await expect(panel).toBeHidden()
   await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Turn on assistant panel', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
+  await expect(panel).toBeHidden()
+  expect(streams.size).toBe(0)
   await page.reload()
   await expect(
     page.getByRole('button', { name: 'Turn off assistant panel', exact: true }),

@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 const schemaResource = "urn:omnara:inline-json-schema"
@@ -29,6 +32,26 @@ func Compile(raw json.RawMessage) (*Validator, error) {
 func ValidateSchema(raw json.RawMessage) error {
 	_, err := Compile(raw)
 	return err
+}
+
+func SchemaIssue(raw json.RawMessage) (string, error) {
+	err := ValidateSchema(raw)
+	var invalid *sjsonschema.SchemaValidationError
+	if !errors.As(err, &invalid) {
+		return "", err
+	}
+	var cause *sjsonschema.ValidationError
+	if !errors.As(invalid.Err, &cause) {
+		return "", err
+	}
+	for len(cause.Causes) > 0 {
+		cause = cause.Causes[len(cause.Causes)-1]
+	}
+	location := ""
+	for _, token := range cause.InstanceLocation {
+		location += "/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(token)
+	}
+	return location, errors.New(cause.ErrorKind.LocalizedString(message.NewPrinter(language.English)))
 }
 
 func Validate(schemaJSON, valueJSON json.RawMessage) error {

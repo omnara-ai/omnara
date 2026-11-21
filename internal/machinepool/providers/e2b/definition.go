@@ -70,7 +70,11 @@ func newProvider(raw json.RawMessage, runtimeConfig providers.RuntimeConfig) (*p
 		return nil, errors.New("e2b provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(config.Domain, token, providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.E2B)),
+		api: newRESTClient(
+			config.Domain,
+			token,
+			providers.ObserveHTTPClient(runtimeConfig.HTTPClient, runtimeConfig.HTTPRecorder, providers.E2B),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }

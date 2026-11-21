@@ -40,6 +40,8 @@ import type {
 import {
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
+  invalidateBacklogOnEvent,
+  isScheduledBacklogInput,
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
@@ -304,11 +306,6 @@ export class AgentChatSession {
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
     }
-    if (event.event_kind === 'agent_input' && event.input_kind === 'content') {
-      void this.queryClient.invalidateQueries({
-        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
-      })
-    }
     if (event.event_kind === 'model_output') {
       this.completedCalls.add(event.model_call_context_id)
       this.deltas = this.deltas.filter(
@@ -324,9 +321,9 @@ export class AgentChatSession {
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()
     }
-    void invalidateSubagentList(this.queryClient, this.client, this.scope, event, (matches) =>
-      this.hasLoadedEvent(matches),
-    )
+    const hasEvent = this.hasLoadedEvent.bind(this)
+    invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
+    void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
     this.notify()
   }
 
@@ -478,7 +475,9 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   )
   const projected = useMemo(() => projectAgentChat(data), [data])
   const inputPlacement =
-    projected.isWorking || projected.backlogInputs.length > 0 || sessionData.localInputs.length > 0
+    projected.isWorking ||
+    projected.backlogInputs.some((input) => !isScheduledBacklogInput(input)) ||
+    sessionData.localInputs.length > 0
       ? 'backlog'
       : 'conversation'
 

@@ -703,6 +703,23 @@ it('creates a preset provider and continues straight into the model picker', asy
   expect(button('Skip for now')).toBeDefined()
 })
 
+it('submits the OpenLake preset without opening Advanced', async () => {
+  const api = providerApi()
+  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+  await selectOption(element('#mp-provider'), 'OpenLake')
+  await type('#mp-name', 'production-openlake')
+  await selectOption(labeledControl('API key'), credentialSecret.name)
+  await clickButton('Add provider')
+
+  expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+    {
+      name: 'production-openlake',
+      credential_secret_id: credentialSecret.id,
+      preset: 'openlake',
+    },
+  ])
+})
+
 it('deletes the provider and returns to its settings when the catalog fails', async () => {
   const api = providerApi({ status: 'failed', error: 'unauthorized' })
   await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)

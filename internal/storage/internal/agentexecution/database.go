@@ -106,6 +106,7 @@ func (b failedBatch) Exec() (pgconn.CommandTag, error) { return pgconn.CommandTa
 func (b failedBatch) Query() (pgx.Rows, error)         { return nil, b.err }
 func (b failedBatch) QueryRow() pgx.Row                { return errorRow(b) }
 func (b failedBatch) Close() error                     { return b.err }
+func (b failedBatch) Tx() pgx.Tx                       { return nil }
 
 type unitBatch struct {
 	pgx.BatchResults

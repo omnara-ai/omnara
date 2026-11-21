@@ -40,8 +40,9 @@ func (q *Queries) AcquireExecutionRuntime(ctx context.Context, db DBTX, arg Acqu
 
 const cancelExecutionInputs = `-- name: CancelExecutionInputs :execrows
 UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
-WHERE agent_id=$1 AND state='received' AND input_kind='content'
- AND (delivery_mode='steering' OR $2::boolean)
+WHERE agent_id=$1 AND input_kind='content'
+ AND ((state='received' AND (delivery_mode='steering' OR $2::boolean))
+  OR (state='scheduled' AND $2::boolean))
 `
 
 type CancelExecutionInputsParams struct {

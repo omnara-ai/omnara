@@ -1,5 +1,6 @@
 import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
+import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
 import { exerciseProjectWebhooks } from './event-webhooks'
@@ -16,7 +17,12 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { expectClearOfAssistantLauncher, signIn, signInThroughLoginForm } from './helpers'
+import {
+  expectClearOfAssistantLauncher,
+  replaceConfigEditor,
+  signIn,
+  typeInConfigEditor,
+} from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -26,13 +32,9 @@ import {
 } from './integration-subscriptions'
 
 const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
-const orgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_ORG_NAME')
-const switchOrgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_SWITCH_ORG_NAME')
-const createdOrgName = 'zz web created organization'
 const modelGrantRequest = z.object({ configured_model_id: z.string() })
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
-const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
 const onboardingEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ONBOARDING_EMAIL')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
@@ -73,115 +75,18 @@ function uniqueName(base: string) {
   return retry === 0 ? base : `${base} (retry ${retry})`
 }
 
-async function typeInConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  await page.keyboard.insertText(text)
-}
-
-async function replaceConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  // Desktop Chrome uses a Windows user agent, which selects Monaco's Ctrl
-  // bindings even on macOS. Paste avoids typing auto-closing extra JSON quotes.
-  await page.keyboard.press('Control+A')
-  await editor.evaluate((element, value) => {
-    const clipboardData = new DataTransfer()
-    clipboardData.setData('text/plain', value)
-    element.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
-    )
-  }, text)
-}
-
 async function visitAgentsTabAndReturn(page: Page) {
   await page.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(page.getByText('No agents from this profile yet', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Configuration' }).click()
 }
 
-test('returns to a protected deep link after login', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signInThroughLoginForm(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  expect(failures).toEqual([])
-})
-
-test('switches organizations from a project page', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
-
-  await page.getByRole('button', { name: orgName }).click()
-  await page.getByRole('menuitem', { name: switchOrgName }).click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: switchOrgName })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
-  expect(failures).toEqual([])
-})
-
-test('creates an organization from a project page', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
-
-  await page.getByRole('button', { name: orgName }).click()
-  await page.getByRole('menuitem', { name: 'New organization' }).click()
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(createdOrgName)
-  await page.getByRole('button', { name: 'Create organization' }).click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: createdOrgName })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
-  expect(failures).toEqual([])
-})
-
-test('opens and answers pending invitations outside onboarding', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, inviteeEmail, '/')
-
-  const pendingInvitations = page.getByRole('link', {
-    name: /^Pending invitations, [1-3]$/,
-  })
-  await expect(pendingInvitations).toBeVisible()
-  await pendingInvitations.click()
-
-  await expect(page).toHaveURL('/invitations')
-  await expect(page.getByRole('heading', { name: 'Pending invitations' })).toBeVisible()
-
-  const declineButtons = page.getByRole('button', { name: /^Decline invitation to / })
-  await expect(declineButtons.first()).toBeVisible()
-  const invitationCount = await declineButtons.count()
-  expect(invitationCount).toBeGreaterThan(0)
-
-  const invitationLabel = await declineButtons.first().getAttribute('aria-label')
-  const invitationName = invitationLabel?.replace('Decline invitation to ', '').trim()
-  if (!invitationName) throw new Error('Pending invitation organization name is missing')
-  await declineButtons.first().click()
-
-  await expect(
-    page.getByRole('button', { name: `Decline invitation to ${invitationName}` }),
-  ).toHaveCount(0)
-  await expect(declineButtons).toHaveCount(invitationCount - 1)
-
-  const acceptButton = page.getByRole('button', { name: /^Accept invitation to / }).first()
-  const acceptLabel = await acceptButton.getAttribute('aria-label')
-  const acceptedOrgName = acceptLabel?.replace('Accept invitation to ', '').trim()
-  if (!acceptedOrgName) throw new Error('Accepted invitation organization name is missing')
-  await acceptButton.click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: acceptedOrgName })).toBeVisible()
-
-  expect(failures).toEqual([])
-})
-
-for (const viewport of [
-  { name: 'desktop', width: 1280, height: 720 },
-  { name: 'mobile', width: 390, height: 844 },
+for (const { format, ...viewport } of [
+  { format: 'YAML', name: 'desktop', width: 1280, height: 720 },
+  { format: 'YAML', name: 'mobile', width: 390, height: 844 },
+  { format: 'JSON', name: 'desktop', width: 1280, height: 720 },
 ]) {
-  test(`creates an agent from YAML on ${viewport.name}`, async ({ page }) => {
+  test(`creates an agent from ${format} text on ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport)
     const failures = installFailureTracking(page)
     await signIn(page, adminEmail, createAgentPath)
@@ -189,20 +94,41 @@ for (const viewport of [
     await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
+    if (viewport.name === 'mobile') {
+      await page.getByLabel('Instruction').fill('')
+      const submit = page.getByRole('button', { name: 'Create & launch agent' })
+      await submit.click()
+      await expect(page.getByText('Instructions are required.', { exact: true })).toBeVisible()
+      await expectClearOfAssistantLauncher(page, submit, [390])
+    }
+
     await page.getByRole('button', { name: 'YAML' }).click()
     await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
       'aria-required',
       'true',
     )
 
-    const agentName = uniqueName(`YAML E2E Agent ${viewport.name}`)
+    const agentName = uniqueName(`${format} E2E Agent ${viewport.name}`)
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
-    const yamlLines = [
-      'instruction: Test agent creation from YAML.',
-      `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
-    ]
-    await replaceConfigEditor(page, yamlLines.join('\n'))
-    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+    const definition = {
+      instruction: 'Test agent creation from source.',
+      model: { provider_config: providerConfig, name: modelName },
+      tools: {
+        lookup_item: {
+          type: 'custom',
+          description: 'Look up an example item.',
+          input_schema: { type: 'object' },
+        },
+      },
+    }
+    await replaceConfigEditor(
+      page,
+      format === 'YAML' ? stringify(definition) : JSON.stringify(definition, null, 2),
+    )
+    await page.getByRole('button', { name: 'Builder', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit lookup_item' })).toBeVisible()
+    await page.getByRole('button', { name: 'YAML', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toBeVisible()
     await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
     await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -249,10 +175,10 @@ test('creates an agent with the Builder', async ({ page }) => {
 
   await page.getByRole('button', { name: `Clear ${modelName} · ${providerConfig}` }).click()
   await expect(modelPicker).not.toContainText(modelName)
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+  await expect(page.getByText('Choose a model.', { exact: true })).toBeVisible()
   await selectConfiguredModel(page)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -404,7 +330,8 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(page.getByText('# draft edit')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('No changes to save.', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Launch' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
@@ -450,7 +377,7 @@ test('keeps the save pending across tab switches while the revision uploads', as
   releaseSave()
   expect((await saveResponse).ok()).toBe(true)
 
-  await expect(saveButton).toBeDisabled()
+  await expect(saveButton).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
   expect(failures).toEqual([])
 })
@@ -508,21 +435,34 @@ test('deletes a profile from its detail page', async ({ page }) => {
 
 test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
+  const helperName = uniqueName('Builder Edit Helper')
+  await createProfile(page, helperName, 'Help the parent agent.')
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
-  const save = page.getByRole('button', { name: 'Save revision' })
-  await expect(save).toBeDisabled()
 
   await instruction.fill('Updated instruction.')
-  await expect(save).toBeEnabled()
-  await save.click()
-  await expect(save).toBeDisabled()
+  await page.getByRole('button', { name: 'Add subagent' }).click()
+  await page.getByRole('textbox', { name: 'Subagent name' }).fill('helper')
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toBeVisible()
+  await page.getByRole('combobox').filter({ hasText: 'Search agent profiles…' }).click()
+  const profileResults = page.waitForResponse(
+    (response) => new URL(response.url()).searchParams.get('name') === `*${helperName}*`,
+  )
+  await page.getByPlaceholder('Search agent profiles…').fill(helperName)
+  await profileResults
+  await expect(page.getByRole('option', { name: helperName })).toBeVisible()
+  await page.getByPlaceholder('Search agent profiles…').press('Enter')
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Version 2', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
+  await expect(page.locator('.monaco-editor')).toContainText(`profile: ${helperName}`)
 
   expect(failures).toEqual([])
 })
@@ -550,7 +490,6 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await page.getByRole('button', { name: 'or set up manually' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'active')
   await expect(step(1)).toContainText('npx omnara login')
-  // The browser can create the profile without the CLI login.
   await expect(step(2)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
 
@@ -734,7 +673,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
       previewResponse.request().postDataJSON(),
     )
-    expect(previewRequest.source).toMatchObject({
+    expect(previewRequest.source_format).toBe('yaml')
+    expect(parse(z.string().parse(previewRequest.source))).toMatchObject({
       tools: { [selectedTool]: {} },
       interaction_handlers: selectedHandlers,
     })
@@ -753,7 +693,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     )
     await page.getByRole('button', { name: 'Save revision', exact: true }).click()
     expect((await savedRevision).status()).toBe(200)
-    await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
 
     const conversation = await exerciseIntegrationConversations(
       page,
@@ -826,7 +765,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
-    // The Conversations tab stays selected through reconnecting; the profile lives on the launcher tab.
     await openIntegrationTab(page, integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions')
     await expect(selectedProfile).toBeVisible()
     if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)

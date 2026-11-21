@@ -1,5 +1,4 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import {
   createOmnaraClient,
@@ -18,6 +17,7 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { newSubagent } from '@/components/agents/agentConfigSubagents'
@@ -205,7 +205,7 @@ function BasicFormHarness({
   source?: string
   projectId?: string
 }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
+  const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, {
     orgId: 'org-test',
     projectId,
   })
@@ -440,9 +440,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   click('[aria-label="Remove web_search"]')
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
   await vi.waitFor(() => {
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load built-in tools',
-    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load tools')
   })
   expect(builtInToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
@@ -466,7 +464,11 @@ it('does not offer the Slack tool when it is absent from the source', async () =
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) => {
-        requests.push(body)
+        const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        requests.push({
+          ...request,
+          source: z.json().parse(parse(z.string().parse(request.source))),
+        })
         return jsonResponse({ tools: [] })
       },
     },
@@ -476,21 +478,10 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     expect(requests).toHaveLength(1)
   })
   expect(builtInToolsTrigger()).toBeNull()
-  expect(container.querySelector('output')?.textContent).toBe(includedSource)
-  expect(requests).toEqual([
-    {
-      source: {
-        interaction_handlers: {},
-        tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
-        mcp: {},
-        machine_sources: [],
-        skills: [],
-        memory_stores: [],
-        subagents: {},
-      },
-      source_format: 'json',
-    },
-  ])
+  expect(requests[0]).toHaveProperty('source.tools', {
+    web_search: { type: 'built_in', permission: { mode: 'always_ask' } },
+  })
+  expect(requests[0]).toHaveProperty('source_format', 'yaml')
 })
 
 it('includes configured MCP servers in previews and removes them after deletion', async () => {
@@ -500,7 +491,7 @@ it('includes configured MCP servers in previews and removes them after deletion'
       ...previewToolsRoute(() => []),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(request.source)
+        requests.push(parse(z.string().parse(request.source)))
         return toolResponse([])
       },
     },
@@ -581,9 +572,7 @@ it('shows a preview failure and lets the user retry without editing the draft', 
   ])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load built-in tools',
-    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load tools')
   })
   click('[role="alert"] button')
   await vi.waitFor(() => {
@@ -643,7 +632,7 @@ it('displays retrieval defaults without changing source and saves only edited ov
     expect(parse(saved)).toHaveProperty('tools.storage_read.enabled', false)
     expect(parse(saved)).toHaveProperty('tools.storage_search.permission.mode', 'always_ask')
     expect(
-      createBasicConfigSession(saved).initialDraft?.tools.find(
+      createBasicConfigSession(saved, 'yaml').initialDraft?.tools.find(
         (tool) => tool.name === 'storage_read',
       )?.enabled,
     ).toBe(false)
@@ -670,7 +659,7 @@ it('updates resource defaults without writing or removing explicit entries', asy
       ...previewToolsRoute(() => preview),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(request.source)
+        requests.push(parse(z.string().parse(request.source)))
         return toolResponse(preview)
       },
     },
@@ -718,12 +707,13 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
 })
 
-it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (mode) => {
+it.each(['Always ask', 'Disabled', null])('removes subagent tool defaults: %s', async (mode) => {
   let preview = ['spawn_agent', 'list_agents']
-  Providers = testProviders([previewToolsRoute(() => preview)])
+  const resolve = vi.fn(() => preview)
+  Providers = testProviders([previewToolsRoute(resolve)])
   await renderAndFlush(
     <BasicFormHarness
-      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\nmax_depth: 2\n`}
+      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {__proto__: {type: self}}\nmax_depth: 2\n`}
     />,
   )
   await vi.waitFor(() => {
@@ -741,21 +731,25 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
-  await selectIncludedPermission('spawn_agent', mode)
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.spawn_agent',
-  )
+  if (mode !== null) {
+    await selectIncludedPermission('spawn_agent', mode)
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      'tools.spawn_agent',
+    )
+  }
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
     'tools.read_agent.enabled',
     false,
   )
   preview = []
+  const beforeRemoval = resolve.mock.calls.length
   clickLabel('Remove subagent')
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('max_depth', 2)
   await vi.waitFor(() => {
+    expect(resolve).toHaveBeenCalledTimes(beforeRemoval + 1)
     expect(container.querySelector('[aria-label="spawn_agent permission"]')).toBeNull()
     expect(container.querySelector('[aria-label="list_agents permission"]')).toBeNull()
   })

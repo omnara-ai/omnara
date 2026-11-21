@@ -131,7 +131,7 @@ Primitive API key from step 2. Store it as an Omnara secret.
 `npx omnara grant models list --json`: each item has `model.provider_config`
 and `model.name`. Ask the user which model to use. Suggest a strong
 general-purpose model with reliable tool calling, such as
-`openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted. Name a couple of
+`openai/gpt-6.2-sol` on `omnara-openrouter` if it's granted. Name a couple of
 alternatives rather than the whole list. The choice gives
 `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 

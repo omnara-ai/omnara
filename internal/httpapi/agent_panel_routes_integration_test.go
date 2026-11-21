@@ -625,6 +625,36 @@ func TestAgentPanelOrgAndAccountDeletionCleanup(t *testing.T) {
 	require.Equal(t, 1, provenance, "retain provenance for the ordinary agent's lifecycle")
 }
 
+func TestAgentPanelToggleBeforeFirstOrgPreservesManualChoice(t *testing.T) {
+	t.Parallel()
+	pool, handler, project := assistantFixture(t)
+	user, _ := createOrgRouteUser(t, pool, project.Store, "panel-toggle")
+	project.AdminSession, project.AdminCSRF = "panel-toggle-session", "panel-toggle-csrf"
+	_, err := project.Store.Identity().CreateBrowserSession(t.Context(), identitystore.CreateBrowserSessionInput{
+		UserID: user.ID, Token: project.AdminSession, CSRFToken: project.AdminCSRF, TTL: time.Hour,
+	})
+	require.NoError(t, err)
+	headers := project.adminBrowserAuthHeaders()
+	for _, enabled := range []bool{false, true} {
+		requestJSONWithHeaders(t, handler, "PATCH", "/api/v1/me/agent-panel",
+			fmt.Sprintf(`{"enabled":%t}`, enabled), "", 200, headers)
+	}
+	for _, name := range []string{"first", "second"} {
+		requestJSONWithHeaders(t, handler, "POST", "/api/v1/orgs",
+			fmt.Sprintf(`{"name":%q}`, name), "", 201, headers)
+		panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
+		require.Equal(t, true, panel["enabled"])
+		require.Equal(t, "empty", panel["state"])
+		require.Equal(t, float64(2), panel["revision"])
+		require.NotContains(t, panel, "setup", "explicit preferences suppress automatic setup")
+		require.NotContains(t, panel, "selection")
+	}
+	var creations int
+	require.NoError(t, pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM assistant_agent_creations WHERE user_id=$1`, user.ID).Scan(&creations))
+	require.Zero(t, creations)
+}
+
 func TestAgentPanelExistingUserAndPendingHomeDeletion(t *testing.T) {
 	t.Parallel()
 	for _, existing := range []bool{false, true} {

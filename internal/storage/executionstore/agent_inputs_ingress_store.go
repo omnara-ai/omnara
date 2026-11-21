@@ -24,6 +24,7 @@ type AgentInputRecord struct {
 	IdempotencyScope    string                 `json:"idempotency_scope,omitempty"`
 	InputIdempotencyKey string                 `json:"input_idempotency_key,omitempty"`
 	QueuedAt            time.Time              `json:"queued_at"`
+	ScheduledFor        *time.Time             `json:"scheduled_for,omitempty"`
 	AdmittedEventID     uuid.UUID              `json:"admitted_event_id,omitempty"`
 	AdmittedAt          *time.Time             `json:"admitted_at,omitempty"`
 	CanceledAt          *time.Time             `json:"canceled_at,omitempty"`
@@ -41,6 +42,7 @@ type AgentInputQueueCursor struct {
 	DeliveryMode AgentInputDeliveryMode
 	InputRank    int64
 	QueuedAt     time.Time
+	ScheduledFor *time.Time
 	ID           uuid.UUID
 }
 
@@ -55,6 +57,8 @@ type ListQueuedBacklogInputsResult struct {
 	Inputs  []AgentInputRecord
 	HasMore bool
 }
+
+const AgentInputStateScheduled = "scheduled"
 
 const (
 	DeliveryModeQueued    AgentInputDeliveryMode = "queued"

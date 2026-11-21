@@ -95,6 +95,7 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 		"setup_on_update":          false,
 		"default_permissions": map[string]string{
 			"pull_requests": "write", "issues": "read", "contents": "write", "checks": "write",
+			"statuses": "read", "actions": "read",
 		},
 		"default_events": []string{
 			"pull_request",

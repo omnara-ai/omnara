@@ -55,8 +55,9 @@ FROM agents a WHERE a.id=sqlc.arg(agent_id) RETURNING id;
 
 -- name: CancelExecutionInputs :execrows
 UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
-WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
- AND (delivery_mode='steering' OR sqlc.arg(include_queued)::boolean);
+WHERE agent_id=sqlc.arg(agent_id) AND input_kind='content'
+ AND ((state='received' AND (delivery_mode='steering' OR sqlc.arg(include_queued)::boolean))
+  OR (state='scheduled' AND sqlc.arg(include_queued)::boolean));
 
 -- name: ConsumeExecutionWakeup :exec
 DELETE FROM agent_wakeups WHERE agent_id=sqlc.arg(agent_id);

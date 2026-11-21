@@ -16,6 +16,8 @@ const APIVersion = "2023-06-01"
 
 const thinkingBindingControlsBeta = "thinking-binding-controls-2026-08-01"
 
+const midConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
+
 type Client struct {
 	ModelProviderConfigID string
 	Auth                  route.Auth
@@ -45,6 +47,17 @@ func (c Client) ModelAPIVariant() modelprotocol.APIVariant {
 
 func (c Client) supportsThinkingBindingControls() bool {
 	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
+}
+
+// Bedrock InvokeModel takes betas in the body rather than a header.
+func (c Client) supportsPerMessageEffort() bool {
+	if c.ModelAPIVariant() != modelprotocol.APIVariantDefault {
+		return false
+	}
+	if model.IsOpenRouterHost(c.endpoint().ResolvedBaseURL()) {
+		return model.OpenRouterSupportsConfigurationUpdate(c.ProviderModelSlug)
+	}
+	return model.ClaudeSupportsPerMessageEffort(c.ProviderModelSlug)
 }
 
 func (c Client) Capabilities() model.Capabilities {

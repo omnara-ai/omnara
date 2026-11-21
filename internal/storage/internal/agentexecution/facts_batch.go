@@ -39,6 +39,7 @@ func (r factsResults) Query() (pgx.Rows, error) {
 func (r factsResults) QueryRow() pgx.Row                { return r.batch.results.QueryRow() }
 func (r factsResults) Exec() (pgconn.CommandTag, error) { return r.batch.results.Exec() }
 func (r factsResults) Close() error                     { return nil }
+func (r factsResults) Tx() pgx.Tx                       { return nil }
 
 func (b *factsBatch) read(ctx context.Context) error {
 	if b.queued.Len() == 0 {

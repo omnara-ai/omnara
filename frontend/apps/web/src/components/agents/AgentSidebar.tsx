@@ -7,8 +7,10 @@ import {
   FetchedAgentReferenceLink,
   ProfileReferenceLink,
 } from '@/components/agents/AgentReferenceLinks'
+import { AgentScheduledMessages } from '@/components/agents/AgentScheduledMessages'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { useScheduledMessages } from '@/components/agents/useScheduledMessages'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ChevronDown, InfoIcon, PlusIcon, UserGroupIcon, UserIcon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
@@ -59,6 +61,7 @@ export function AgentSidebar({
   mcpConnections,
   profile,
   canManage,
+  canOperate,
 }: {
   orgId: string
   projectId: string
@@ -67,6 +70,7 @@ export function AgentSidebar({
   mcpConnections: AgentMcpConnection[]
   profile?: AgentProfile
   canManage: boolean
+  canOperate: boolean
 }) {
   const [addCronOpen, setAddCronOpen] = useState(false)
   return (
@@ -119,6 +123,7 @@ export function AgentSidebar({
             projectId={projectId}
             agentId={agent.id}
             canManage={canManage}
+            canOperate={canOperate}
             onAdd={() => {
               setAddCronOpen(true)
             }}
@@ -387,14 +392,18 @@ function AgentCronGroup({
   projectId,
   agentId,
   canManage,
+  canOperate,
   onAdd,
 }: {
   orgId: string
   projectId: string
   agentId: string
   canManage: boolean
+  canOperate: boolean
   onAdd: () => void
 }) {
+  const hasScheduledMessages =
+    useScheduledMessages({ orgId, projectId, agentId }).scheduled.length > 0
   return (
     <SidebarGroup>
       <div className="flex items-center justify-between">
@@ -412,13 +421,21 @@ function AgentCronGroup({
         )}
       </div>
       <SidebarGroupContent>
+        <AgentScheduledMessages
+          orgId={orgId}
+          projectId={projectId}
+          agentId={agentId}
+          canOperate={canOperate}
+        />
         <CronTriggersList
           orgId={orgId}
           projectId={projectId}
           canManage={canManage}
           filters={{ agent_id: agentId }}
           emptyMessage="No schedules"
-          emptyState={<SidebarEmptyText>No schedules</SidebarEmptyText>}
+          emptyState={
+            hasScheduledMessages ? <></> : <SidebarEmptyText>No schedules</SidebarEmptyText>
+          }
         />
       </SidebarGroupContent>
     </SidebarGroup>

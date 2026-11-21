@@ -1674,8 +1674,9 @@ func prepareLocalRunner(
 		return nil, err
 	}
 	runner := &localProcessRunner{
-		terminalResultReady: make(chan struct{}),
-		fileTransfer:        assignment.Process.ExecutionSpec.FileTransfer,
+		terminalResultReady:    make(chan struct{}),
+		fileTransfer:           assignment.Process.ExecutionSpec.FileTransfer,
+		fileTransferConnection: assignment.FileTransferConnection,
 	}
 	machine, err := localstore.Machine(
 		bootstrap.OmnaraHome,
@@ -1745,6 +1746,11 @@ func prepareLocalRunner(
 			return preparedRunnerWithStartFailure(runner, errors.New("git credential helper is unavailable"))
 		}
 		command.Env = gitCredentialEnvironment(command.Env, assignment.ID, assignment.GitCredentialHelper)
+		command.Env, err = gitHubCLIEnvironment(command.Env, filepath.Join(filepath.Dir(outputPath), "bin"),
+			assignment.ID, assignment.GitCredentialHelper)
+		if err != nil {
+			return preparedRunnerWithStartFailure(runner, err)
+		}
 	}
 	runner.cmd = command
 	return runner, nil
@@ -1808,12 +1814,17 @@ func startPreparedLocalRunner(
 	command.Stdout = &runner.output
 	command.Stderr = &runner.output
 	if runner.fileTransfer != nil {
+		connection, err := fileTransferConnectionPipe(runner.fileTransferConnection)
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		defer func() { _ = connection.Close() }()
 		reader, writer, err := os.Pipe()
 		if err != nil {
 			return nil, processNotStarted, fmt.Errorf("create file transfer result pipe: %w", err)
 		}
 		defer func() { _ = writer.Close() }()
-		command.ExtraFiles = []*os.File{writer}
+		command.ExtraFiles = []*os.File{writer, connection}
 		runner.transferReader = reader
 		runner.transferResult = make(chan fileTransferOutcome, 1)
 		go func() {

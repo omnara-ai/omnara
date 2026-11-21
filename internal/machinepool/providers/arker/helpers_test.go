@@ -78,6 +78,7 @@ type fakeArker struct {
 	runState           string
 	existingRunState   string
 	existingRunCommand string
+	vmMissingUntilFork bool
 
 	mu            sync.Mutex
 	lookup        string
@@ -169,6 +170,11 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 			}
 			fmt.Fprintf(w, `{"run_id":"run_1","state":%q}`, f.runState)
 		default:
+			if f.vmMissingUntilFork && f.forks.Load() == 0 {
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `{"error":{"code":"not_found","message":"no vm"}}`)
+				return
+			}
 			f.record(func() { f.lookup = path })
 			vmName := f.vmName
 			if vmName == "" {

@@ -22,7 +22,7 @@
     "@oxlint/plugins": "1.90.0",
     "eslint-plugin-simple-import-sort": "^14.0.0",
     "oxlint": "1.90.0",
-    "oxlint-tsgolint": "7.0.2005",
+    "oxlint-tsgolint": "7.0.2006",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "react-doctor": "0.9.22",

@@ -1,4 +1,4 @@
-import type { UseAgentChatResult } from '@omnara/react'
+import { isScheduledBacklogInput, type UseAgentChatResult } from '@omnara/react'
 import type { CancelAgentResponse } from '@omnara/sdk'
 
 export async function cancelAgentChatTurn(
@@ -6,7 +6,7 @@ export async function cancelAgentChatTurn(
   cancel: () => Promise<CancelAgentResponse>,
 ): Promise<void> {
   const ids = chat.inputBacklog.inputs
-    .filter((input) => input.delivery_mode === 'steering')
+    .filter((input) => input.delivery_mode === 'steering' && !isScheduledBacklogInput(input))
     .map((input) => input.id)
   const rollback = await chat.inputBacklog.beginCancellation(ids)
   try {

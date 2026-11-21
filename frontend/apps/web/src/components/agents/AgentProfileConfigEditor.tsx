@@ -5,6 +5,7 @@ import { type SyntheticEvent, useState } from 'react'
 import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { SubmitCheckFeedback } from '@/components/agents/SubmitCheckFeedback'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
@@ -38,6 +39,7 @@ export function AgentProfileConfigEditor({
     orgId,
     projectId,
     source,
+    sourceFormat: profile.current_config.source_format ?? 'yaml',
     canManage,
     preferredMode,
     onModeChange,
@@ -49,10 +51,11 @@ export function AgentProfileConfigEditor({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(noConfigError)
+    if (!editor.saveCheck.check()) return
     try {
       const config = await createConfig.mutateAsync({
         source: editor.yaml,
-        source_format: 'yaml',
+        source_format: editor.sourceFormat,
       })
       await updateProfile.mutateAsync({
         agentProfileID: profile.id,
@@ -86,12 +89,16 @@ export function AgentProfileConfigEditor({
         )}
         {profile.current_config.source === undefined && editor.yaml.trim() === '' && (
           <p className="text-muted-foreground text-sm">
-            The current source is unavailable. Paste the replacement YAML configuration.
+            The current source is unavailable. Paste the replacement configuration.
           </p>
         )}
         {error.message && (
           <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
         )}
+        <SubmitCheckFeedback
+          problems={editor.saveCheck.problems}
+          unchanged={editor.saveCheck.unchanged}
+        />
         {canManage && (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             {editor.dirty && !pending && (
@@ -112,12 +119,7 @@ export function AgentProfileConfigEditor({
             >
               Delete profile
             </Button>
-            <Button
-              type="submit"
-              disabled={pending || !editor.dirty || editor.saveBlocked}
-              loading={pending}
-              className="w-full sm:w-auto"
-            >
+            <Button type="submit" disabled={pending} loading={pending} className="w-full sm:w-auto">
               Save revision
             </Button>
           </div>

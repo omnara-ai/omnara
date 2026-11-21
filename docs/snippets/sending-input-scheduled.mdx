@@ -1,0 +1,35 @@
+<CodeGroup>
+```bash REST
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scheduled_for": "2026-12-01T09:00:00Z",
+    "content_blocks": [ { "type": "text", "text": "Post the weekly summary." } ]
+  }'
+```
+
+```typescript SDK
+const { data } = await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  body: {
+    scheduled_for: new Date(Date.now() + 3600_000).toISOString(),
+    content_blocks: [{ type: 'text', text: 'Post the weekly summary.' }],
+  },
+})
+console.log(data.agent_input.state, data.agent_input.scheduled_for)
+```
+</CodeGroup>
+
+```json
+{
+  "agent_input": {
+    "id": "ain_2bfgik7mv4qtrwz3jehcyd5n6a",
+    "state": "scheduled",
+    "delivery_mode": "queued",
+    "scheduled_for": "2026-12-01T09:00:00Z",
+    "...": "..."
+  }
+}
+```

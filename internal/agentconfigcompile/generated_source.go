@@ -18,8 +18,12 @@ func GenerateSource(
 	config executionstore.AgentConfigRecord,
 	format agentconfig.SourceFormat,
 ) (string, error) {
+	verified, err := agentconfig.VerifiedDefinition(config.CompiledDefinition, config.EffectiveDefinitionHash)
+	if err != nil {
+		return "", err
+	}
 	var compiled agentconfig.Compiled
-	if err := json.Unmarshal(config.CompiledDefinition, &compiled); err != nil {
+	if err := json.Unmarshal(verified, &compiled); err != nil {
 		return "", fmt.Errorf("decode compiled agent config: %w", err)
 	}
 	source, err := agentconfig.SourceFromCompiled(compiled, agentconfig.SourceNames{

@@ -277,8 +277,9 @@ func TestPublicIntegrationLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) 
 func TestPublicIntegrationLaunchDerivesFromAnyConfigUnderProfile(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationLaunchHTTPFixture(t, "integration-launch-profile")
+	source := "instruction: A different base.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	otherConfig := createPublicHTTPAgentConfig(t, f.handler, f.project, "unrelated-config", "yaml",
-		"instruction: A different base.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		source,
 		f.project.AdminToken, http.StatusCreated)
 	otherID := testutil.RequireType[string](t, otherConfig["id"])
 	body := f.body()
@@ -297,6 +298,12 @@ func TestPublicIntegrationLaunchDerivesFromAnyConfigUnderProfile(t *testing.T) {
 		"retarget-profile", http.StatusOK, authHeaders(f.project.AdminToken))
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		integrationHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
+	delete(body, "config")
+	body["config_source"] = map[string]any{"source_format": "yaml", "source": source}
+	inline := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		integrationHTTPJSON(t, body), "inline-with-integration", http.StatusCreated, authHeaders(f.launchToken))
+	inlineConfig := testutil.RequireType[map[string]any](t, inline["agent_config"])
+	require.Equal(t, derived["id"], inlineConfig["id"], "inline and stored bases derive the same config")
 }
 
 func TestPublicIntegrationLaunchConfigIsEditable(t *testing.T) {

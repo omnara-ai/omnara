@@ -40,6 +40,7 @@ type serviceE2EEnvironment struct {
 	databaseURL           string
 	databaseSchema        string
 	redisURL              string
+	secretEncryptionKey   string
 	db                    *pgxpool.Pool
 }
 
@@ -142,6 +143,7 @@ SELECT coalesce((
 		databaseURL:           schemaDatabaseURL,
 		databaseSchema:        schema,
 		redisURL:              redisURL,
+		secretEncryptionKey:   "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 		db:                    db,
 	}
 	t.Cleanup(env.cleanup)

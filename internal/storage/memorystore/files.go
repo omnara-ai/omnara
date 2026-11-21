@@ -90,7 +90,7 @@ func (s *Store) ReadFile(ctx context.Context, scope Scope, storeID uuid.UUID, pa
 
 func fileReadError(err error) error {
 	if errors.Is(err, fs.ErrNotExist) {
-		return storeerr.ErrNotFound
+		return storeerr.Tag(storeerr.ErrNotFound, storeerr.ErrPathNotFound)
 	}
 	if errors.Is(err, storeerr.ErrConflict) || errors.Is(err, syscall.ENOTDIR) {
 		return storeerr.InvalidRequest(err)
@@ -321,7 +321,7 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 	}
 	root, err := s.files.OpenStore(ref)
 	if errors.Is(err, fs.ErrNotExist) {
-		return storeerr.ErrNotFound
+		return fileReadError(err)
 	}
 	if err != nil {
 		return err
@@ -329,7 +329,7 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 	defer func() { _ = root.Close() }()
 	currentDigest, err := memoryops.Digest(root, path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return storeerr.ErrNotFound
+		return fileReadError(err)
 	}
 	if err != nil {
 		return err

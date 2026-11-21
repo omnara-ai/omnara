@@ -10,6 +10,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
+const testStartupScriptEnvVar = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
+
 func mustRawJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)
@@ -117,6 +119,15 @@ type fakeAPI struct {
 
 	deleteCalls int
 	deletedID   string
+
+	secretRequests  []createSecretRequest
+	secretErr       error
+	attachSandboxes []string
+	attachRequests  []attachSecretRequest
+	attachErr       error
+	deletedSecrets  []string
+	deleteSecretErr error
+	calls           []string
 
 	execCalls    int
 	execSessions []execSession
@@ -227,12 +238,33 @@ func (a *fakeAPI) ActivateSandbox(_ context.Context, id string) (sandbox, error)
 }
 
 func (a *fakeAPI) DeleteSandbox(_ context.Context, id string) error {
+	a.calls = append(a.calls, "delete-sandbox")
 	a.deleteCalls++
 	a.deletedID = id
 	return nil
 }
 
+func (a *fakeAPI) CreateSecret(_ context.Context, request createSecretRequest) error {
+	a.calls = append(a.calls, "create-secret")
+	a.secretRequests = append(a.secretRequests, request)
+	return a.secretErr
+}
+
+func (a *fakeAPI) AttachSecret(_ context.Context, sandboxID string, request attachSecretRequest) error {
+	a.calls = append(a.calls, "attach-secret")
+	a.attachSandboxes = append(a.attachSandboxes, sandboxID)
+	a.attachRequests = append(a.attachRequests, request)
+	return a.attachErr
+}
+
+func (a *fakeAPI) DeleteSecret(_ context.Context, name string) error {
+	a.calls = append(a.calls, "delete-secret")
+	a.deletedSecrets = append(a.deletedSecrets, name)
+	return a.deleteSecretErr
+}
+
 func (a *fakeAPI) Exec(_ context.Context, session execSession, request execRequest) (execResult, error) {
+	a.calls = append(a.calls, "exec")
 	a.execCalls++
 	a.execSessions = append(a.execSessions, session)
 	a.execRequests = append(a.execRequests, request)

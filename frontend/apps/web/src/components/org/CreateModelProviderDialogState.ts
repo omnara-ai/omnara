@@ -34,6 +34,12 @@ export const modelProviderOptions = [
     endpoint: undefined,
   },
   {
+    value: 'openlake',
+    label: 'OpenLake',
+    keyPlaceholder: 'OpenLake API key',
+    endpoint: { baseUrl: 'https://api.theopenlake.com/v1', apiFormat: 'openai-chat-completions' },
+  },
+  {
     value: 'custom',
     label: 'Custom endpoint',
     keyPlaceholder: 'API key',
@@ -63,6 +69,7 @@ export function modelProviderKind(
   }
   const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`)
   if (matches('openrouter.ai')) return 'openrouter'
+  if (matches('theopenlake.com')) return 'openlake'
   if (matches('anthropic.com')) return 'anthropic'
   if (matches('openai.com')) return 'openai'
   if (host.startsWith('bedrock') && host.endsWith('.api.aws')) return 'bedrock'

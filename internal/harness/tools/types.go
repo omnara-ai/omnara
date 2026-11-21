@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -69,7 +68,6 @@ type Executor struct {
 	BackgroundRunner         BackgroundRunner
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
-	AgentConfigOptions       agentconfig.CompileOptions
 	Log                      *slog.Logger
 }
 

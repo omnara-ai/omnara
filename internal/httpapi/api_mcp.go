@@ -23,6 +23,9 @@ func (s *Server) newAPIMCPServer() (*mcp.Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if spec.Info != nil {
+		s.apiMCPVersion = spec.Info.Version
+	}
 	return apimcp.NewServer(spec, apimcp.Tools, apimcp.Options{
 		Dispatch:    http.HandlerFunc(s.dispatchAPIRequest),
 		APIBasePath: openAPIBasePath,

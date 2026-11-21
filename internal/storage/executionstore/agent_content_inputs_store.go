@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -108,6 +109,11 @@ func prepareCreateAgentContentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		))
 	}
+	if input.SourceScheduledFor != nil && input.CancelOpenInteractions {
+		return CreateAgentContentInputInput{}, storeerr.InvalidRequest(errors.New(
+			"cancel_open_interactions is not allowed for scheduled inputs",
+		))
+	}
 	if input.IdempotencyKey != "" && input.IdempotencyScope == "" {
 		input.IdempotencyScope = "content_input"
 	}
@@ -168,6 +174,21 @@ func admitAgentContentInputTx(
 			}, nil
 		}
 	}
+	if input.SourceScheduledFor != nil && input.MaxScheduledDelay > 0 {
+		// The transaction clock predates the wait for the agent lock.
+		now, err := qtx.DBStatementNow(ctx)
+		if err != nil {
+			return createAgentContentInputTxResult{}, fmt.Errorf("read database time: %w", err)
+		}
+		if !input.SourceScheduledFor.After(now) {
+			return createAgentContentInputTxResult{}, storeerr.InvalidRequest(
+				errors.New("scheduled_for must be in the future"))
+		}
+		if input.SourceScheduledFor.After(now.Add(input.MaxScheduledDelay)) {
+			return createAgentContentInputTxResult{}, storeerr.InvalidRequest(fmt.Errorf(
+				"scheduled_for must be at most %s in the future", scheduledDelayLabel(input.MaxScheduledDelay)))
+		}
+	}
 	snapshot, err := h.LoadExecution(ctx)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -225,6 +246,7 @@ func createAgentContentInputTx(
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
 		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
+		SourceScheduledFor: input.SourceScheduledFor,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -303,4 +325,13 @@ type CreateAgentContentInputInput struct {
 	IdempotencyScope       string                           `json:"idempotency_scope,omitempty"`
 	IdempotencyKey         string                           `json:"idempotency_key,omitempty"`
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
+	SourceScheduledFor     *time.Time                       `json:"scheduled_for,omitempty"`
+	MaxScheduledDelay      time.Duration                    `json:"-"`
+}
+
+func scheduledDelayLabel(delay time.Duration) string {
+	if delay >= 48*time.Hour && delay%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%d days", delay/(24*time.Hour))
+	}
+	return fmt.Sprintf("%d hours", int(delay.Hours()))
 }

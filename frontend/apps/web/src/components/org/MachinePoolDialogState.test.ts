@@ -841,6 +841,7 @@ it('lists providers alphabetically', () => {
     'boxd',
     'CreateOS',
     'Daytona',
+    'Docker',
     'E2B',
     'Freestyle',
     'Modal',

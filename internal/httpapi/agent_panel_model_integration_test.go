@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -92,4 +93,30 @@ func TestAgentPanelRequiresConfiguredMCPOrigin(t *testing.T) {
         JOIN agent_config_definitions definition ON definition.id=config.definition_id
         WHERE agent.id=$1`, agentID).Scan(&compiled))
 	require.Contains(t, compiled, "https://example.com/mcp")
+}
+
+func TestAgentPanelPrivateMCPOriginRequiresAllowlist(t *testing.T) {
+	t.Parallel()
+	pool, _, project := assistantFixture(t)
+	body := assistantBody(t, project, uuid.New(), 0, false)
+	path := "/api/v1/orgs/" + project.OrgID + "/assistant-agents"
+	headers := project.adminBrowserAuthHeaders()
+	options := []Option{WithPublicURL("http://example.com"), WithPublicAPIURL("http://10.23.0.4:8080/api/v1")}
+	before := assistantCounts(t, pool)
+	requestJSONWithHeaders(t, newIntegrationServer(pool, options...), http.MethodPost,
+		path, body, "", http.StatusBadRequest, headers)
+	require.Equal(t, before, assistantCounts(t, pool))
+
+	allowlist, err := ssrf.ParseAllowlist([]string{"10.23.0.4:8080"})
+	require.NoError(t, err)
+	options = append(options, WithEndpointAllowlist(allowlist))
+	created := requestJSONWithHeaders(t, newIntegrationServer(pool, options...), http.MethodPost,
+		path, body, "", http.StatusOK, headers)
+	agentID := mustPublicHTTPID(t, publicid.KindAgent, testutil.RequireType[string](t, created["agent_id"]))
+	var compiled string
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT definition.compiled_definition::text FROM agents agent
+        JOIN agent_configs config ON config.id=agent.current_config_id
+        JOIN agent_config_definitions definition ON definition.id=config.definition_id
+        WHERE agent.id=$1`, agentID).Scan(&compiled))
+	require.Contains(t, compiled, "http://10.23.0.4:8080/mcp")
 }

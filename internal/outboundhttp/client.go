@@ -3,6 +3,7 @@
 package outboundhttp
 
 import (
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"time"
@@ -14,15 +15,21 @@ var ErrRedirect = errors.New("outbound HTTP redirect is not permitted")
 
 type PublicClientOptions struct {
 	AllowLoopback                bool
+	Allowlist                    *ssrf.Allowlist
+	PlainHTTP                    ssrf.PlainHTTPPolicy
 	DisableResponseHeaderTimeout bool
 	Timeout                      time.Duration
+	TLSClientConfig              *tls.Config
 }
 
 func NewPublicClient(opts PublicClientOptions) *http.Client {
 	return CloneWithoutRedirects(&http.Client{
 		Transport: ssrf.NewTransport(ssrf.TransportOptions{
 			AllowLoopback:                opts.AllowLoopback,
+			Allowlist:                    opts.Allowlist,
+			PlainHTTP:                    opts.PlainHTTP,
 			DisableResponseHeaderTimeout: opts.DisableResponseHeaderTimeout,
+			TLSClientConfig:              opts.TLSClientConfig,
 		}),
 		Timeout: opts.Timeout,
 	})

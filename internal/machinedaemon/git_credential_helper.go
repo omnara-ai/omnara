@@ -10,7 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -61,12 +64,53 @@ func RunGitCredentialHelper(
 	if protocol != "https" || (!strings.EqualFold(host, "github.com") && !strings.EqualFold(host, "github.com:443")) {
 		return errors.New("git credentials support only https://github.com")
 	}
+	credentials, err := requestGitCredentials(ctx, endpoint, processID)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "username=x-access-token\npassword=%s\npassword_expiry_utc=%d\n\n",
+		credentials.Token, credentials.ExpiresAt.Unix())
+	return err
+}
+
+var ErrGitHubCLINotFound = errors.New("gh: command not found")
+
+func RunGitHubCLI(ctx context.Context, endpoint, processID, wrapperDir string, args []string) error {
+	var path []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if filepath.Clean(dir) != filepath.Clean(wrapperDir) {
+			path = append(path, dir)
+		}
+	}
+	if err := os.Setenv("PATH", strings.Join(path, string(os.PathListSeparator))); err != nil {
+		return err
+	}
+	gh, err := exec.LookPath("gh")
+	if err != nil {
+		return ErrGitHubCLINotFound
+	}
+	if os.Getenv("GH_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
+		credentials, err := requestGitCredentials(ctx, endpoint, processID)
+		if err != nil {
+			return err
+		}
+		if err := os.Setenv("GH_TOKEN", credentials.Token); err != nil {
+			return err
+		}
+	}
+	return syscall.Exec(gh, append([]string{"gh"}, args...), os.Environ())
+}
+
+func requestGitCredentials(
+	ctx context.Context, endpoint, processID string,
+) (daemonprotocol.GitCredentials, error) {
+	var credentials daemonprotocol.GitCredentials
 	if _, err := publicid.Decode(publicid.KindProcess, processID); err != nil {
-		return errors.New("invalid credential process")
+		return credentials, errors.New("invalid credential process")
 	}
 	capability := os.Getenv(gitCredentialCapabilityEnv)
 	if endpoint == "" || capability == "" {
-		return errors.New("git credential helper is unavailable outside its agent process")
+		return credentials, errors.New("git credential helper is unavailable outside its agent process")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -94,7 +138,7 @@ func RunGitCredentialHelper(
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://daemon/git-credentials/"+processID, nil)
 	if err != nil {
-		return errors.New("cannot prepare Git credential request")
+		return credentials, errors.New("cannot prepare Git credential request")
 	}
 	request.Header.Set("Authorization", "Bearer "+capability)
 	var response *http.Response
@@ -112,30 +156,28 @@ func RunGitCredentialHelper(
 			_ = response.Body.Close()
 		}
 		if err := sleepContext(ctx, delay); err != nil {
-			return errors.New("git credential request timed out")
+			return credentials, errors.New("git credential request timed out")
 		}
 	}
 	if err != nil {
-		return errors.New("daemon could not provide Git credentials")
+		return credentials, errors.New("daemon could not provide Git credentials")
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden ||
 		response.StatusCode == http.StatusNotFound {
-		return errors.New("git credentials are not authorized for this process")
+		return credentials, errors.New("git credentials are not authorized for this process")
 	}
 	if response.StatusCode == http.StatusTooManyRequests {
-		return errors.New("git credentials are rate limited; try again shortly")
+		return credentials, errors.New("git credentials are rate limited; try again shortly")
 	}
 	if response.StatusCode != http.StatusOK {
-		return errors.New("git credentials unavailable; check integration, Contents permission, and machine settings")
+		return credentials, errors.New(
+			"git credentials unavailable; check integration, Contents permission, and machine settings")
 	}
-	var credentials daemonprotocol.GitCredentials
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 65536))
 	if err := decoder.Decode(&credentials); err != nil || credentials.Token == "" ||
 		strings.ContainsAny(credentials.Token, "\x00\r\n") || !credentials.ExpiresAt.After(time.Now()) {
-		return errors.New("invalid Git credential response")
+		return daemonprotocol.GitCredentials{}, errors.New("invalid Git credential response")
 	}
-	_, err = fmt.Fprintf(output, "username=x-access-token\npassword=%s\npassword_expiry_utc=%d\n\n",
-		credentials.Token, credentials.ExpiresAt.Unix())
-	return err
+	return credentials, nil
 }

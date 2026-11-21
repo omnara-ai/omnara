@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -94,10 +95,13 @@ type Config struct {
 	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
+	EndpointAllowlist                 *ssrf.Allowlist
+	WebFetchAllowlist                 *ssrf.Allowlist
 	APIRateLimitReadsPerHour          int
 	APIRateLimitWritesPerHour         int
 	APIRateLimitBurst                 int
 	DaemonReleaseURL                  string
+	DockerPoolsEnabled                bool
 	WebServing                        WebServingMode
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
@@ -215,6 +219,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	dockerPoolsEnabled, err := getenvBool("OMNARA_DOCKER_POOLS_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	authConnectors, err := getenvAuthConnectors("OMNARA_AUTH_CONNECTORS_JSON")
 	if err != nil {
 		return Config{}, err
@@ -325,6 +333,7 @@ func Load() (Config, error) {
 		APIRateLimitWritesPerHour:         apiRateLimitWritesPerHour,
 		APIRateLimitBurst:                 apiRateLimitBurst,
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
+		DockerPoolsEnabled:                dockerPoolsEnabled,
 		WebServing:                        WebServingMode(getenv("OMNARA_WEB_SERVING", string(WebServingDisabled))),
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),
@@ -344,6 +353,14 @@ func Load() (Config, error) {
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
 	}
+	cfg.EndpointAllowlist, err = ssrf.ParseAllowlist(getenvCSV("OMNARA_PRIVATE_ENDPOINT_CIDRS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse OMNARA_PRIVATE_ENDPOINT_CIDRS: %w", err)
+	}
+	cfg.WebFetchAllowlist, err = ssrf.ParseAllowlist(getenvCSV("OMNARA_WEB_FETCH_PRIVATE_CIDRS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse OMNARA_WEB_FETCH_PRIVATE_CIDRS: %w", err)
+	}
 	if defaultMachinePoolTemplatesPath := getenv(
 		"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES",
 		"",
@@ -358,7 +375,7 @@ func Load() (Config, error) {
 		"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE",
 		"",
 	); defaultModelProviderTemplatePath != "" {
-		defaultProvider, err := loadDefaultModelProviderTemplate(defaultModelProviderTemplatePath)
+		defaultProvider, err := loadDefaultModelProviderTemplate(defaultModelProviderTemplatePath, cfg.EndpointAllowlist)
 		if err != nil {
 			return Config{}, err
 		}

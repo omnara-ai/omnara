@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -156,6 +159,7 @@ type CompileOptions struct {
 	ResolveIntegrationName    func(name string) (IntegrationResolution, error)
 	ResolveMemoryStoreName    func(string) (uuid.UUID, error)
 	AllowInsecureLocalMCPHTTP bool
+	EndpointAllowlist         *ssrf.Allowlist
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
 	ResolveMachineName        func(machineName string) (uuid.UUID, error)
@@ -201,21 +205,15 @@ func EncodeCompiled(compiled Compiled) (EncodedCompiled, error) {
 	if err != nil {
 		return EncodedCompiled{}, fmt.Errorf("marshal compiled agent config: %w", err)
 	}
-	canonical = canonicalizeJSON(canonical)
-	sum := sha256.Sum256(canonical)
-	return EncodedCompiled{CanonicalJSON: canonical, Hash: hex.EncodeToString(sum[:])}, nil
+	if canonical, err = jsoncanonical.Canonical(canonical); err != nil {
+		return EncodedCompiled{}, fmt.Errorf("canonicalize compiled agent config: %w", err)
+	}
+	return EncodedCompiled{CanonicalJSON: canonical, Hash: DefinitionHash(canonical)}, nil
 }
 
-func canonicalizeJSON(raw []byte) []byte {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return raw
-	}
-	canonical, err := json.Marshal(value)
-	if err != nil {
-		return raw
-	}
-	return canonical
+func DefinitionHash(canonical []byte) string {
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
 }
 
 func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
@@ -458,7 +456,7 @@ func compileBuiltInTool(
 	if source.Type != "" && source.Type != toolcatalog.ToolTypeBuiltIn {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name, "type"), "must be built_in or custom")
 	}
-	if source.Description != "" || source.InputSchema != nil {
+	if source.Description != "" || len(source.InputSchema) > 0 {
 		return ToolCompiled{}, issuef(
 			jsonPointer("tools", name),
 			"built-in tools cannot redefine description or input_schema",
@@ -508,12 +506,15 @@ func compileCustomTool(
 	if toolcatalog.IsReservedWireToolName(name) {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name is reserved")
 	}
-	schema, err := valueToCanonicalJSON(source.InputSchema)
+	schema, err := jsoncanonical.Canonical(source.InputSchema)
 	if err != nil {
 		return ToolCompiled{}, issueAt(jsonPointer("tools", name, "input_schema"), err)
 	}
 	if err := validateCustomInputSchema(schema); err != nil {
 		return ToolCompiled{}, issueAt(jsonPointer("tools", name, "input_schema"), err)
+	}
+	if location, err := jsonschema.SchemaIssue(schema); err != nil {
+		return ToolCompiled{}, issueAt(jsonPointer("tools", name, "input_schema")+location, err)
 	}
 	permission := toolcatalog.DefaultCustomToolPermission()
 	if source.Permission != nil {
@@ -530,14 +531,6 @@ func compileCustomTool(
 		Description: strings.TrimSpace(source.Description),
 		InputSchema: schema,
 	}, nil
-}
-
-func valueToCanonicalJSON(value any) (json.RawMessage, error) {
-	rawJSON, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("marshal JSON: %w", err)
-	}
-	return json.RawMessage(canonicalizeJSON(rawJSON)), nil
 }
 
 func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptions) ([]MachineSourceCompiled, error) {
@@ -748,8 +741,6 @@ func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, 
 	return maxMachines, initialNumMachines, nil
 }
 
-// validateCustomInputSchema enforces the one constraint the source JSON
-// Schema cannot express: every required field must be declared in properties.
 func validateCustomInputSchema(raw json.RawMessage) error {
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`

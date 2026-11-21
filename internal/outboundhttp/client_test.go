@@ -21,11 +21,11 @@ func TestPublicClientBlocksPrivateDestinations(t *testing.T) {
 
 func TestPublicClientDoesNotUseAmbientProxy(t *testing.T) {
 	client := NewPublicClient(PublicClientOptions{})
-	transport, ok := client.Transport.(*http.Transport)
+	cloner, ok := client.Transport.(interface{ Clone() *http.Transport })
 	if !ok {
-		t.Fatalf("transport type = %T, want *http.Transport", client.Transport)
+		t.Fatalf("transport type = %T, want an http.Transport", client.Transport)
 	}
-	if transport.Proxy != nil {
+	if cloner.Clone().Proxy != nil {
 		t.Fatal("public client uses an ambient proxy")
 	}
 }

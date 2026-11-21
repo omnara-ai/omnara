@@ -53,7 +53,7 @@ func compileIntegrationTool(name string, source AgentConfigToolSource, opts Comp
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "invalid qualified integration tool name")
 	}
-	if source.Type != "" || source.Description != "" || source.InputSchema != nil {
+	if source.Type != "" || source.Description != "" || len(source.InputSchema) > 0 {
 		return ToolCompiled{}, issuef(
 			jsonPointer("tools", name),
 			"integration tools cannot redefine type, description or input_schema",

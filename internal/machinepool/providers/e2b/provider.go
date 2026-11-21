@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -61,44 +61,29 @@ func (p *provider) PrepareProvisioning(
 }
 
 func (p *provider) findTemplate(ctx context.Context, ref string) (template, error) {
-	notFound := errors.New("not found among your team's templates or E2B's public templates")
-	matches := func(t template) bool { return slices.Contains(t.Names, ref) }
-	if !strings.Contains(ref, "/") {
-		teamTemplateID, err := p.api.ResolveTemplateAlias(ctx, ref)
-		switch {
-		case err == nil:
-			matches = func(t template) bool { return t.TemplateID == teamTemplateID }
-		case apiStatusCode(err) == http.StatusForbidden:
-			matches = func(t template) bool { return t.IsDefault && (slices.Contains(t.Names, ref) || t.TemplateID == ref) }
-		case isNotFound(err):
-			return template{}, notFound
-		case transientAPIError(err):
-			return template{}, fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
-		default:
-			return template{}, err
+	failed := func(err error) error {
+		if transientAPIError(err) {
+			return fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
 		}
+		return err
 	}
-	seen := map[string]bool{}
-	for cursor := ""; ; {
-		page, next, err := p.api.ListTemplates(ctx, ref, cursor)
-		if err != nil {
-			if transientAPIError(err) {
-				return template{}, fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
-			}
-			return template{}, err
-		}
-		if index := slices.IndexFunc(page, matches); index >= 0 {
-			return page[index], nil
-		}
-		if next == "" {
-			return template{}, notFound
-		}
-		if seen[next] {
-			return template{}, errors.New("e2b template list repeated a page cursor")
-		}
-		seen[next] = true
-		cursor = next
+	owned, err := p.api.GetTemplate(ctx, ref)
+	if err == nil {
+		return owned, nil
 	}
+	if !isNotFound(err) {
+		return template{}, failed(err)
+	}
+	defaults, err := p.api.DefaultTemplates(ctx)
+	if err != nil {
+		return template{}, failed(err)
+	}
+	if index := slices.IndexFunc(defaults, func(t template) bool {
+		return t.TemplateID == ref || slices.Contains(t.Names, ref)
+	}); index >= 0 {
+		return defaults[index], nil
+	}
+	return template{}, errors.New("not found among your team's templates or E2B's public templates")
 }
 
 func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
@@ -122,7 +107,19 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return result, err
 	}
-	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, machineToken, options.StartupScript, machineEnv)
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return result, err
+	}
+	rules := map[string][]networkRule{host: {{Transform: networkTransform{
+		Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+	}}}}
+	env, err := providers.BuildManagedMachineEnv(
+		p.omnaraAPIURL,
+		daemonprotocol.ProviderInjectedMachineToken,
+		options.StartupScript,
+		machineEnv,
+	)
 	if err != nil {
 		return result, err
 	}
@@ -133,7 +130,7 @@ func (p *provider) ProvisionMachine(
 			TemplateID: options.Template,
 			Timeout:    createTimeoutSeconds,
 			Metadata:   metadata,
-			Network:    networkConfig{AllowPublicTraffic: false},
+			Network:    networkConfig{AllowPublicTraffic: false, Rules: rules},
 		})
 		if err != nil {
 			status := apiStatusCode(err)

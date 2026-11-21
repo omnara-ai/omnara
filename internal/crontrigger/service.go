@@ -35,15 +35,26 @@ func NewService(
 }
 
 type FireStats struct {
-	Claimed  int
-	Queued   int
-	Launched int
-	Inputs   int
-	Disabled int
-	Failures int
+	Claimed         int
+	Queued          int
+	Launched        int
+	Inputs          int
+	Disabled        int
+	Failures        int
+	ScheduledInputs int
 }
 
 func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
+	stats, err := s.fireDueCronTriggers(ctx)
+	scheduled, scheduledErr := s.execution.ReleaseDueScheduledAgentInputs(ctx, FireBatchSize)
+	stats.ScheduledInputs = scheduled.Released
+	if scheduledErr != nil {
+		err = errors.Join(err, fmt.Errorf("queue due scheduled agent inputs: %w", scheduledErr))
+	}
+	return stats, err
+}
+
+func (s *Service) fireDueCronTriggers(ctx context.Context) (FireStats, error) {
 	claim, err := s.execution.ClaimDueCronTriggers(ctx, FireBatchSize)
 	if err != nil {
 		return FireStats{}, fmt.Errorf("claim due cron triggers: %w", err)

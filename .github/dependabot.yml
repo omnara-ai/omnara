@@ -1,11 +1,46 @@
 version: 2
 updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: America/Los_Angeles
+    ignore:
+      - dependency-name: "*node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "*golang"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: America/Los_Angeles
+    ignore:
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major
+      - dependency-name: valkey/valkey
+        update-types:
+          - version-update:semver-major
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       actions-minor-and-patch:
@@ -28,7 +63,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       aws-sdk-minor-and-patch:
@@ -57,7 +92,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       # Dependency-type filters can drop transitive fixes: dependabot/dependabot-core#16250.

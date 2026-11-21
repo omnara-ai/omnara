@@ -104,7 +104,7 @@ export function AgentConfigGitCredentialsField({
             className="items-start"
             inputClassName="mt-0.5"
             label="Read only"
-            description="Agents can clone but not push, even if the integration allows it."
+            description="Agents can clone but not push, open or approve pull requests, even if the integration allows it."
             checked={value.read_only === true}
             onChange={(event) => {
               onChange(

@@ -85,6 +85,11 @@ jobs:
           BOXD_API_KEY: ${{ secrets.BOXD_API_KEY }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
+          ARKER_API_KEY: ${{ secrets.ARKER_API_KEY }}
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          SUPERSERVE_API_KEY: ${{ secrets.SUPERSERVE_API_KEY }}
         run: |
           configured=false
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -116,6 +121,15 @@ jobs:
             echo "sandboxes=false" >> "$GITHUB_OUTPUT"
             echo "No complete sandbox-provider credentials are configured; skipping live sandbox tests."
           fi
+          if [ -n "$ARKER_API_KEY" ] || { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
+             [ -n "$DAYTONA_API_KEY" ] || [ -n "$E2B_API_KEY" ] || \
+             { [ -n "$MODAL_TOKEN_ID" ] && [ -n "$MODAL_TOKEN_SECRET" ]; } || [ -n "$SUPERSERVE_API_KEY" ]; then
+            echo "machines=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          else
+            echo "machines=false" >> "$GITHUB_OUTPUT"
+            echo "No machine-provider credentials are configured; skipping live machine provider tests."
+          fi
           echo "configured=$configured" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,7 +153,7 @@ jobs:
 
       - uses: ./.github/actions/setup-test-db
         id: testdb
-        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.machines == 'true'
 
       - run: make test-live-openai-responses || { echo "::warning::make test-live-openai-responses failed, retrying once"; make test-live-openai-responses; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' }}
@@ -177,10 +191,30 @@ jobs:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
 
+      - name: Install cloudflared
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.machines == 'true' }}
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/cloudflared" \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-linux-amd64
+          echo "053b80b0a23031a038fdbf3c073f59f82b8f1f152aa67971d7383ffafc0dbab0  $RUNNER_TEMP/cloudflared" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
+
+      - run: make test-live-machine-providers || { echo "::warning::make test-live-machine-providers failed, retrying once"; make test-live-machine-providers; }
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.machines == 'true' }}
+        env:
+          ARKER_API_KEY: ${{ secrets.ARKER_API_KEY }}
+          BL_API_KEY: ${{ secrets.BL_API_KEY }}
+          BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          SUPERSERVE_API_KEY: ${{ secrets.SUPERSERVE_API_KEY }}
+
       - name: Show database logs on failure
-        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.machines == 'true')
         run: docker compose logs postgres redis
 
       - name: Stop test database
-        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true')
+        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.machines == 'true')
         run: docker compose down -v

@@ -249,13 +249,18 @@ func publicAgentInputResponseFromRecordWithContent(
 	if !inputKind.Valid() {
 		return openapi.AgentInput{}, fmt.Errorf("invalid agent input kind %q", record.InputKind)
 	}
+	state := openapi.AgentInputState(record.State)
+	if !state.Valid() {
+		return openapi.AgentInput{}, fmt.Errorf("invalid agent input state %q", record.State)
+	}
 	response := openapi.AgentInput{
 		Id:           id,
 		AgentId:      agentID,
-		State:        record.State,
+		State:        state,
 		DeliveryMode: openapi.AgentInputDeliveryMode(record.DeliveryMode),
 		InputKind:    inputKind,
 		QueuedAt:     record.QueuedAt,
+		ScheduledFor: record.ScheduledFor,
 	}
 	if record.ActorID != uuid.Nil {
 		actorID, err := publicID(publicid.KindActor, record.ActorID)

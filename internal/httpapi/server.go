@@ -24,10 +24,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -67,14 +67,17 @@ type Server struct {
 	agentStreamRecorder                 *metrics.AgentStreamRecorder
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
+	dockerPoolsEnabled                  bool
+	endpointAllowlist                   *ssrf.Allowlist
 	modelDiscoverer                     modelprovider.DiscoverFunc
+	modelLimitsCatalog                  *modelprovider.LimitsCatalog
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
 	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
 	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
-	mcpOAuthHTTPClient                  *http.Client
+	mcpAuth                             mcp.AuthOptions
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
 	integrationHTTPClient               *http.Client
@@ -87,6 +90,7 @@ type Server struct {
 	openAPIAuthorizer                   operationAuthorizer
 	apiMCP                              *mcpsdk.Server
 	apiMCPReadOnlyTools                 []string
+	apiMCPVersion                       string
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
@@ -356,6 +360,24 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
+func WithDockerPoolsEnabled() Option {
+	return func(s *Server) {
+		s.dockerPoolsEnabled = true
+	}
+}
+
+func WithEndpointAllowlist(endpointAllowlist *ssrf.Allowlist) Option {
+	return func(s *Server) {
+		s.endpointAllowlist = endpointAllowlist
+	}
+}
+
+func WithModelLimitsCatalog(catalog *modelprovider.LimitsCatalog) Option {
+	return func(s *Server) {
+		s.modelLimitsCatalog = catalog
+	}
+}
+
 func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	return func(s *Server) {
 		s.modelDiscoverer = discoverer
@@ -385,7 +407,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		agentEventReconciliationInterval:  defaultAgentEventReconciliationInterval,
-		modelDiscoverer:                   modelprovider.DiscoverModels,
 		timer:                             clock.New(),
 	}
 	var authStore httpauth.Store
@@ -411,6 +432,12 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	for _, opt := range opts {
 		opt(server)
+	}
+	server.agentConfigOptions.EndpointAllowlist = server.endpointAllowlist
+	if server.modelDiscoverer == nil {
+		server.modelDiscoverer = modelprovider.NewDiscoverer(
+			server.modelLimitsCatalog, server.allowInsecureModelProviderEndpoints, server.endpointAllowlist,
+		)
 	}
 	gitHTTPClient := server.githubClientConfig.HTTPClient
 	if gitHTTPClient == nil {
@@ -496,10 +523,8 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 			return nil, fmt.Errorf("create daemon socket hub: %w", err)
 		}
 	}
-	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-	})
-	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
+	server.mcpAuth = mcp.NewAuthOptions(server.agentConfigOptions.AllowInsecureLocalMCPHTTP, server.endpointAllowlist)
+	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpAuth.EndpointHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
 	if err != nil {
 		return nil, err

@@ -278,14 +278,11 @@ func NormalizeGitHubIntegrationEvent(
 			}},
 			Kind: kind, Mentioned: humanInput && githubMentionsBot(mentionText, identity.BotLogin),
 		},
-		SemanticKey:  fmt.Sprintf("github:%d:%s", payload.Repository.ID, key),
-		DisplayName:  fmt.Sprintf("%s#%d", payload.Repository.FullName, metadata.PullRequest),
-		Actor:        integrationActor,
-		DeliveryMode: executionstore.DeliveryModeQueued,
-	}
-	if humanInput {
-		result.DeliveryMode = executionstore.DeliveryModeSteering
-		result.CancelOpenInteractions = true
+		SemanticKey:            fmt.Sprintf("github:%d:%s", payload.Repository.ID, key),
+		DisplayName:            fmt.Sprintf("%s#%d", payload.Repository.FullName, metadata.PullRequest),
+		Actor:                  integrationActor,
+		DeliveryMode:           executionstore.DeliveryModeSteering,
+		CancelOpenInteractions: humanInput,
 	}
 	if err := result.Event.Validate(); err != nil {
 		return IntegrationEvent{}, false, err

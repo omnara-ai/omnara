@@ -94,7 +94,7 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
    there are several. If there are none, stop and tell the user the project
    needs a machine pool.
 2. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Use `openai/gpt-6.1-sol` on `omnara-openrouter` if it's
+   and `model.name`. Use `openai/gpt-6.2-sol` on `omnara-openrouter` if it's
    granted, otherwise a strong general-purpose model from the list. The choice
    gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 
