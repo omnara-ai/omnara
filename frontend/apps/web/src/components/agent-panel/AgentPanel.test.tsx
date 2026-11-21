@@ -170,7 +170,7 @@ it('loads chat only after opening and aborts its pending history when turned off
     await waitForUI(() => {
       expect(historyRequests[0]?.signal.aborted).toBe(true)
     })
-    expect(container.querySelector('#agent-panel')?.hasAttribute('open')).toBe(false)
+    expect(container.querySelector('#agent-panel')).toBeNull()
   } finally {
     cleanup()
   }

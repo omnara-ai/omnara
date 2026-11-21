@@ -29,8 +29,14 @@ func TestAssistantPresetPreservesOperatorPolicy(t *testing.T) {
 		{name: "development loopback", url: "http://localhost:8080/mcp", allowLocal: true},
 		{name: "private blocked", url: "http://10.23.0.4:8080/mcp", wantError: "url scheme must be https"},
 		{name: "private allowed", url: "http://10.23.0.4:8080/mcp", allowlist: allowlist},
-		{name: "wrong port blocked", url: "http://10.23.0.4:8081/mcp", allowlist: allowlist, wantError: "url scheme must be https"},
-		{name: "wrong address blocked", url: "http://10.23.0.5:8080/mcp", allowlist: allowlist, wantError: "url scheme must be https"},
+		{
+			name: "wrong port blocked", url: "http://10.23.0.4:8081/mcp",
+			allowlist: allowlist, wantError: "url scheme must be https",
+		},
+		{
+			name: "wrong address blocked", url: "http://10.23.0.5:8080/mcp",
+			allowlist: allowlist, wantError: "url scheme must be https",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			compiled, err := compileAssistantPreset(CreateAssistantAgentInput{

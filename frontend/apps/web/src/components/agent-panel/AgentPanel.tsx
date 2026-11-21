@@ -32,9 +32,18 @@ const LazyAgentPanelSetup = lazy(async () => {
 })
 
 export function AgentPanel({ children }: { children: ReactNode }) {
+  const query = useAgentPanel()
+  return (
+    <>
+      {children}
+      {query.data?.enabled !== false && <PanelSurface query={query} />}
+    </>
+  )
+}
+
+function PanelSurface({ query }: { query: ReturnType<typeof useAgentPanel> }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const consentPage = pathname === '/device' || pathname === '/oauth/authorize'
-  const query = useAgentPanel()
   const panel = query.data
   const [expanded, setExpanded] = useState(false)
   const [opened, setOpened] = useState(false)
@@ -42,12 +51,6 @@ export function AgentPanel({ children }: { children: ReactNode }) {
   const surface = useRef<HTMLDialogElement>(null)
   const launcher = useRef<HTMLButtonElement>(null)
   const selection = panel?.selection
-
-  if (panel?.enabled === false && (expanded || opened || settings)) {
-    setExpanded(false)
-    setOpened(false)
-    setSettings(false)
-  }
 
   function close() {
     setExpanded(false)
@@ -60,95 +63,90 @@ export function AgentPanel({ children }: { children: ReactNode }) {
     if (visible) surface.current?.focus()
   }, [visible])
 
+  // Floats over the page, above pinned actions, without reserving layout space.
   return (
-    <>
-      {children}
-      {/* Floats over the page, above any pinned page actions, without reserving layout space. */}
-      <div className="above-pinned-actions pointer-events-none fixed top-3 right-3 z-40 flex flex-col items-end justify-end gap-3 *:pointer-events-auto sm:top-16 sm:right-4">
-        {/* A nonmodal dialog handles Escape without trapping focus. */}
-        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-        <dialog
-          open={visible}
-          ref={surface}
-          tabIndex={-1}
-          id="agent-panel"
-          aria-label="Assistant"
-          onDragOver={containFileDrop}
-          onDrop={containFileDrop}
-          className={
-            visible
-              ? 'bg-background animate-in fade-in-0 zoom-in-95 static m-0 flex max-h-[40rem] min-h-0 w-[calc(100vw-1.5rem)] flex-1 origin-bottom-right flex-col overflow-hidden rounded-2xl border p-0 shadow-xl duration-[var(--duration-panel)] motion-reduce:animate-none sm:w-[27.5rem]'
-              : 'hidden'
+    <div className="above-pinned-actions pointer-events-none fixed top-3 right-3 z-40 flex flex-col items-end justify-end gap-3 *:pointer-events-auto sm:top-16 sm:right-4">
+      {/* A nonmodal dialog handles Escape without trapping focus. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <dialog
+        open={visible}
+        ref={surface}
+        tabIndex={-1}
+        id="agent-panel"
+        aria-label="Assistant"
+        onDragOver={containFileDrop}
+        onDrop={containFileDrop}
+        className={
+          visible
+            ? 'bg-background animate-in fade-in-0 zoom-in-95 static m-0 flex max-h-[40rem] min-h-0 w-[calc(100vw-1.5rem)] flex-1 origin-bottom-right flex-col overflow-hidden rounded-2xl border p-0 shadow-xl duration-[var(--duration-panel)] motion-reduce:animate-none sm:w-[27.5rem]'
+            : 'hidden'
+        }
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !event.defaultPrevented) {
+            event.preventDefault()
+            close()
           }
-          onKeyDown={(event) => {
-            if (event.key === 'Escape' && !event.defaultPrevented) {
-              event.preventDefault()
-              close()
-            }
+        }}
+      >
+        <AgentPanelHeader
+          selection={selection}
+          settings={settings}
+          onClose={close}
+          onSettings={() => {
+            setSettings((value) => !value)
           }}
-        >
-          <AgentPanelHeader
-            selection={selection}
+        />
+        {query.isPending && <p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>}
+        {panel == null && query.error != null && (
+          <div className="p-4">
+            <p role="alert" className="text-destructive text-sm">
+              Could not load your assistant.
+            </p>
+            <Button variant="outline" onClick={() => void query.refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {panel != null && (
+          <PanelContents
+            panel={panel}
+            opened={opened}
+            visible={visible}
             settings={settings}
-            onClose={close}
-            onSettings={() => {
-              setSettings((value) => !value)
+            allowSetup={!consentPage}
+            onConnected={() => {
+              setSettings(false)
             }}
           />
-          {query.isPending && (
-            <p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>
-          )}
-          {panel == null && query.error != null && (
-            <div className="p-4">
-              <p role="alert" className="text-destructive text-sm">
-                Could not load your assistant.
-              </p>
-              <Button variant="outline" onClick={() => void query.refetch()}>
-                Try again
-              </Button>
-            </div>
-          )}
-          {panel != null && (
-            <PanelContents
-              panel={panel}
-              opened={opened}
-              visible={visible}
-              settings={settings}
-              allowSetup={!consentPage}
-              onConnected={() => {
-                setSettings(false)
-              }}
-            />
-          )}
-        </dialog>
-        {showLauncher && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                ref={launcher}
-                data-floating-launcher
-                size="icon"
-                className="size-11 rounded-full shadow-lg"
-                aria-expanded={visible}
-                aria-controls="agent-panel"
-                onClick={() => {
-                  setOpened(true)
-                  setExpanded((value) => !value)
-                }}
-              >
-                {visible ? (
-                  <ChevronDown className="size-5" />
-                ) : (
-                  <MessageCircleQuestion className="size-5" />
-                )}
-                <span className="sr-only">Assistant</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Assistant</TooltipContent>
-          </Tooltip>
         )}
-      </div>
-    </>
+      </dialog>
+      {showLauncher && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              ref={launcher}
+              data-floating-launcher
+              size="icon"
+              className="size-11 rounded-full shadow-lg"
+              aria-expanded={visible}
+              aria-controls="agent-panel"
+              onClick={() => {
+                setOpened(true)
+                setExpanded((value) => !value)
+              }}
+            >
+              {visible ? (
+                <ChevronDown className="size-5" />
+              ) : (
+                <MessageCircleQuestion className="size-5" />
+              )}
+              <span className="sr-only">Assistant</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Assistant</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }
 
@@ -172,7 +170,6 @@ function PanelContents({
   const params = useParams({ strict: false })
   const selection = panel.selection
   const choosing = settings || selection == null
-  if (!panel.enabled) return null
   return (
     <>
       {panel.state === 'unavailable' && (
