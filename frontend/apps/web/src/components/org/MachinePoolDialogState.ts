@@ -230,6 +230,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     case 'createos':
     case 'daytona':
     case 'e2b':
+    case 'novita':
     case 'superserve':
       return {
         ...common,
@@ -405,6 +406,7 @@ export function machinePoolUpdateRequest(
     case 'createos':
     case 'daytona':
     case 'e2b':
+    case 'novita':
     case 'superserve':
       return {
         ...common,
@@ -481,6 +483,7 @@ function clusterMachinePoolUpdateRequest(
     case 'createos':
     case 'daytona':
     case 'e2b':
+    case 'novita':
     case 'superserve':
       return {
         ...common,

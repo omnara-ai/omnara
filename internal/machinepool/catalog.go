@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/e2b"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/novita"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/superserve"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
@@ -40,6 +41,7 @@ func DefaultCatalog() Catalog {
 			providers.E2B:        e2b.Definition{},
 			providers.Freestyle:  freestyle.Definition{},
 			providers.Modal:      modal.Definition{},
+			providers.Novita:     novita.Definition{},
 			providers.Superserve: superserve.Definition{},
 			providers.Tenki:      tenki.Definition{},
 			providers.Unikraft:   unikraft.Definition{},

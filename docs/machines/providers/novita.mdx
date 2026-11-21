@@ -1,0 +1,69 @@
+---
+title: Novita
+description: Isolated, stateful sandboxes for AI agents, built from a template and billed by the second
+icon: "/logo/providers/novita.svg"
+---
+
+[Novita Agent Sandbox](https://novita.ai/sandbox) gives each agent an isolated runtime with its own filesystem for running code, installing dependencies, working with files, and driving browsers, with no infrastructure to manage. Every sandbox starts from a template, and you pay per second of CPU and memory while it runs. Connect your Novita account with a custom pool.
+
+## Why Novita
+
+- **An isolated runtime for every agent.** Each sandbox has its own filesystem and runtime, so AI-generated code runs apart from your systems and from other sandboxes. Access to the sandbox controller is authenticated by default, so only your credentials can run commands or read files on a machine.
+- **Templates built like Docker images.** Start from any Docker image, including private registries on AWS, Google Cloud, Oracle, and Huawei Cloud, layer on packages, files, and environment variables, and set each template's CPU and memory. Every machine from the template starts ready to work, and the `base` template works with no setup at all.
+- **Network controls and secrets.** Deny all outbound traffic and allow only the hosts and networks an agent needs, by IP range, hostname, or wildcard domain. Novita's secrets hold a placeholder in the sandbox and substitute the real value only in HTTPS request headers to hosts you allow, so the credential never lands on the machine.
+- **Pay for what runs.** Billing is per second for CPU and RAM, and each sandbox includes 20 GB of ephemeral storage.
+
+## Set up a Novita pool
+
+<Steps>
+  <Step title="Create an API key">
+    On the Novita [Key Management](https://novita.ai/settings/key-management) page, create an API key. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose a template">
+    The template is the blueprint each machine starts from, and it sets each machine's CPU and memory. Novita's `base` template works as is and gives each machine 2 vCPUs and 1 GB of memory. Commands on it run as the `user` account, whose home directory is `/home/user`, so set the pool's working directory to `/home/user` or another directory that account can enter.
+
+    To build your own, start from a Docker image or Dockerfile that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements), and set its size when you build it. For example, with the `novita` CLI:
+
+    ```bash
+    novita template create omnara-agent --dockerfile ./Dockerfile --cpu-count 2 --memory-mb 4096
+    ```
+
+    Novita's [template guide](https://novita.ai/docs/guides/sandbox-template-build-operations) covers the SDK builder, private registries, and build caching. Check your account tier's vCPU and memory quotas before choosing a size.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Novita**. Enter the credential, the template, the CPU and memory maximums, and capacity limits. The maximums must be at least the template's size.
+
+    Omnara creates each machine in Novita's long-running mode, so it stays up for the agent's lifetime without a timeout, and deletes it when the machine is released.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't set the domain, so to use another Novita region or a custom Novita deployment, set `domain` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "novita-pool",
+  "provider": "novita",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "domain": "us-phx-1.sandbox.novita.ai" // optional
+  },
+  "default_machine_provider_options": {
+    "template": "base"
+  },
+  "default_cwd": "/home/user",
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 1024,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 10240,
+  "max_total_machines": 10
+}
+```
+
+- `template` is a template name or ID, such as `base`. The template sets each machine's size, so CPU and memory defaults are optional, and the maximums must be at least the template's size.
+- `default_cwd` is where commands start. On the `base` template, commands run as `user`, so use `/home/user` or a directory that account can enter; on a custom template, use a directory that exists for the user your template runs as.
+- `domain` is the Novita API domain, which selects the region. Omit it to use `us-phx-1.sandbox.novita.ai`, Novita's default `us-phx-1` region, which supports secrets, snapshots, and volumes. Set `sandbox.novita.ai` for the legacy `us-virginia-1` region, or the domain of a custom Novita deployment.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

@@ -69,6 +69,12 @@ const logoMarks: Record<MachinePoolProvider, LogoMark> = {
       'M387 139H169A44 44 0 0 0 125 183V329A44 44 0 0 0 169 373H387V304H201.5A6.5 6.5 0 0 1 201.5 291H387V221H201.5A6.5 6.5 0 0 1 201.5 208H387Z',
     ],
   },
+  novita: {
+    viewBox: '0 0 24 15',
+    paths: [
+      'M24 14.8323V14.8326H14.3246L9.16716 9.67507V14.8326H0V14.8314L9.16716 5.66422V0H9.16774L24 14.8323Z',
+    ],
+  },
   superserve: {
     viewBox: '90 90 332 332',
     paths: [
