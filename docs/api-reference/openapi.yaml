@@ -9142,7 +9142,7 @@ paths:
       operationId: deleteIntegrationSubscription
       tags: [Integrations]
       summary: Stop forwarding an integration conversation to an agent
-      description: Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
+      description: Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. For GitHub, the agent's pull request tools also stop acting on that pull request unless the agent was launched for it. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
       security:
         - bearerAuth: []
         - browserSessionCookie: []

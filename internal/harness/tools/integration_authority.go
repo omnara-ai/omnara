@@ -110,7 +110,7 @@ func (e Executor) resolveIntegrationToolAuthority(
 }
 
 func (e Executor) integrationToolConversation(
-	ctx context.Context, turn Turn, access integrationToolAccess, input json.RawMessage,
+	ctx context.Context, turn Turn, access integrationToolAccess, tool executionstore.ToolCallRecord,
 ) (integrationdefinition.Scope, error) {
 	switch access.Authority.Definition.Scope {
 	case toolcatalog.IntegrationToolScopeIntegration:
@@ -120,7 +120,7 @@ func (e Executor) integrationToolConversation(
 		return integrationdefinition.Scope{}, errors.New("integration tool requires an explicit scope")
 	}
 	if access.Integration.IntegrationKind == integrationdefinition.GitHubPR {
-		return e.resolveGitHubToolPullRequest(ctx, turn, access, input)
+		return e.resolveGitHubToolPullRequest(ctx, turn, access, tool)
 	}
 	address, found, err := e.Store.Integrations().GetAgentIntegrationConversation(
 		ctx,
@@ -144,28 +144,53 @@ func (e Executor) integrationToolConversation(
 }
 
 func (e Executor) resolveGitHubToolPullRequest(
-	ctx context.Context, turn Turn, access integrationToolAccess, input json.RawMessage,
+	ctx context.Context, turn Turn, access integrationToolAccess, tool executionstore.ToolCallRecord,
 ) (integrationdefinition.Scope, error) {
 	var target integrationdefinition.GitHubScope
-	if err := json.Unmarshal(input, &target); err != nil {
+	if err := json.Unmarshal(tool.Input, &target); err != nil {
 		return integrationdefinition.Scope{}, integrationToolPreparationFailure(err)
 	}
-	pullRequests, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration)
-	if err != nil {
-		return integrationdefinition.Scope{}, err
-	}
-	switch {
-	case target.RepositoryID != 0:
-		if !slices.Contains(pullRequests, target) {
+	if target.RepositoryID != 0 {
+		attached, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration, nil)
+		if err != nil {
+			return integrationdefinition.Scope{}, err
+		}
+		if !slices.Contains(attached, target) {
 			return integrationdefinition.Scope{}, integrationToolPreparationFailure(fmt.Errorf(
 				"pull request %d in repository %d is not attached to this agent", target.PullRequest, target.RepositoryID))
 		}
 		return integrationdefinition.Scope{GitHub: &target}, nil
-	case len(pullRequests) == 1:
-		return integrationdefinition.Scope{GitHub: &pullRequests[0]}, nil
-	case len(pullRequests) == 0:
-		return integrationdefinition.Scope{}, integrationToolPreparationFailure(fmt.Errorf(
-			"integration \"%s\" has no assigned or attached pull request for this agent", access.Integration.Name))
+	}
+	integrationName, _, _ := toolcatalog.SplitIntegrationToolName(tool.Name)
+	changing, err := e.Store.Execution().HasSiblingToolCall(ctx, turn.ProjectID, turn.AgentID, tool.ID, []string{
+		toolcatalog.IntegrationToolName(integrationName, toolcatalog.IntegrationOperationAttachPullRequest),
+		toolcatalog.IntegrationToolName(integrationName, toolcatalog.IntegrationOperationDetachPullRequest),
+	})
+	if err != nil {
+		return integrationdefinition.Scope{}, err
+	}
+	if changing {
+		return integrationdefinition.Scope{}, integrationToolPreparationFailure(errors.New(
+			"repository_id and pull_request are required when this response attaches or detaches pull requests"))
+	}
+	known, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration, &tool.ID)
+	if err != nil {
+		return integrationdefinition.Scope{}, err
+	}
+	switch len(known) {
+	case 1:
+		return integrationdefinition.Scope{GitHub: &known[0]}, nil
+	case 0:
+		attached, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration, nil)
+		if err != nil {
+			return integrationdefinition.Scope{}, err
+		}
+		if len(attached) == 0 {
+			return integrationdefinition.Scope{}, integrationToolPreparationFailure(fmt.Errorf(
+				"integration \"%s\" has no assigned or attached pull request for this agent", access.Integration.Name))
+		}
+		return integrationdefinition.Scope{}, integrationToolPreparationFailure(errors.New(
+			"repository_id and pull_request are required for pull requests attached after this call"))
 	default:
 		return integrationdefinition.Scope{}, integrationToolPreparationFailure(errors.New(
 			"repository_id and pull_request are required when multiple pull requests are attached"))
@@ -173,10 +198,10 @@ func (e Executor) resolveGitHubToolPullRequest(
 }
 
 func (e Executor) listAgentGitHubPullRequests(
-	ctx context.Context, turn Turn, integration integrationstore.IntegrationRecord,
+	ctx context.Context, turn Turn, integration integrationstore.IntegrationRecord, attachedByToolCall *uuid.UUID,
 ) ([]integrationdefinition.GitHubScope, error) {
 	addresses, err := e.Store.Integrations().
-		ListAgentIntegrationSubscriptions(ctx, turn.ProjectID, turn.AgentID, integration.ID)
+		ListAgentIntegrationSubscriptions(ctx, turn.ProjectID, turn.AgentID, integration.ID, attachedByToolCall)
 	if err != nil {
 		return nil, err
 	}
@@ -208,13 +233,13 @@ func (e Executor) resolveIntegrationToolAccess(
 	if err != nil {
 		return integrationToolAccess{}, err
 	}
-	return e.prepareIntegrationToolAccess(ctx, turn, access, tool.Input)
+	return e.prepareIntegrationToolAccess(ctx, turn, access, tool)
 }
 
 func (e Executor) prepareIntegrationToolAccess(
-	ctx context.Context, turn Turn, access integrationToolAccess, input json.RawMessage,
+	ctx context.Context, turn Turn, access integrationToolAccess, tool executionstore.ToolCallRecord,
 ) (integrationToolAccess, error) {
-	conversation, err := e.integrationToolConversation(ctx, turn, access, input)
+	conversation, err := e.integrationToolConversation(ctx, turn, access, tool)
 	if err != nil {
 		return integrationToolAccess{}, err
 	}
@@ -280,7 +305,7 @@ func (e Executor) recheckIntegrationToolAccess(
 	if target == nil {
 		return nil
 	}
-	pullRequests, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration)
+	pullRequests, err := e.listAgentGitHubPullRequests(ctx, turn, access.Integration, nil)
 	if err != nil {
 		return err
 	}

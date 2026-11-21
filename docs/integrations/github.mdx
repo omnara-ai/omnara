@@ -153,9 +153,9 @@ launched for.
 
 The other tools act on the agent's pull requests: the one the GitHub launcher assigned,
 plus any attached with `attach_pull_request` or the subscriptions API. With one PR, the
-model supplies neither repository nor PR identifiers. With several, calls must pass
-`repository_id` and `pull_request`. Calls fail before contacting GitHub if the agent has
-no PR or names one that isn't attached.
+model supplies neither repository nor PR identifiers. With several, or in a response that
+also attaches or detaches a PR, calls must pass `repository_id` and `pull_request`. Calls fail
+before contacting GitHub if the agent has no PR or names one that isn't attached.
 Machine Git authentication uses the separate `git_credentials` capability described below.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,

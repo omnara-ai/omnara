@@ -269,6 +269,35 @@ it('uses the saved name in stop confirmation while deleting only the subscriptio
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
 })
 
+it('warns that stopping a GitHub pull request also stops its pull request tools', async () => {
+  const row = {
+    ...subscription,
+    conversation: { repository_id: 123, pull_request: 42 },
+    conversation_name: '',
+  }
+  const api = fakeApi([
+    { method: 'GET', path, respond: () => Response.json({ data: [row], next_cursor: null }) },
+    {
+      method: 'DELETE',
+      path: `${path}/${row.id}`,
+      respond: () => new Response(null, { status: 204 }),
+    },
+  ])
+  const confirm = vi.fn(() => true)
+  vi.stubGlobal('confirm', confirm)
+  render(api, conversations(integrationFixture({ integration_kind: 'github_pr' }), true))
+  const stop = 'Stop forwarding Repository 123 · PR #42 to Support agent'
+  await waitForUI(() => {
+    expect(button(stop)).toBeDefined()
+  })
+  act(() => {
+    button(stop).click()
+  })
+  expect(confirm).toHaveBeenCalledWith(
+    `${stop}? Future updates from this conversation will no longer be forwarded to this agent. The agent's pull request tools also stop acting on this pull request unless the agent was launched for it. To resume forwarding, reattach the conversation through the subscriptions API.`,
+  )
+})
+
 it('allows stopping while disconnected, keeps failed deletions visible, and respects canceled confirmation and lost manage permission', async () => {
   let attempts = 0,
     deleted = false

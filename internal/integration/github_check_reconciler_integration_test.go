@@ -89,8 +89,7 @@ func TestGitHubCheckReconcilerRepublishesUnfinishedFinishedChecks(t *testing.T) 
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
 	ctx := t.Context()
 	integrations := store.Integrations()
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
-	require.NoError(t, integrations.MarkGitHubCheckRun(ctx, ids.ProjectID, integrationID, uuid.New(), address, false))
+	trackSubscribedGitHubCheck(t, store, ids, integrationID, 42)
 	tracked := func(claim uuid.UUID) integrationstore.GitHubCheckRun {
 		t.Helper()
 		runs, err := integrations.ListGitHubCheckRuns(ctx, claim, uuid.Nil, 10)

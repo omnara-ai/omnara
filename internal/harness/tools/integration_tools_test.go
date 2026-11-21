@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,8 @@ func TestIntegrationToolScopePreparation(t *testing.T) {
 			access := integrationToolAccess{Authority: agentconfig.IntegrationToolAuthority{
 				Definition: toolcatalog.IntegrationToolDefinition{Scope: scope},
 			}}
-			conversation, err := (Executor{}).integrationToolConversation(t.Context(), Turn{}, access, json.RawMessage(`{}`))
+			conversation, err := (Executor{}).integrationToolConversation(t.Context(), Turn{}, access,
+				executionstore.ToolCallRecord{Input: json.RawMessage(`{}`)})
 			if scope != toolcatalog.IntegrationToolScopeIntegration {
 				require.ErrorContains(t, err, "explicit scope")
 				_, err = integrationToolPermissionSummary(access, json.RawMessage(`{}`))

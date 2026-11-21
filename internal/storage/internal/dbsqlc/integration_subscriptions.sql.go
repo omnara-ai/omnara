@@ -321,16 +321,22 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 }
 
 const listAgentIntegrationSubscriptions = `-- name: ListAgentIntegrationSubscriptions :many
-SELECT scope_kind, scope_ref
-FROM integration_subscriptions
-WHERE project_id = $1 AND agent_id = $2 AND integration_id = $3
-ORDER BY created_at, id
+SELECT subscription.scope_kind, subscription.scope_ref
+FROM integration_subscriptions subscription
+WHERE subscription.project_id = $1 AND subscription.agent_id = $2
+  AND subscription.integration_id = $3
+  AND ($4::uuid IS NULL OR subscription.created_at <= (
+      SELECT tool_call.created_at FROM tool_calls tool_call
+      WHERE tool_call.project_id = subscription.project_id AND tool_call.agent_id = subscription.agent_id
+        AND tool_call.id = $4))
+ORDER BY subscription.created_at, subscription.id
 `
 
 type ListAgentIntegrationSubscriptionsParams struct {
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
 	IntegrationID uuid.UUID
+	ToolCallID    *uuid.UUID
 }
 
 type ListAgentIntegrationSubscriptionsRow struct {
@@ -339,7 +345,12 @@ type ListAgentIntegrationSubscriptionsRow struct {
 }
 
 func (q *Queries) ListAgentIntegrationSubscriptions(ctx context.Context, arg ListAgentIntegrationSubscriptionsParams) ([]ListAgentIntegrationSubscriptionsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentIntegrationSubscriptions, arg.ProjectID, arg.AgentID, arg.IntegrationID)
+	rows, err := q.db.Query(ctx, listAgentIntegrationSubscriptions,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IntegrationID,
+		arg.ToolCallID,
+	)
 	if err != nil {
 		return nil, err
 	}

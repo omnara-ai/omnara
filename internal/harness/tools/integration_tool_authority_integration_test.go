@@ -120,6 +120,9 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 				withGitHubIntegration: test.provider == "github", withToolContext: test.context,
 				slackPermission: toolpermission.ModeAlwaysAsk, githubPermission: toolpermission.ModeAlwaysAsk,
 			})
+			if test.name == "github-several-unnamed" {
+				seedGitHubAttachment(t, f, 8)
+			}
 			call := f.recordPendingToolCall(t, ctx, "invalid",
 				toolcatalog.IntegrationToolName("chat", test.operation), test.args, f.Now)
 			if test.name == "disconnected" {
@@ -130,9 +133,6 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 					},
 				)
 				require.NoError(t, err)
-			}
-			if test.name == "github-several-unnamed" {
-				seedGitHubAttachment(t, f, 8)
 			}
 			if test.name == "removed-tool" {
 				source, err := agentconfig.ParseSource(

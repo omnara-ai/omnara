@@ -365,11 +365,12 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 func TestGitHubCheckReconcilerReleasesIneligibleChecks(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name                       string
-		posted, restart, closeFail bool
+		name                                string
+		posted, restart, closeFail, claimed bool
 	}{
 		{name: "unposted"},
 		{name: "unposted-restart", restart: true},
+		{name: "unposted-claimed", claimed: true},
 		{name: "posted", posted: true},
 		{name: "posted-restart", posted: true, restart: true},
 		{name: "posted-restart-retry", posted: true, restart: true, closeFail: true},
@@ -392,6 +393,12 @@ func TestGitHubCheckReconcilerReleasesIneligibleChecks(t *testing.T) {
 			}
 			if test.restart {
 				require.NoError(t, checks.RestartGitHubCheckRuns(ctx, f.project.ProjectUUID, f.integration.ID, address))
+			}
+			if test.claimed {
+				_, err := pool.Exec(ctx, `UPDATE integration_states
+					SET data = data || '{"claim":"lost","claim_expires_at":"2000-01-01T00:00:00Z"}'
+					WHERE project_id = $1 AND kind = 'github_check_run'`, f.project.ProjectUUID)
+				require.NoError(t, err)
 			}
 			var mu sync.Mutex
 			var calls []string
@@ -429,6 +436,54 @@ func TestGitHubCheckReconcilerReleasesIneligibleChecks(t *testing.T) {
 			require.Empty(t, runs)
 		})
 	}
+}
+
+func TestGitHubCheckReleaseKeepsReattachedChecks(t *testing.T) {
+	t.Parallel()
+	f, _ := newGitHubChecksJourney(t, "github-check-release-reattach")
+	ctx := t.Context()
+	pool := integrationPoolForHandler(t, f.handler)
+	agentID, _ := createHTTPStructuredQuestionInteraction(t, ctx, pool,
+		f.project.Store, f.project.OrgUUID, f.project.ProjectUUID, time.Now())
+	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
+	checks := f.project.Store.Integrations()
+	require.NoError(t, checks.MarkGitHubCheckRun(ctx, f.project.ProjectUUID, f.integration.ID, agentID, address, false))
+	_, err := pool.Exec(ctx, `UPDATE integration_states SET data = data || '{"run":7}'
+		WHERE project_id = $1 AND kind = 'github_check_run'`, f.project.ProjectUUID)
+	require.NoError(t, err)
+	var mu sync.Mutex
+	var calls []string
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("d", 40) }, false,
+		func(r *http.Request, body githubCheckRunRequest) any {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ", body.Conclusion)))
+			if len(calls) == 1 {
+				_, err := pool.Exec(ctx, `UPDATE agent_interactions SET state = 'canceled', resolved_at = now()
+					WHERE agent_id = $1 AND state = 'open'`, agentID)
+				assert.NoError(t, err)
+				_, err = checks.CreateIntegrationSubscription(ctx, integrationstore.CreateIntegrationSubscriptionInput{
+					OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
+					AgentID: agentID, Conversation: json.RawMessage(`{"repository_id":1001,"pull_request":42}`),
+				})
+				assert.NoError(t, err)
+				assert.NoError(t, checks.MarkGitHubCheckRun(ctx, f.project.ProjectUUID, f.integration.ID,
+					agentID, address, false))
+			}
+			return map[string]any{"id": 8}
+		})
+	reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
+	requireReconciled(t, reconciler)
+	runs, err := checks.ListGitHubCheckRuns(ctx, uuid.New(), uuid.Nil, 100)
+	require.NoError(t, err)
+	require.Len(t, runs, 1, "a check reattached during its release keeps its row")
+	require.True(t, runs[0].Eligible)
+	requireReconciled(t, reconciler)
+	require.Equal(t, []string{
+		"PATCH /repos/owner/repository/check-runs/7 neutral",
+		"PATCH /repos/owner/repository/check-runs/7 neutral",
+		"POST /repos/owner/repository/check-runs",
+	}, calls, "the reattached running agent gets a new Working check")
 }
 
 func requireReconciled(t *testing.T, reconciler *integrationruntime.GitHubCheckReconciler) {

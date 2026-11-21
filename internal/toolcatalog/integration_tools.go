@@ -78,7 +78,7 @@ func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
 		target := func() map[string]any {
 			return map[string]any{
 				"type": "integer", "minimum": 1,
-				"description": "Only needed when several pull requests are attached.",
+				"description": "Only needed when several pull requests are attached, or when this response attaches or detaches one.",
 			}
 		}
 		properties = map[string]any{"repository_id": target(), "pull_request": target()}

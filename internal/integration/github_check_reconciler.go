@@ -208,7 +208,7 @@ var (
 func (r *GitHubCheckReconciler) reconcile(
 	ctx context.Context, tracked *integrationstore.GitHubCheckRun, state string,
 ) error {
-	if !tracked.Eligible && !tracked.Unfinished {
+	if !tracked.Eligible {
 		return r.release(ctx, *tracked)
 	}
 	running := state == executionstore.SubagentStateRunning

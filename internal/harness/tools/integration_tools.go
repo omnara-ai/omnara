@@ -86,7 +86,7 @@ func integrationPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	access.Conversation, err = e.integrationToolConversation(ctx, turn, access, call.Input)
+	access.Conversation, err = e.integrationToolConversation(ctx, turn, access, record)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

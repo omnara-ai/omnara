@@ -17,10 +17,10 @@ import (
 var ErrAgentConfigChanged = errors.New("agent config changed")
 
 func (s *Store) ListAgentIntegrationSubscriptions(
-	ctx context.Context, projectID, agentID, integrationID uuid.UUID,
+	ctx context.Context, projectID, agentID, integrationID uuid.UUID, attachedByToolCall *uuid.UUID,
 ) ([]ConversationAddress, error) {
 	rows, err := s.q.ListAgentIntegrationSubscriptions(ctx, dbsqlc.ListAgentIntegrationSubscriptionsParams{
-		ProjectID: projectID, AgentID: agentID, IntegrationID: integrationID,
+		ProjectID: projectID, AgentID: agentID, IntegrationID: integrationID, ToolCallID: attachedByToolCall,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list agent integration subscriptions: %w", err)

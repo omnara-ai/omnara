@@ -112,6 +112,12 @@ WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integratio
   AND kind = sqlc.arg(kind) AND id = sqlc.arg(id) AND revision = sqlc.arg(expected_revision)
 RETURNING revision;
 
+-- name: RestartAgentGitHubCheckRun :exec
+UPDATE integration_states
+SET data = data || '{"restart":true,"done":false}'::jsonb, revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
+  AND kind = sqlc.arg(kind) AND key = sqlc.arg(key);
+
 -- name: DeleteIntegrationState :execrows
 DELETE FROM integration_states
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)

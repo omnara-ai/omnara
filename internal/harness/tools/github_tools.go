@@ -288,7 +288,7 @@ func listGitHubAttachedPullRequests(
 	if input.Limit == 0 {
 		input.Limit = toolcatalog.ListAttachedPullRequestsDefaultLimit
 	}
-	pullRequests, err := call.Executor.listAgentGitHubPullRequests(ctx, call.Turn, access.Integration)
+	pullRequests, err := call.Executor.listAgentGitHubPullRequests(ctx, call.Turn, access.Integration, nil)
 	if err != nil {
 		return nil, err
 	}

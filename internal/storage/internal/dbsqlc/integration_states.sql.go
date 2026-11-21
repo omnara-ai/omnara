@@ -485,3 +485,27 @@ func (q *Queries) ReplaceIntegrationState(ctx context.Context, arg ReplaceIntegr
 	)
 	return i, err
 }
+
+const restartAgentGitHubCheckRun = `-- name: RestartAgentGitHubCheckRun :exec
+UPDATE integration_states
+SET data = data || '{"restart":true,"done":false}'::jsonb, revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = $1 AND integration_id = $2
+  AND kind = $3 AND key = $4
+`
+
+type RestartAgentGitHubCheckRunParams struct {
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	Key           string
+}
+
+func (q *Queries) RestartAgentGitHubCheckRun(ctx context.Context, arg RestartAgentGitHubCheckRunParams) error {
+	_, err := q.db.Exec(ctx, restartAgentGitHubCheckRun,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.Key,
+	)
+	return err
+}

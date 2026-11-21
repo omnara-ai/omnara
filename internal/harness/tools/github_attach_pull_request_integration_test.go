@@ -353,6 +353,24 @@ func TestGitHubCheckFollowsPullRequestOwner(t *testing.T) {
 	require.False(t, githubCheckRuns(t, f)[0].Eligible, "a new owner's check replaces a subscriber's")
 }
 
+func TestGitHubAttachRestartsTheAgentsCheck(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-attach-restarts-check", toolFixtureOptions{
+		withGitHubIntegration: true, withToolContext: true,
+	})
+	require.NoError(t, f.Store.Integrations().MarkGitHubCheckRun(ctx, f.Agent.ProjectID, f.Install.ID, f.Agent.ID,
+		integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#8"}, false))
+	require.False(t, githubCheckRuns(t, f)[0].Restart)
+	seedGitHubAttachment(t, f, 8)
+	run := githubCheckRuns(t, f)[0]
+	require.True(t, run.Restart, "a new subscription restarts the agent's existing check")
+	require.NoError(t, f.Store.Integrations().SaveGitHubCheckRun(ctx, run))
+	seedGitHubAttachment(t, f, 8)
+	require.False(t, githubCheckRuns(t, f)[0].Restart, "an existing subscription leaves the check alone")
+	seedGitHubAttachment(t, f, 9)
+	require.Len(t, githubCheckRuns(t, f), 1, "subscribing never creates a check")
+}
+
 func TestGitHubListAttachedPullRequests(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-list-attached", toolFixtureOptions{
@@ -422,6 +440,75 @@ func TestGitHubDetachPullRequest(t *testing.T) {
 	}
 	require.Empty(t, integrationToolSubscriptions(t, f))
 	require.False(t, githubCheckRuns(t, f)[0].Eligible, "the detached agent's check gets finished")
+}
+
+func TestGitHubUnnamedCallRejectsSiblingAttachmentChanges(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-unnamed-siblings", toolFixtureOptions{
+		withGitHubIntegration: true,
+	})
+	seedGitHubAttachment(t, f, 8)
+	seedGitHubAttachment(t, f, 9)
+	detach := model.ToolCall{
+		ID:    "detach",
+		Name:  toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationDetachPullRequest),
+		Input: json.RawMessage(`{"repository_id":123,"pull_request":8}`),
+	}
+	calls := []model.ToolCall{githubCommentCall("comment", ""), detach}
+	f.recordToolCalls(t, ctx, calls, f.Now)
+	var posted atomic.Int32
+	server := githubToolTestServer(t, "", func(w http.ResponseWriter, _ *http.Request) {
+		posted.Add(1)
+		writeToolTestJSON(w, map[string]any{"id": 501})
+	})
+	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	for _, call := range []model.ToolCall{detach, calls[0]} {
+		_, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+		require.NoError(t, err)
+	}
+	record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, "comment"))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	require.Contains(t, toolResultMapFromTestParts(t, record.ResultContentParts)["message"],
+		"required when this response attaches or detaches pull requests")
+	require.Zero(t, posted.Load(), "a sibling detach can't pick an unnamed call's pull request")
+}
+
+func TestGitHubApprovedUnnamedCallKeepsItsPullRequest(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-approval-keeps-pr", toolFixtureOptions{
+		withGitHubIntegration: true, withToolContext: true, githubPermission: toolpermission.ModeAlwaysAsk,
+	})
+	call := githubCommentCall("comment", "")
+	call = f.recordPendingToolCall(t, ctx, call.ID, call.Name, string(call.Input), f.Now)
+	var posted []string
+	server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
+		posted = append(posted, r.URL.Path)
+		writeToolTestJSON(w, map[string]any{"id": 501, "html_url": "https://github.com/octo/renamed/pull/7#c"})
+	})
+	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	turn := f.turn()
+	require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, call))
+	permission := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID),
+		executionstore.AgentInteractionKindPermission)
+	seedGitHubAttachment(t, f, 9)
+	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(f.User.ID))
+	require.NoError(t, err)
+	_, err = f.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: f.Agent.ProjectID, AgentID: f.Agent.ID, ID: permission.ID, Actor: actor,
+		Resolution: interactionform.Resolution{
+			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, call))
+	_, err = dispatchAsyncToolToTerminal(t, ctx, executor, turn, call)
+	require.NoError(t, err)
+	record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, string(record.ResultContentParts))
+	require.Equal(t, []string{"/repos/octo/renamed/issues/7/comments"}, posted,
+		"attaching another pull request doesn't change an approved call's pull request")
 }
 
 func TestGitHubToolApprovalRejectsChangedDestination(t *testing.T) {

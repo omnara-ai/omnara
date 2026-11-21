@@ -40,6 +40,10 @@ type githubCheckRunData struct {
 	Claim   string    `json:"claim,omitempty"`
 }
 
+func githubCheckRunKey(agentID uuid.UUID, address ConversationAddress) string {
+	return agentID.String() + " " + address.Ref
+}
+
 func (s *Store) MarkGitHubCheckRun(
 	ctx context.Context, projectID, integrationID, agentID uuid.UUID, address ConversationAddress, restart bool,
 ) error {
@@ -49,7 +53,7 @@ func (s *Store) MarkGitHubCheckRun(
 	}
 	return s.q.MergeIntegrationState(ctx, dbsqlc.MergeIntegrationStateParams{
 		ProjectID: projectID, IntegrationID: integrationID, Kind: githubCheckRunStateKind,
-		Key: agentID.String() + " " + address.Ref, ScopeKind: &address.Kind, ScopeRef: &address.Ref, Data: data,
+		Key: githubCheckRunKey(agentID, address), ScopeKind: &address.Kind, ScopeRef: &address.Ref, Data: data,
 		Force: restart,
 	})
 }

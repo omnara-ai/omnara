@@ -93,10 +93,15 @@ DELETE FROM integration_subscriptions WHERE project_id = sqlc.arg(project_id) AN
 DELETE FROM integration_subscriptions WHERE project_id = sqlc.arg(project_id);
 
 -- name: ListAgentIntegrationSubscriptions :many
-SELECT scope_kind, scope_ref
-FROM integration_subscriptions
-WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id) AND integration_id = sqlc.arg(integration_id)
-ORDER BY created_at, id;
+SELECT subscription.scope_kind, subscription.scope_ref
+FROM integration_subscriptions subscription
+WHERE subscription.project_id = sqlc.arg(project_id) AND subscription.agent_id = sqlc.arg(agent_id)
+  AND subscription.integration_id = sqlc.arg(integration_id)
+  AND (sqlc.narg(tool_call_id)::uuid IS NULL OR subscription.created_at <= (
+      SELECT tool_call.created_at FROM tool_calls tool_call
+      WHERE tool_call.project_id = subscription.project_id AND tool_call.agent_id = subscription.agent_id
+        AND tool_call.id = sqlc.narg(tool_call_id)))
+ORDER BY subscription.created_at, subscription.id;
 
 -- name: DeleteAgentIntegrationSubscription :exec
 DELETE FROM integration_subscriptions

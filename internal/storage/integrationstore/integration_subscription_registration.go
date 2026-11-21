@@ -88,6 +88,14 @@ func RegisterIntegrationSubscriptionsTx(
 		if err != nil {
 			return nil, err
 		}
+		if created {
+			if err := q.RestartAgentGitHubCheckRun(ctx, dbsqlc.RestartAgentGitHubCheckRunParams{
+				ProjectID: input.ProjectID, IntegrationID: input.IntegrationID, Kind: githubCheckRunStateKind,
+				Key: githubCheckRunKey(input.AgentID, input.Address),
+			}); err != nil {
+				return nil, err
+			}
+		}
 		inserted = inserted || created
 		record.AgentName = agent.Name
 		result = append(result, record)
