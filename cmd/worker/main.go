@@ -31,6 +31,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/otelexport"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
@@ -382,6 +383,14 @@ func main() {
 		eventWebhooks.Run(ctx)
 	}()
 
+	otelExports := otelexport.New(
+		store.Execution(), log, metrics.NewOtelExportRecorder(metricSet), httpRecorder, cfg.EndpointAllowlist)
+	otelExportDone := make(chan struct{})
+	go func() {
+		defer close(otelExportDone)
+		otelExports.Run(ctx)
+	}()
+
 	exitCode := 0
 	select {
 	case err := <-workerErr:
@@ -418,6 +427,7 @@ func main() {
 		exitCode = 1
 	}
 	<-eventWebhookDone
+	<-otelExportDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)

@@ -287,6 +287,197 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/otel-exporters:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+    get:
+      operationId: listOtelExporters
+      tags: [Events]
+      summary: List OpenTelemetry exporters
+      description: Lists the organization's exporters across all projects, ordered by created_at then id ascending. Pass project_id to return only that project's exporters. Requires organization management permission.
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: The organization's exporters, or one project's when project_id is given.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOtelExportersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createOtelExporter
+      tags: [Events]
+      summary: Create an OpenTelemetry exporter
+      description: Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions, and each finished turn is sent as one OTLP/HTTP request in protobuf or JSON encoding. The scope selects every agent in one project or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOtelExporterRequest'
+      responses:
+        '201':
+          description: Exporter created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtelExporter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/otel-exporters/{exporterID}:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: exporterID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OtelExporterID'
+    get:
+      operationId: getOtelExporter
+      tags: [Events]
+      summary: Get OpenTelemetry exporter
+      description: Returns one exporter in the organization. Secret header values are never returned.
+      responses:
+        '200':
+          description: The exporter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtelExporter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateOtelExporter
+      tags: [Events]
+      summary: Update OpenTelemetry exporter settings
+      description: Updates an exporter's endpoint, variant, encoding, headers, or sampling. Omitted fields stay unchanged; headers and secret_headers each replace the whole map when present. The scope is fixed at creation. Changes also apply to spans already queued for export.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOtelExporterRequest'
+      responses:
+        '200':
+          description: Exporter updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtelExporter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteOtelExporter
+      tags: [Events]
+      summary: Delete an OpenTelemetry exporter
+      description: Deletes the exporter and drops its queued spans. Requests already in flight may finish.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Exporter deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /personal-access-tokens:
     get:
       operationId: listPersonalAccessTokens
@@ -5468,6 +5659,69 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/trace:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        description: Agent ID (agt_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+      - name: turnID
+        in: path
+        description: Turn ID (trn_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^trn_[a-z2-7]{26}$'
+    get:
+      operationId: getTurnTrace
+      tags: [Events]
+      summary: Get a turn as an OpenTelemetry trace
+      description: Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
+      parameters:
+        - name: variant
+          in: query
+          required: false
+          description: Adds the attributes one tracing backend reads for fields the shared conventions do not cover. Defaults to otel, which adds none.
+          schema:
+            $ref: '#/components/schemas/OtelTraceVariant'
+      responses:
+        '200':
+          description: The turn's trace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtelTrace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
     parameters:
       - name: orgID
@@ -10611,6 +10865,199 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EventWebhook'
+        next_cursor:
+          type: [string, 'null']
+    OtelExporterID:
+      type: string
+      pattern: '^otx_[a-z2-7]{26}$'
+    OtelTraceVariant:
+      type: string
+      enum: [otel, langfuse, braintrust, langsmith]
+      description: Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+    OtelExporterEncoding:
+      type: string
+      enum: [protobuf, json]
+      description: OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
+    OtelTrace:
+      type: object
+      required: [resourceSpans]
+      description: An OTLP ExportTraceServiceRequest in its JSON encoding. Field names follow the OTLP specification.
+      properties:
+        resourceSpans:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    OtelExporterScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id]
+      description: Exports every agent in one project.
+      properties:
+        type:
+          type: string
+          enum: [project]
+          x-enum-varnames: [OtelExporterScopeTypeProject]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+    OtelExporterAuthKind:
+      type: string
+      enum: [none, bearer_token, api_key_header, basic]
+      x-enum-varnames:
+        - OtelExporterAuthKindNone
+        - OtelExporterAuthKindBearerToken
+        - OtelExporterAuthKindAPIKeyHeader
+        - OtelExporterAuthKindBasic
+      description: >-
+        How the exporter authenticates to the endpoint: none, Authorization Bearer token,
+        a custom API key header named by auth_options.header_name, or HTTP Basic auth
+        with auth_options.username and the secret password.
+    OtelExporterAuthOptions:
+      type: object
+      additionalProperties: false
+      description: >-
+        Non-secret authentication settings. Must be empty for none and bearer_token.
+        With api_key_header, set {"header_name":"..."}.
+        With basic, set {"username":"..."} (for Langfuse, use the public key).
+      properties:
+        header_name:
+          type: string
+          minLength: 1
+          description: Header that carries the API key when auth_kind is api_key_header.
+        username:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Non-secret username for HTTP Basic auth when auth_kind is basic (for Langfuse, the public key).
+    OtelExporterHeaders:
+      type: object
+      maxProperties: 20
+      description: Plain request headers sent with every export, by header name.
+      additionalProperties:
+        type: string
+        minLength: 1
+        maxLength: 8192
+    OtelExporterSecretHeaders:
+      type: object
+      maxProperties: 20
+      description: Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
+      additionalProperties:
+        $ref: '#/components/schemas/SecretID'
+    OtelExporterSamplePercent:
+      type: number
+      format: double
+      minimum: 0
+      maximum: 100
+      description: Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
+    CreateOtelExporterRequest:
+      type: object
+      additionalProperties: false
+      required: [endpoint, scope]
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Full OTLP/HTTP traces URL, used exactly as given (for example a URL ending in /v1/traces).
+        scope:
+          $ref: '#/components/schemas/OtelExporterScope'
+        variant:
+          $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
+          default: protobuf
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+          default: none
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Organization-owned generic secret required when auth_kind is bearer_token, api_key_header, or basic.
+        headers:
+          $ref: '#/components/schemas/OtelExporterHeaders'
+        secret_headers:
+          $ref: '#/components/schemas/OtelExporterSecretHeaders'
+        sample_percent:
+          $ref: '#/components/schemas/OtelExporterSamplePercent'
+          default: 100
+    UpdateOtelExporterRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Full OTLP/HTTP traces URL, used exactly as given.
+        variant:
+          $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          oneOf:
+            - $ref: '#/components/schemas/SecretID'
+            - type: 'null'
+          description: Organization-owned generic secret for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
+        headers:
+          $ref: '#/components/schemas/OtelExporterHeaders'
+        secret_headers:
+          $ref: '#/components/schemas/OtelExporterSecretHeaders'
+        sample_percent:
+          $ref: '#/components/schemas/OtelExporterSamplePercent'
+    OtelExporter:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, endpoint, scope, variant, encoding, auth_kind, auth_options, headers, secret_headers, sample_percent, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/OtelExporterID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        endpoint:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Full OTLP/HTTP traces URL.
+        scope:
+          $ref: '#/components/schemas/OtelExporterScope'
+        variant:
+          $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
+        auth_kind:
+          $ref: '#/components/schemas/OtelExporterAuthKind'
+        auth_options:
+          $ref: '#/components/schemas/OtelExporterAuthOptions'
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Organization-owned generic secret used for authentication. Omitted when auth_kind is none.
+        headers:
+          $ref: '#/components/schemas/OtelExporterHeaders'
+        secret_headers:
+          $ref: '#/components/schemas/OtelExporterSecretHeaders'
+        sample_percent:
+          $ref: '#/components/schemas/OtelExporterSamplePercent'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ListOtelExportersResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OtelExporter'
         next_cursor:
           type: [string, 'null']
     CronTriggerID:

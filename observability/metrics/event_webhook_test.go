@@ -77,6 +77,27 @@ func TestEventWebhookDeliveryMetrics(t *testing.T) {
 	absent.RecordAcknowledged(time.Now(), 1)
 }
 
+func TestOtelExportMetrics(t *testing.T) {
+	set := New()
+	m := NewOtelExportRecorder(set)
+	expiry := NewOtelExportExpiryRecorder(set)
+	m.RecordCapacity(16)
+	done := m.StartDelivery()
+	expiry.RecordExpired(3)
+	expiry.RecordExpired(0)
+	body := scrapeMetrics(t, set)
+	require.Contains(t, body, "omnara_otel_export_slots_used 1")
+	require.Contains(t, body, "omnara_otel_export_capacity 16")
+	require.Contains(t, body, "omnara_otel_export_expired_total 3")
+	done()
+	require.Contains(t, scrapeMetrics(t, set), "omnara_otel_export_slots_used 0")
+	var absent *OtelExportRecorder
+	absent.RecordCapacity(1)
+	absent.StartDelivery()()
+	var absentExpiry *OtelExportExpiryRecorder
+	absentExpiry.RecordExpired(1)
+}
+
 func TestApplicationDeliveryBufferMetrics(t *testing.T) {
 	set := New()
 	notifications := NewNotificationRecorder(set)

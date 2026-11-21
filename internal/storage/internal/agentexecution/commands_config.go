@@ -99,6 +99,7 @@ func (h *Handle) ActivateConfig(ctx context.Context, input ActivateConfigInput) 
 					EventID: event.ID}); err != nil {
 				return ActivatedConfig{}, err
 			}
+			h.exportReplacedTurn(m)
 			m.openTurn(turn)
 		} else {
 			if err = h.advanceTurn(ctx, event, true); err != nil {

@@ -2,6 +2,7 @@ const scopedSections = [
   'agents',
   'integrations',
   'webhooks',
+  'otel-exporters',
   'usage',
   'models',
   'machines',
@@ -13,6 +14,7 @@ export type ScopedSection = (typeof scopedSections)[number]
 
 export const projectPaths = {
   webhooks: '/projects/$projectId/webhooks',
+  'otel-exporters': '/projects/$projectId/otel-exporters',
   agents: '/projects/$projectId/agents',
   integrations: '/projects/$projectId/integrations',
   usage: '/projects/$projectId/usage',
@@ -26,6 +28,7 @@ export const projectPaths = {
 export const organizationPaths = {
   agents: '/agents',
   integrations: '/integrations',
+  'otel-exporters': '/otel-exporters',
   usage: '/usage',
   models: '/models',
   machines: '/machines',

@@ -461,6 +461,24 @@ type OrgInvitation struct {
 	CreatedByMembershipID *uuid.UUID
 }
 
+type OtelExporter struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	Endpoint           string
+	Variant            string
+	Encoding           string
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+	SamplePercent      float64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          *time.Time
+}
+
 type PersonalAccessToken struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
