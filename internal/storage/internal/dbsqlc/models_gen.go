@@ -467,7 +467,6 @@ type OtelExporter struct {
 	ID                 uuid.UUID
 	OrgID              uuid.UUID
 	ProjectID          uuid.UUID
-	AgentID            *uuid.UUID
 	Endpoint           string
 	Variant            string
 	Encoding           string

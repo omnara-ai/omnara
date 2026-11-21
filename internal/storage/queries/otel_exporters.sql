@@ -1,14 +1,14 @@
 -- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+    org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
     headers, secret_headers, sample_percent
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at;
 
 -- name: GetOtelExporter :one
-SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
        exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
@@ -17,16 +17,13 @@ JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
 WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
 
 -- name: ListOtelExporters :many
-SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
        exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = sqlc.arg(org_id)
-  AND (NOT sqlc.arg(filter_scope)::boolean OR (
-    exporter.project_id = sqlc.narg(project_id)::uuid
-    AND exporter.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
-  ))
+  AND (sqlc.narg(project_id)::uuid IS NULL OR exporter.project_id = sqlc.narg(project_id)::uuid)
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
     coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
@@ -44,7 +41,7 @@ UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind 
     credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
     updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at;
 
 -- name: DeleteOtelExporter :execrows
@@ -56,7 +53,7 @@ WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 DELETE FROM otel_export_deliveries WHERE org_id = $1 AND exporter_id = $2;
 
 -- name: DeleteProjectOtelExporters :exec
--- A deleted project retires its own and its agents' exporters.
+-- A deleted project retires its exporters.
 UPDATE otel_exporters SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
@@ -79,7 +76,6 @@ JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND exporter.project_id = agent.project_id
-    AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE turn.agent_id = sqlc.arg(agent_id)
   AND turn.id = ANY(sqlc.arg(turn_ids)::uuid[])
   AND exporter.deleted_at IS NULL
@@ -214,11 +210,14 @@ ORDER BY created_at DESC, id DESC;
 
 -- name: ListTurnTraceEvents :many
 -- Newest first, bounded by row count and cumulative content-block bytes read
--- before rows leave Postgres. Oversized single events clip each block in JSONB
--- so tool_call structure and valid JSON survive; events past the cumulative
--- budget omit content blocks and flag content_truncated. The budget is charged
--- to the turn's opening inputs first and then newest first, so a turn with
--- large later content still exports the messages that opened it.
+-- before rows leave Postgres. An oversized event has every block's text,
+-- value, and input clipped to an equal share of the event budget, so
+-- tool_call structure and valid JSON survive however many blocks it has; an
+-- event still over the budget after clipping omits its content blocks. The
+-- cumulative budget is charged the bytes actually returned, to the turn's
+-- opening inputs first and then newest first, so a turn with large later
+-- content still exports the messages that opened it. Events past it omit
+-- content blocks and flag content_truncated.
 WITH recent AS (
     SELECT projection.sequence, projection.event_kind, projection.is_opening_event,
            projection.model_call_context_id, projection.tool_call_id, projection.model_stop_reason,
@@ -230,31 +229,59 @@ WITH recent AS (
       AND projection.turn_id = sqlc.arg(turn_id)
     ORDER BY projection.sequence DESC
     LIMIT sqlc.arg(row_limit)
-), budgeted AS (
+), shared AS (
+    -- A character is at most 4 bytes, so a share counted in characters stays
+    -- within the same share of the byte budget.
     SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
            model_stop_reason, content_blocks, created_at, content_bytes,
-           sum(least(content_bytes, sqlc.arg(max_event_bytes)::integer))
-               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
+           least(sqlc.arg(max_value_chars)::integer,
+                 sqlc.arg(max_event_bytes)::integer / 4 / greatest(
+                     CASE WHEN jsonb_typeof(content_blocks) = 'array' THEN jsonb_array_length(content_blocks) END, 1)
+           ) AS block_chars
     FROM recent
+), clipped AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, block_chars,
+           (CASE
+               WHEN content_bytes <= sqlc.arg(max_event_bytes)::integer THEN content_blocks
+               ELSE coalesce((
+                   SELECT jsonb_agg(
+                       CASE
+                           WHEN elem.block ? 'text' AND char_length(elem.block->>'text') > block_chars
+                               THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', block_chars)))
+                           WHEN elem.block ? 'value' AND char_length((elem.block->'value')::text) > block_chars
+                               THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, block_chars)))
+                           WHEN elem.block ? 'input' AND char_length((elem.block->'input')::text) > block_chars
+                               THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, block_chars)))
+                           ELSE elem.block
+                       END
+                       ORDER BY elem.position
+                   )
+                   FROM jsonb_array_elements(content_blocks) WITH ORDINALITY AS elem(block, position)
+               ), '[]'::jsonb)
+           END)::jsonb AS clipped_blocks
+    FROM shared
+), bounded AS (
+    -- Blocks can carry more than the clipped fields, so the result is measured
+    -- rather than assumed to fit.
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, clipped_blocks,
+           (CASE
+               WHEN octet_length(clipped_blocks::text) > sqlc.arg(max_event_bytes)::integer THEN '[]'::jsonb
+               ELSE clipped_blocks
+           END)::jsonb AS bounded_blocks
+    FROM clipped
+), budgeted AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, bounded_blocks,
+           sum(octet_length(bounded_blocks::text))
+               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
+    FROM bounded
 )
 SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
        (CASE
            WHEN cumulative_bytes > sqlc.arg(max_total_bytes)::bigint THEN '[]'::jsonb
-           WHEN content_bytes > sqlc.arg(max_event_bytes)::integer THEN coalesce((
-               SELECT jsonb_agg(
-                   CASE
-                       WHEN elem.block ? 'text' AND octet_length(elem.block->>'text') > sqlc.arg(max_value_bytes)::integer
-                           THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', sqlc.arg(max_value_chars)::integer)))
-                       WHEN elem.block ? 'value' AND octet_length((elem.block->'value')::text) > sqlc.arg(max_value_bytes)::integer
-                           THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, sqlc.arg(max_value_chars)::integer)))
-                       WHEN elem.block ? 'input' AND octet_length((elem.block->'input')::text) > sqlc.arg(max_value_bytes)::integer
-                           THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, sqlc.arg(max_value_chars)::integer)))
-                       ELSE elem.block
-                   END
-               )
-               FROM jsonb_array_elements(content_blocks) AS elem(block)
-           ), '[]'::jsonb)
-           ELSE content_blocks
+           ELSE bounded_blocks
        END)::jsonb AS content_blocks,
        (cumulative_bytes > sqlc.arg(max_total_bytes)::bigint
            OR content_bytes > sqlc.arg(max_event_bytes)::integer)::boolean AS content_truncated,

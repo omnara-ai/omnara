@@ -3,6 +3,7 @@
 package executionstore_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	otelconfig "github.com/omnara-ai/omnara/internal/otelexport/config"
@@ -25,11 +27,11 @@ import (
 )
 
 func createOtelExporterForTest(
-	t *testing.T, fixture processDaemonFixture, scope executionstore.OtelExporterScope, settings otelconfig.Settings,
+	t *testing.T, fixture processDaemonFixture, settings otelconfig.Settings,
 ) executionstore.OtelExporterRecord {
 	t.Helper()
 	record, err := fixture.Store.Execution().CreateOtelExporter(t.Context(), executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID, Scope: scope, Settings: settings,
+		OrgID: testOrgID, ProjectID: testProjectID, Settings: settings,
 	})
 	require.NoError(t, err)
 	return record
@@ -113,7 +115,6 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, err)
 
 	projectExporter := createOtelExporterForTest(t, fixture,
-		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
 		otelconfig.Settings{
 			Endpoint: "https://otel.example.com/v1/traces", Variant: oteltrace.VariantLangfuse, SamplePercent: 100,
 			Encoding:           oteltrace.EncodingProtobuf,
@@ -123,29 +124,22 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 			Headers:            map[string]string{"x-langfuse-ingestion-version": "4"},
 			SecretHeaders:      map[string]uuid.UUID{"x-extra-auth": extraSecret.ID},
 		})
-	agentExporter := createOtelExporterForTest(t, fixture,
-		executionstore.OtelExporterScope{
-			Type: executionstore.OtelExporterScopeAgent, ProjectID: testProjectID, AgentID: fixture.AgentID,
-		},
-		otelconfig.Settings{Endpoint: "https://agent-active.example.com/v1/traces", SamplePercent: 100})
+	// Exporters on the same project are additive: each gets its own delivery.
+	secondExporter := createOtelExporterForTest(t, fixture,
+		otelconfig.Settings{Endpoint: "https://second.example.com/v1/traces", SamplePercent: 100})
 	unsampled := createOtelExporterForTest(t, fixture,
-		executionstore.OtelExporterScope{
-			Type: executionstore.OtelExporterScopeAgent, ProjectID: testProjectID, AgentID: fixture.AgentID,
-		},
-		otelconfig.Settings{Endpoint: "https://agent.example.com/v1/traces", SamplePercent: 0})
-	require.Equal(t, oteltrace.VariantOTel, agentExporter.Settings.Variant)
-	require.Equal(t, oteltrace.EncodingProtobuf, agentExporter.Settings.Encoding)
-	require.Equal(t, otelconfig.AuthKindNone, agentExporter.Settings.AuthKind)
+		otelconfig.Settings{Endpoint: "https://unsampled.example.com/v1/traces", SamplePercent: 0})
+	require.Equal(t, oteltrace.VariantOTel, secondExporter.Settings.Variant)
+	require.Equal(t, oteltrace.EncodingProtobuf, secondExporter.Settings.Encoding)
+	require.Equal(t, otelconfig.AuthKindNone, secondExporter.Settings.AuthKind)
 
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-		OrgID:    testOrgID,
-		Scope:    executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
+		OrgID: testOrgID, ProjectID: testProjectID,
 		Settings: otelconfig.Settings{Endpoint: "https://otel.example.com/v1/traces", SamplePercent: 100},
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID,
-		Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
+		OrgID: testOrgID, ProjectID: testProjectID,
 		Settings: otelconfig.Settings{Endpoint: "https://other.example.com", SamplePercent: 100,
 			AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: uuid.New()},
 	})
@@ -158,7 +152,7 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.Empty(t, otelDeliveryTurns(t, fixture, projectExporter.ID))
 	recordOtelTestOutput(t, fixture, contextID, modelenvelope.StopReasonEndTurn, text)
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, projectExporter.ID))
-	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, agentExporter.ID))
+	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, secondExporter.ID))
 	require.Empty(t, otelDeliveryTurns(t, fixture, unsampled.ID))
 
 	first, err := store.ClaimOtelExportDelivery(ctx, 4)
@@ -168,7 +162,7 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	_, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.ElementsMatch(t,
-		[]uuid.UUID{projectExporter.ID, agentExporter.ID},
+		[]uuid.UUID{projectExporter.ID, secondExporter.ID},
 		[]uuid.UUID{first.ExporterID, second.ExporterID})
 	require.NotEqual(t, first.ClaimToken, second.ClaimToken)
 	for _, delivery := range []executionstore.OtelExportDelivery{first, second} {
@@ -194,9 +188,9 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	_, err = store.LoadTurnTrace(ctx, uuid.New(), fixture.AgentID, turnID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	projectDelivery, agentDelivery := first, second
+	projectDelivery, secondDelivery := first, second
 	if first.ExporterID != projectExporter.ID {
-		projectDelivery, agentDelivery = second, first
+		projectDelivery, secondDelivery = second, first
 	}
 	destination, err := store.GetOtelExportDestination(ctx, testOrgID, projectExporter.ID)
 	require.NoError(t, err)
@@ -213,22 +207,22 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, store.CompleteOtelExportDelivery(ctx, projectDelivery.ID, projectDelivery.ClaimToken))
 	require.Empty(t, otelDeliveryTurns(t, fixture, projectExporter.ID))
 
-	retryResult, err := store.RetryOtelExportDelivery(ctx, agentDelivery.ID, agentDelivery.ClaimToken, 0)
+	retryResult, err := store.RetryOtelExportDelivery(ctx, secondDelivery.ID, secondDelivery.ClaimToken, 0)
 	require.NoError(t, err)
 	require.False(t, retryResult.GaveUp)
-	agentDelivery, err = store.ClaimOtelExportDelivery(ctx, 4)
+	secondDelivery, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
 	// Only the current claim can release the delivery for another attempt.
-	_, err = store.RetryOtelExportDelivery(ctx, agentDelivery.ID, uuid.New(), 0)
+	_, err = store.RetryOtelExportDelivery(ctx, secondDelivery.ID, uuid.New(), 0)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = store.ClaimOtelExportDelivery(ctx, 4)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	retryResult, err = store.RetryOtelExportDelivery(ctx, agentDelivery.ID, agentDelivery.ClaimToken, 0)
+	retryResult, err = store.RetryOtelExportDelivery(ctx, secondDelivery.ID, secondDelivery.ClaimToken, 0)
 	require.NoError(t, err)
 	require.False(t, retryResult.GaveUp)
 	retried, err := store.ClaimOtelExportDelivery(ctx, 4)
 	require.NoError(t, err)
-	require.Equal(t, agentExporter.ID, retried.ExporterID)
+	require.Equal(t, secondExporter.ID, retried.ExporterID)
 	require.EqualValues(t, 3, retried.AttemptCount)
 	require.NoError(t, store.CompleteOtelExportDelivery(ctx, retried.ID, retried.ClaimToken))
 
@@ -262,19 +256,26 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, err)
 	wantTurns := []uuid.UUID{retryingTurn, nextTurn, cutOffTurn, canceledTurn}
 	require.Equal(t, wantTurns, otelDeliveryTurns(t, fixture, projectExporter.ID))
-	require.Equal(t, wantTurns, otelDeliveryTurns(t, fixture, agentExporter.ID))
+	require.Equal(t, wantTurns, otelDeliveryTurns(t, fixture, secondExporter.ID))
 	canceled, err := store.LoadTurnTraceForExport(ctx, fixture.AgentID, canceledTurn)
 	require.NoError(t, err)
 	require.Len(t, canceled.ModelCalls, 1)
 	require.Equal(t, "canceled", canceled.ModelCalls[0].State)
 
-	// A secret referenced by credential_secret_id or secret_headers cannot be deleted from under it.
-	for _, secretID := range []uuid.UUID{secret.ID, extraSecret.ID} {
-		_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
-			OrgID: testOrgID, SecretID: secretID, Actor: userPrincipal(owner.ID),
-		})
-		require.ErrorIs(t, err, storeerr.ErrConflict)
-	}
+	// The credential secret cannot be deleted from under the exporter.
+	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(owner.ID),
+	})
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	// An extra header's secret can, and export then leaves that header out.
+	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: extraSecret.ID, Actor: userPrincipal(owner.ID),
+	})
+	require.NoError(t, err)
+	destination, err = store.GetOtelExportDestination(ctx, testOrgID, projectExporter.ID)
+	require.NoError(t, err)
+	require.NotContains(t, destination.Headers, "x-extra-auth")
+	require.Contains(t, destination.Headers, "Authorization")
 
 	sampleRate := 12.345
 	noneAuth := otelconfig.AuthKindNone
@@ -293,27 +294,29 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Exporters, 3)
 	listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
-		OrgID: testOrgID, Limit: 100,
-		Scope: &executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
+		OrgID: testOrgID, Limit: 100, ProjectID: testProjectID,
 	})
 	require.NoError(t, err)
-	require.Len(t, listed.Exporters, 1)
+	require.Len(t, listed.Exporters, 3)
 	require.Equal(t, projectExporter.ID, listed.Exporters[0].ID)
+	listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
+		OrgID: testOrgID, Limit: 100, ProjectID: uuid.New(),
+	})
+	require.NoError(t, err)
+	require.Empty(t, listed.Exporters)
 
-	for _, secretID := range []uuid.UUID{secret.ID, extraSecret.ID} {
-		_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
-			OrgID: testOrgID, SecretID: secretID, Actor: userPrincipal(owner.ID),
-		})
-		require.NoError(t, err)
-	}
+	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(owner.ID),
+	})
+	require.NoError(t, err)
 
 	// Deleting an exporter drops the turns still queued for it.
-	require.NotEmpty(t, otelDeliveryTurns(t, fixture, agentExporter.ID))
-	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, agentExporter.ID))
-	require.Empty(t, otelDeliveryTurns(t, fixture, agentExporter.ID))
-	_, err = store.GetOtelExportDestination(ctx, testOrgID, agentExporter.ID)
+	require.NotEmpty(t, otelDeliveryTurns(t, fixture, secondExporter.ID))
+	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, secondExporter.ID))
+	require.Empty(t, otelDeliveryTurns(t, fixture, secondExporter.ID))
+	_, err = store.GetOtelExportDestination(ctx, testOrgID, secondExporter.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testOrgID, agentExporter.ID), storeerr.ErrNotFound)
+	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testOrgID, secondExporter.ID), storeerr.ErrNotFound)
 
 	// Expired deliveries are returned with metadata so maintenance can log them.
 	_, err = fixture.Store.pool.Exec(ctx, `
@@ -332,22 +335,18 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	}
 }
 
-func TestTurnTraceIgnoresCallerSpoofedIdempotencyKeyAndBoundsContent(t *testing.T) {
+// openOtelTestTurnWithInput opens a turn from one content input with the given
+// blocks and idempotency key, and finishes it with a short output.
+func openOtelTestTurnWithInput(
+	t *testing.T, fixture processDaemonFixture, contentBlocks json.RawMessage, idempotencyKey string,
+) uuid.UUID {
+	t.Helper()
 	ctx := t.Context()
-	fixture := newProcessDaemonFixture(t, ctx, "otel_provenance")
 	store := fixture.Store.Execution()
-
-	// A caller passing a spawn-shaped idempotency key on an ordinary content
-	// input must not forge a trace link, and oversized content is bounded in SQL.
-	spoofedToolID := uuid.New()
-	bigText := strings.Repeat("a", 600*1024)
-	contentBlocks, err := json.Marshal([]map[string]string{{"type": "text", "text": bigText}})
-	require.NoError(t, err)
 	input, _, _, err := store.CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  contentBlocks,
-		IdempotencyKey: "launch:spawn:" + spoofedToolID.String() + ":content-input",
-		DeliveryMode:   executionstore.DeliveryModeSteering,
+		ContentBlocks: contentBlocks, IdempotencyKey: idempotencyKey,
+		DeliveryMode: executionstore.DeliveryModeSteering,
 	})
 	require.NoError(t, err)
 	_, found := admitNextAgentInputAndOpenTurnForTest(
@@ -365,15 +364,117 @@ func TestTurnTraceIgnoresCallerSpoofedIdempotencyKeyAndBoundsContent(t *testing.
 		fixture.AgentID).Scan(&turnID))
 	recordOtelTestOutput(t, fixture, prepared.Claim.Context.ID, modelenvelope.StopReasonEndTurn,
 		modelenvelope.ResponsePart{Type: "text", Text: "ok"})
+	return turnID
+}
+
+func TestTurnTraceIgnoresCallerSpoofedIdempotencyKey(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "otel_provenance")
+	store := fixture.Store.Execution()
+
+	// A real, unrelated tool call on another agent in the same project: a link
+	// derived from the idempotency key would resolve, so only recorded
+	// provenance keeps it out.
+	other := newProcessDaemonFixtureInStore(
+		t, ctx, fixture.Store, fixture.UserID, "otel_provenance_other", time.Now().UTC())
+	require.NotEqual(t, fixture.AgentID, other.AgentID)
+	unrelatedToolCallID := createToolCallForProcessActionTest(t, ctx, other, "otel-provenance")
+	var toolCallProjectID uuid.UUID
+	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+		SELECT project_id FROM tool_call_read_projection WHERE id = $1`, unrelatedToolCallID).Scan(&toolCallProjectID))
+	require.Equal(t, testProjectID, toolCallProjectID)
+	turnID := openOtelTestTurnWithInput(t, fixture, json.RawMessage(`[{"type":"text","text":"hello"}]`),
+		"launch:spawn:"+unrelatedToolCallID.String()+":content-input")
 
 	turn, err := store.LoadTurnTrace(ctx, testProjectID, fixture.AgentID, turnID)
 	require.NoError(t, err)
 	require.Empty(t, turn.Links)
-	require.True(t, turn.ContentTruncated)
-	spans := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans()
-	truncated, ok := spans.At(0).Attributes().Get("omnara.trace.content_truncated")
-	require.True(t, ok)
-	require.True(t, truncated.Bool())
+	require.False(t, turn.ContentTruncated)
+}
+
+func TestTurnTraceBoundsLoadedEventBytes(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "otel_event_budget")
+	store := fixture.Store.Execution()
+	const eventBudget = 512 * 1024
+
+	loadedOpeningBytes := func(turnID uuid.UUID) int {
+		turn, err := store.LoadTurnTrace(ctx, testProjectID, fixture.AgentID, turnID)
+		require.NoError(t, err)
+		require.True(t, turn.ContentTruncated)
+		spans := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		truncated, ok := spans.At(0).Attributes().Get("omnara.trace.content_truncated")
+		require.True(t, ok)
+		require.True(t, truncated.Bool())
+		size := -1
+		for _, event := range turn.Events {
+			if event.IsOpening {
+				size = len(event.ContentBlocks)
+			}
+		}
+		require.NotEqual(t, -1, size, "opening event is loaded")
+		return size
+	}
+
+	// One block far over the per-value limit.
+	single, err := json.Marshal([]map[string]string{{"type": "text", "text": strings.Repeat("a", 600*1024)}})
+	require.NoError(t, err)
+	size := loadedOpeningBytes(openOtelTestTurnWithInput(t, fixture, single, "otel-budget-single"))
+	require.Positive(t, size)
+	require.LessOrEqual(t, size, eventBudget)
+
+	// Many blocks that are each under the per-value limit but together far
+	// over the event budget must not pass through whole.
+	blocks := make([]map[string]string, 40)
+	for i := range blocks {
+		blocks[i] = map[string]string{"type": "text", "text": strings.Repeat("b", 200*1024)}
+	}
+	multi, err := json.Marshal(blocks)
+	require.NoError(t, err)
+	size = loadedOpeningBytes(openOtelTestTurnWithInput(t, fixture, multi, "otel-budget-multi"))
+	require.Positive(t, size)
+	require.LessOrEqual(t, size, eventBudget)
+}
+
+// A create or update that holds its transaction must not need a second pooled
+// connection to read the referenced secrets.
+func TestOtelExporterMutationsNeedOneConnection(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "otel_one_conn")
+	owner := createSecretTestUser(t, ctx, fixture.Store, "Otel One Conn Owner", "owner")
+	newSecret := func(name string) uuid.UUID {
+		secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: name,
+			Material: secrets.GenericMaterial{Value: "token-val"}, Actor: userPrincipal(owner.ID),
+		})
+		require.NoError(t, err)
+		return secret.ID
+	}
+	credentialID, headerID := newSecret("otel-one-conn-credential"), newSecret("otel-one-conn-header")
+
+	config := fixture.Store.pool.Config()
+	config.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := newIntegrationStore(pool).Execution()
+
+	// Without a connection to spare, a pooled read would wait until this expires.
+	mutationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	created, err := store.CreateOtelExporter(mutationCtx, executionstore.CreateOtelExporterInput{
+		OrgID: testOrgID, ProjectID: testProjectID,
+		Settings: otelconfig.Settings{
+			Endpoint: "https://one-conn.example.com/v1/traces", SamplePercent: 100,
+			AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: credentialID,
+		},
+	})
+	require.NoError(t, err)
+	_, err = store.UpdateOtelExporter(mutationCtx, executionstore.UpdateOtelExporterInput{
+		OrgID: testOrgID, ExporterID: created.ID,
+		SecretHeaders: map[string]uuid.UUID{"x-extra-auth": headerID},
+	})
+	require.NoError(t, err)
 }
 
 func TestTurnTraceKeepsOpeningInputsWhenLaterContentExceedsBudget(t *testing.T) {
@@ -416,7 +517,6 @@ func TestOtelExporterConfigChangeDefersTurnExport(t *testing.T) {
 	store := fixture.Store.Execution()
 
 	exporter := createOtelExporterForTest(t, fixture,
-		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
 		otelconfig.Settings{Endpoint: "https://config-defer.example.com/v1/traces", SamplePercent: 100})
 
 	turnID, firstContextID, openingInputID := startOtelTestTurn(t, fixture, "config-in-flight")
@@ -488,8 +588,7 @@ func TestOtelExporterCreateAndUpdateSerializeWithSecretDeletion(t *testing.T) {
 
 	createDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-			OrgID: testOrgID,
-			Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
+			OrgID: testOrgID, ProjectID: testProjectID,
 			Settings: otelconfig.Settings{
 				Endpoint: "https://race-create.example.com/v1/traces", SamplePercent: 100,
 				AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: createSecretID,
@@ -505,7 +604,6 @@ func TestOtelExporterCreateAndUpdateSerializeWithSecretDeletion(t *testing.T) {
 
 	// Case 2: UpdateOtelExporter also serializes with DeleteSecret via LockSecretForReference.
 	existing := createOtelExporterForTest(t, fixture,
-		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
 		otelconfig.Settings{Endpoint: "https://race-update.example.com/v1/traces", SamplePercent: 100})
 	updateSecretID := newSecret("otel-race-update")
 	updateTx, err := fixture.Store.pool.Begin(ctx)

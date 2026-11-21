@@ -154,7 +154,7 @@ export function applyVariantSwitch(input: VariantSwitchInput) {
   }
 }
 
-/** Whether every resource the scope names has been chosen. */
+/** Whether the scope's project has been chosen. */
 export function otelExporterScopeComplete(scope: OtelExporterScope) {
-  return !!scope.project_id && (scope.type === 'project' || !!scope.agent_id)
+  return !!scope.project_id
 }

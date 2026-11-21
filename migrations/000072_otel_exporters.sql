@@ -4,7 +4,6 @@ CREATE TABLE otel_exporters (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
     project_id uuid NOT NULL,
-    agent_id uuid,
     endpoint text NOT NULL CHECK (octet_length(endpoint) BETWEEN 1 AND 2048),
     variant text NOT NULL DEFAULT 'otel' CHECK (variant IN ('otel', 'langfuse', 'braintrust', 'langsmith')),
     encoding text NOT NULL DEFAULT 'protobuf' CHECK (encoding IN ('json', 'protobuf')),
@@ -19,14 +18,13 @@ CREATE TABLE otel_exporters (
     deleted_at timestamptz,
     UNIQUE (org_id, id),
     FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id),
-    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
     FOREIGN KEY (org_id, credential_secret_id) REFERENCES secrets(org_id, id),
     CONSTRAINT otel_exporters_auth_credential_check CHECK ((auth_kind = 'none') = (credential_secret_id IS NULL))
 );
 
-CREATE UNIQUE INDEX otel_exporters_active_scope_endpoint_idx
-    ON otel_exporters(org_id, project_id, agent_id, endpoint)
-    NULLS NOT DISTINCT WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX otel_exporters_active_project_endpoint_idx
+    ON otel_exporters(org_id, project_id, endpoint)
+    WHERE deleted_at IS NULL;
 
 CREATE INDEX otel_exporters_org_created_idx ON otel_exporters(org_id, created_at, id);
 
@@ -68,20 +66,18 @@ CREATE INDEX otel_export_deliveries_created_idx ON otel_export_deliveries(create
 CREATE INDEX otel_export_deliveries_claimed_idx ON otel_export_deliveries(claim_expires_at, org_id)
     WHERE claim_expires_at IS NOT NULL;
 
+-- The checks are added NOT VALID so this transaction never scans agent_inputs
+-- while holding its lock. The next migration validates them and builds the
+-- source tool call index outside a transaction.
 ALTER TABLE agent_inputs
     ADD COLUMN source_link_kind text,
     ADD COLUMN source_tool_call_id uuid,
-    ADD COLUMN source_model_output_id uuid;
-
-ALTER TABLE agent_inputs
+    ADD COLUMN source_model_output_id uuid,
     ADD CONSTRAINT agent_inputs_source_link_kind_check
-        CHECK (source_link_kind IS NULL OR source_link_kind IN ('spawned_by', 'message_from', 'result_from')),
+        CHECK (source_link_kind IS NULL OR source_link_kind IN ('spawned_by', 'message_from', 'result_from'))
+        NOT VALID,
     ADD CONSTRAINT agent_inputs_source_link_check CHECK (
         (source_link_kind IS NULL AND source_tool_call_id IS NULL AND source_model_output_id IS NULL)
         OR (source_link_kind IN ('spawned_by', 'message_from') AND source_tool_call_id IS NOT NULL AND source_model_output_id IS NULL)
         OR (source_link_kind = 'result_from' AND source_tool_call_id IS NULL AND source_model_output_id IS NOT NULL)
-    );
-
-CREATE INDEX agent_inputs_source_tool_call_idx
-    ON agent_inputs(source_tool_call_id)
-    WHERE source_tool_call_id IS NOT NULL;
+    ) NOT VALID;

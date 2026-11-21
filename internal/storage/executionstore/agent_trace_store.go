@@ -132,8 +132,8 @@ func (s *Store) loadTurnTrace(
 
 	traceEvents, err := s.q.ListTurnTraceEvents(ctx, dbsqlc.ListTurnTraceEventsParams{
 		ProjectID: projectID, AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceEvents + 1,
-		MaxEventBytes: maxTraceReadEventBytes, MaxValueBytes: maxTraceReadValueBytes,
-		MaxValueChars: maxTraceReadValueChars, MaxTotalBytes: maxTraceReadTotalBytes,
+		MaxEventBytes: maxTraceReadEventBytes, MaxValueChars: maxTraceReadValueChars,
+		MaxTotalBytes: maxTraceReadTotalBytes,
 	})
 	if err != nil {
 		return oteltrace.Turn{}, fmt.Errorf("list turn trace events: %w", err)

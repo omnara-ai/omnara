@@ -658,30 +658,13 @@ export type OtelTrace = {
     }>;
 };
 
-export type OtelExporterScopeType = 'project' | 'agent';
-
 /**
  * Exports every agent in one project.
  */
-export type ProjectOtelExporterScope = {
+export type OtelExporterScope = {
     type: 'project';
     project_id: ProjectId;
 };
-
-/**
- * Exports only this agent, not its descendants.
- */
-export type AgentOtelExporterScope = {
-    type: 'agent';
-    project_id: ProjectId;
-    agent_id: AgentId;
-};
-
-export type OtelExporterScope = ({
-    type: 'project';
-} & ProjectOtelExporterScope) | ({
-    type: 'agent';
-} & AgentOtelExporterScope);
 
 /**
  * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
@@ -6538,9 +6521,7 @@ export type ListOtelExportersData = {
         orgID: string;
     };
     query?: {
-        scope_type?: OtelExporterScopeType;
         project_id?: ProjectId;
-        agent_id?: AgentId;
         /**
          * Maximum number of items to return in one page.
          */
@@ -6604,7 +6585,7 @@ export type ListOtelExportersError = ListOtelExportersErrors[keyof ListOtelExpor
 
 export type ListOtelExportersResponses = {
     /**
-     * Exporters matching the requested scope.
+     * The organization's exporters, or one project's when project_id is given.
      */
     200: ListOtelExportersResponse;
 };

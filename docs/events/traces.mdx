@@ -24,7 +24,7 @@ Use `GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/trac
 
 ## Configure exporters
 
-Open the organization's or project's **Traces** page to view and manage exporters. The API manages exporters under `/orgs/{orgID}/otel-exporters` so organization admins can list every exporter across projects and agents in one request.
+Open the organization's or project's **Traces** page to view and manage exporters. The API manages exporters under `/orgs/{orgID}/otel-exporters` so organization admins can list every exporter across projects in one request.
 
 Create an exporter with `POST /orgs/{orgID}/otel-exporters`:
 
@@ -51,14 +51,11 @@ Create an exporter with `POST /orgs/{orgID}/otel-exporters`:
 
 ### Scopes
 
-Exporters target either:
+Exporters are scoped to a **`project`**: each one exports turns for every agent in the project, including subagents.
 
-- **`project`**: exports turns for every agent in the project (including subagents).
-- **`agent`**: exports turns for one specific agent, not its descendants.
+A project's exporters are additive, so a turn is sent to each of them. Organizations can have up to **100 active exporters** across all projects, and each project can have only one active exporter per endpoint.
 
-Matching scopes are additive. Organizations can have up to **100 active exporters** across all scopes, and each scope can have only one active exporter per endpoint.
-
-`GET /orgs/{orgID}/otel-exporters` lists all exporters in the organization ordered by `created_at` and `id`. Pass `scope_type=project&project_id=...` or `scope_type=agent&project_id=...&agent_id=...` to filter to an exact scope.
+`GET /orgs/{orgID}/otel-exporters` lists all exporters in the organization ordered by `created_at` and `id`. Pass `project_id=...` to return only that project's exporters.
 
 ### Sampling and encoding
 
@@ -77,6 +74,8 @@ Use typed credentials (`auth_kind`, `auth_options`, and an organization-owned ge
 | `basic` | `{"username": "..."}` | `Authorization: Basic <base64(username:secret)>` |
 
 Use `headers` (up to 20 plain headers) and `secret_headers` (up to 20 extra organization-owned generic secret headers) for additional headers. A header managed by `auth_kind` cannot also appear in `headers` or `secret_headers`.
+
+A secret used as `credential_secret_id` cannot be deleted while an exporter references it. A secret used only in `secret_headers` can be: later exports leave that header out.
 
 ### Vendor setup
 
