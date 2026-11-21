@@ -12,6 +12,21 @@ import (
 	"github.com/google/uuid"
 )
 
+const countPendingModelCosts = `-- name: CountPendingModelCosts :one
+SELECT count(*)::bigint FROM (SELECT 1 FROM pending_model_costs LIMIT $1) pending
+`
+
+type CountPendingModelCostsParams struct {
+	RowLimit int32
+}
+
+func (q *Queries) CountPendingModelCosts(ctx context.Context, arg CountPendingModelCostsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingModelCosts, arg.RowLimit)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteBudget = `-- name: DeleteBudget :execrows
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL

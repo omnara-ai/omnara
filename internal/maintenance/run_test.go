@@ -48,7 +48,7 @@ func TestMaintenanceJobDoesNotOverlapItself(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
-				"test", time.Second, func(context.Context) maintenanceResult {
+				"test", time.Second, time.Second, func(context.Context) maintenanceResult {
 					if calls.Add(1) == 1 {
 						<-release
 					}
@@ -72,7 +72,7 @@ func TestMaintenanceJobRecoversAndContinuesAfterPanic(t *testing.T) {
 	set := metrics.New()
 	var calls atomic.Int32
 	runMaintenanceJob(ctx, time.Millisecond, metrics.NewJobRecorder(set, metrics.SubsystemMaintenance), maintenanceJob{
-		"test", time.Millisecond, func(context.Context) maintenanceResult {
+		"test", time.Millisecond, time.Millisecond, func(context.Context) maintenanceResult {
 			if calls.Add(1) == 1 {
 				panic("test panic")
 			}
@@ -99,7 +99,7 @@ func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
-				"test", time.Hour, func(context.Context) maintenanceResult {
+				"test", time.Hour, time.Second, func(context.Context) maintenanceResult {
 					runs = append(runs, time.Since(start))
 					return maintenanceResult{more: len(runs) < 3}
 				},
@@ -115,6 +115,30 @@ func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
 	})
 }
 
+func TestMaintenanceJobWithoutMoreDelayDrainsBackToBack(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		start := time.Now()
+		var runs []time.Duration
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
+				"test", time.Hour, 0, func(context.Context) maintenanceResult {
+					runs = append(runs, time.Since(start))
+					return maintenanceResult{more: len(runs) < 3}
+				},
+			})
+		}()
+		time.Sleep(67 * time.Minute) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.Len(t, runs, 4)
+		require.Equal(t, []time.Duration{0, 0, 0}, runs[:3])
+		require.GreaterOrEqual(t, runs[3]-runs[2], 54*time.Minute)
+	})
+}
+
 func TestMaintenanceJobBacksOffAfterFailuresThenWaitsItsInterval(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(logpkg.WithLogger(t.Context(), slog.New(slog.DiscardHandler)))
@@ -124,7 +148,7 @@ func TestMaintenanceJobBacksOffAfterFailuresThenWaitsItsInterval(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
-				"test", time.Hour, func(context.Context) maintenanceResult {
+				"test", time.Hour, time.Second, func(context.Context) maintenanceResult {
 					runs = append(runs, time.Since(start))
 					if len(runs) < 5 || len(runs) == 6 {
 						return maintenanceResult{err: errors.New("store failed")}
@@ -156,7 +180,7 @@ func TestMaintenanceJobScheduledFailureSkipsTheErrorRetry(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
-				"test", time.Hour, func(context.Context) maintenanceResult {
+				"test", time.Hour, time.Second, func(context.Context) maintenanceResult {
 					runs = append(runs, time.Since(start))
 					return maintenanceResult{err: errors.New("provider failed"), retryScheduled: true, more: len(runs) == 1}
 				},
@@ -179,7 +203,7 @@ func TestMaintenanceJobBehindNeverWaitsLongerThanItsInterval(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJob(ctx, time.Hour, nil, maintenanceJob{
-				"test", time.Second, func(context.Context) maintenanceResult { calls.Add(1); return maintenanceResult{more: true} },
+				"test", time.Second, time.Hour, func(context.Context) maintenanceResult { calls.Add(1); return maintenanceResult{more: true} },
 			})
 		}()
 		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
@@ -198,8 +222,14 @@ func TestMaintenanceJobsDoNotWaitOnEachOther(t *testing.T) {
 		go func() {
 			defer close(done)
 			runMaintenanceJobs(ctx, time.Second, nil, []maintenanceJob{
-				{"blocked", time.Second, func(context.Context) maintenanceResult { <-release; return maintenanceResult{} }},
-				{"fast", time.Second, func(context.Context) maintenanceResult { fastCalls.Add(1); return maintenanceResult{} }},
+				{"blocked", time.Second, time.Second, func(context.Context) maintenanceResult {
+					<-release
+					return maintenanceResult{}
+				}},
+				{"fast", time.Second, time.Second, func(context.Context) maintenanceResult {
+					fastCalls.Add(1)
+					return maintenanceResult{}
+				}},
 			})
 		}()
 		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
@@ -214,7 +244,7 @@ func TestMaintenanceJobsReturnWithoutRunningWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	runMaintenanceJobs(ctx, time.Millisecond, nil, []maintenanceJob{
-		{"never", time.Millisecond, func(context.Context) maintenanceResult {
+		{"never", time.Millisecond, time.Millisecond, func(context.Context) maintenanceResult {
 			t.Error("canceled maintenance ran a job")
 			return maintenanceResult{}
 		}},

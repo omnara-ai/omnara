@@ -181,6 +181,22 @@ func (s *Store) MergeDailyModelCosts(ctx context.Context, limit int32) (int64, e
 	return s.q.MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: limit})
 }
 
+func (s *Store) CountPendingModelCosts(ctx context.Context, limit int32) (int64, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return 0, fmt.Errorf("count pending model costs: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout = '3s'"); err != nil {
+		return 0, fmt.Errorf("count pending model costs: %w", err)
+	}
+	count, err := dbsqlc.New(tx).CountPendingModelCosts(ctx, dbsqlc.CountPendingModelCostsParams{RowLimit: limit})
+	if err != nil {
+		return 0, fmt.Errorf("count pending model costs: %w", err)
+	}
+	return count, nil
+}
+
 type BudgetAttachment struct {
 	Interval  string
 	AmountUSD string

@@ -46,9 +46,7 @@ import (
 const (
 	integrationHTTPClientTimeout  = 5 * time.Minute
 	cronTriggerFireInterval       = 30 * time.Second
-	modelCostMergeInterval        = time.Second
 	modelPriceReloadInterval      = time.Minute
-	modelCostMergeBatch           = 1000
 	workerCapacityPerDBConnection = 8
 )
 
@@ -164,6 +162,10 @@ func main() {
 		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	store := storage.NewStore(db, storeOpts...)
+	if err := loadStoredModelPrices(ctx, log, modelPrices, store.Models().ChangedModelPriceCatalog); err != nil {
+		log.Error("read model prices", "error", err)
+		os.Exit(1)
+	}
 	healthErr := metrics.Serve(
 		ctx,
 		log,
@@ -289,27 +291,11 @@ func main() {
 	go func() {
 		defer close(modelPricesDone)
 		runBatchLoop(ctx, modelPriceReloadInterval, func() bool {
-			data, err := store.Models().ChangedModelPriceCatalog(ctx, modelPrices.Version())
-			if err == nil && data != nil {
-				if err = modelPrices.Load(data); err == nil {
-					log.Info("loaded model prices", "version", modelPrices.Version())
-				}
-			}
+			err := loadStoredModelPrices(ctx, log, modelPrices, store.Models().ChangedModelPriceCatalog)
 			if err != nil && ctx.Err() == nil {
-				log.Error("load model prices", "error", err)
+				log.Error("read model prices", "error", err)
 			}
 			return false
-		})
-	}()
-	modelCostsDone := make(chan struct{})
-	go func() {
-		defer close(modelCostsDone)
-		runBatchLoop(ctx, modelCostMergeInterval, func() bool {
-			merged, err := store.Identity().MergeDailyModelCosts(ctx, modelCostMergeBatch)
-			if err != nil && ctx.Err() == nil {
-				log.Error("merge daily model costs", "error", err)
-			}
-			return merged == modelCostMergeBatch
 		})
 	}()
 	discordRuntime := integrationruntime.DiscordRuntime{
@@ -444,7 +430,6 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
-	<-modelCostsDone
 	<-modelPricesDone
 	<-discordDone
 	if discordRunErr != nil && signalCtx.Err() == nil {
@@ -488,6 +473,24 @@ func cancelOnSignals(signals <-chan os.Signal, cancels ...context.CancelFunc) {
 func workerDatabaseMaxConns(capacity int) int32 {
 	maxConns := max(storage.DefaultMaxConns, 1+(capacity-1)/workerCapacityPerDBConnection)
 	return int32(min(math.MaxInt32, maxConns))
+}
+
+func loadStoredModelPrices(
+	ctx context.Context,
+	log *slog.Logger,
+	prices *modelprice.Pricer,
+	read func(context.Context, string) ([]byte, error),
+) error {
+	data, err := read(ctx, prices.Version())
+	if err != nil || data == nil {
+		return err
+	}
+	if err := prices.Load(data); err != nil {
+		log.Error("load model prices", "error", err)
+		return nil
+	}
+	log.Info("loaded model prices", "version", prices.Version())
+	return nil
 }
 
 func runBatchLoop(ctx context.Context, interval time.Duration, tick func() (batchFull bool)) {

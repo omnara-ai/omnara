@@ -132,7 +132,7 @@ type kernelTestBudget struct {
 
 func createBudgetForKernelTest(
 	t *testing.T, ctx context.Context, f kernelFixture, agentID uuid.UUID, budget kernelTestBudget,
-) {
+) uuid.UUID {
 	t.Helper()
 	input := identitystore.CreateBudgetInput{OrgID: kernelTestOrgID, Interval: budget.interval, AmountUSD: budget.amount}
 	if budget.project || budget.profile || budget.agent {
@@ -148,8 +148,9 @@ func createBudgetForKernelTest(
 	if budget.agent {
 		input.AgentID = &agentID
 	}
-	_, err := f.Store.Identity().CreateBudget(ctx, input)
+	record, err := f.Store.Identity().CreateBudget(ctx, input)
 	require.NoError(t, err)
+	return record.ID
 }
 
 func TestAgentExecutorBudgetDenialNotifiesWithoutProviderRequest(t *testing.T) {
@@ -169,6 +170,68 @@ func TestAgentExecutorBudgetDenialNotifiesWithoutProviderRequest(t *testing.T) {
 	require.Equal(t, 1, denied.notices)
 	assertDurableModelErrorForKernelTest(t, ctx, f, agentID, denied.turnID,
 		string(modelprotocol.ErrorKindRuntime), storeerr.BudgetReachedCode)
+}
+
+func TestAgentExecutorBudgetStopsTheRetryOfAFailedCallThatReachedIt(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
+	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{project: true, interval: "month", amount: "2"})
+	turn := f.admitContentInputTurn(t, ctx, agentID, userID, "fail", f.Now.Add(time.Second))
+	client := &sequenceKernelModel{
+		providerModelSlug: "budget-model",
+		errs:              []error{model.ProviderError{Kind: model.ErrorKindTransient, Source: "test", Message: "retry"}},
+		errorResponses: []model.Response{{
+			ID: "resp_failed", ServedProviderModelSlug: "budget-model-served", ProviderReportedCostUSD: "2",
+			Usage: model.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5},
+		}},
+		responses: []model.Response{budgetResponse("resp_retry", "")},
+	}
+	notices := 0
+	executor := AgentExecutor{
+		Store:           f.Store,
+		ModelResolver:   liveTestModelResolver(f.Store, client),
+		ToolExecutor:    tools.Executor{Store: f.Store},
+		Now:             func() time.Time { return f.Now.Add(2 * time.Second) },
+		ModelRetryDelay: immediateKernelModelRetryDelay,
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+			notices++
+			return nil
+		},
+	}
+	require.NoError(t, executor.ExecuteModelWork(ctx, turn))
+	require.NoError(t, executor.ExecuteModelWork(ctx,
+		continueTurnOnNewLeaseForKernelTest(t, ctx, f, turn, f.Now.Add(time.Minute))))
+
+	require.Equal(t, 1, client.respondedCount(), "the retry must not reach the provider")
+	require.Equal(t, 1, notices)
+	assertDurableModelErrorForKernelTest(t, ctx, f, agentID, turn.TurnID,
+		string(modelprotocol.ErrorKindRuntime), storeerr.BudgetReachedCode)
+	require.Equal(t, "2.000000000000000", dailyModelCostForKernelTest(t, ctx, f), "the failed call counts")
+}
+
+func TestAgentExecutorBudgetLetsAStoppedAgentRunAgain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
+	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+	turn := func(text string, minute int, cost modelenvelope.ProviderReportedCostUSD) int {
+		return runBudgetTurn(t, ctx, f, agentID, userID, text, f.Now.Add(time.Duration(minute)*time.Minute),
+			budgetResponse("resp_"+text, cost), nil).responded
+	}
+	require.Equal(t, 1, turn("spend", 1, "2"))
+	budgetID := createBudgetForKernelTest(t, ctx, f, agentID,
+		kernelTestBudget{project: true, interval: "month", amount: "2"})
+	require.Zero(t, turn("stopped", 2, ""))
+
+	_, err := f.Store.Identity().UpdateBudgetAmount(ctx, kernelTestOrgID, budgetID, "5")
+	require.NoError(t, err)
+	require.Equal(t, 1, turn("raised", 3, "3"), "a new message runs once the budget is raised")
+	require.Zero(t, turn("stopped_again", 4, ""))
+
+	require.NoError(t, f.Store.Identity().DeleteBudget(ctx, kernelTestOrgID, budgetID))
+	require.Equal(t, 1, turn("removed", 5, ""), "a new message runs once the budget is removed")
 }
 
 func TestAgentExecutorBudgetScopes(t *testing.T) {
@@ -660,10 +723,18 @@ func TestDailyModelCostsMergeInBatches(t *testing.T) {
 		return merged
 	}
 	require.Equal(t, [2]int{0, 3}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	pending := func(limit int32) int64 {
+		count, err := f.Store.Identity().CountPendingModelCosts(ctx, limit)
+		require.NoError(t, err)
+		return count
+	}
+	require.Equal(t, int64(3), pending(10))
+	require.Equal(t, int64(2), pending(2), "the backlog count stops at its ceiling")
 	require.Equal(t, int64(2), merge())
 	require.Equal(t, [2]int{1, 1}, dailyModelCostRowsForKernelTest(t, ctx, f))
 	require.Equal(t, int64(1), merge())
 	require.Equal(t, [2]int{1, 0}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Zero(t, pending(10))
 	require.Equal(t, "3.000000000000000", dailyModelCostForKernelTest(t, ctx, f))
 }
 

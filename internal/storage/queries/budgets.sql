@@ -92,3 +92,6 @@ WITH lock AS MATERIALIZED (
     SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd
 )
 SELECT count(*)::bigint FROM calls;
+
+-- name: CountPendingModelCosts :one
+SELECT count(*)::bigint FROM (SELECT 1 FROM pending_model_costs LIMIT sqlc.arg(row_limit)) pending;

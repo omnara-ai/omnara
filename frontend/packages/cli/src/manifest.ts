@@ -22,6 +22,10 @@ import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadMemoryUpload, memoryDownloadOp, zMemoryUploadBody } from './memory-files.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 
+const zInitialBudgets = schemas.zCreateAgentProfileRequest.shape.budgets.describe(
+  'budgets created with it, one per interval',
+)
+
 export const commandGroups: CommandGroup[] = [
   ...integrationCommandGroups,
   {
@@ -74,10 +78,12 @@ export const commandGroups: CommandGroup[] = [
             .describe('agent profile ID; runs its current config unless a config is given'),
           name: schemas.zAgentName.optional(),
           message: z.string().optional(),
+          budgets: zInitialBudgets,
         }),
-        transformBody: ({ profile, name, message, ...attachment }) => ({
+        transformBody: ({ profile, name, message, budgets, ...attachment }) => ({
           name,
           message,
+          budgets,
           ...renderLaunchConfig(profile, attachment),
         }),
       }),
@@ -893,9 +899,10 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: zConfigAttachment.extend({ name: schemas.zResourceName }),
-        transformBody: async ({ name, ...attachment }, { client, path }) => ({
+        body: zConfigAttachment.extend({ name: schemas.zResourceName, budgets: zInitialBudgets }),
+        transformBody: async ({ name, budgets, ...attachment }, { client, path }) => ({
           name,
+          budgets,
           config: await resolveConfigId(client, path, attachment),
         }),
       }),
