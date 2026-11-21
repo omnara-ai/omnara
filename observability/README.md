@@ -65,6 +65,12 @@ accepted the request: recording completion can fail after a 2xx response.
 These process counters can lose an observation on a crash after a database
 commit; they are operational signals, not an audit ledger.
 
+Trace export shares the webhook sender's claim loop. Workers export
+`omnara_otel_export_slots_used` and `omnara_otel_export_capacity`, and maintenance
+exports `omnara_otel_export_expired_total`, which counts each trace delivery deleted
+after its delivery window passed undelivered. Sum its rate across maintenance
+replicas. The `otel_export.delivery_expired` wide event carries the IDs.
+
 API processes export `omnara_agent_stream_buffer_dropped_total{frame}` for full
 SSE subscriber buffers (`tool_call_update` and `model_output_delta`). A frame sent
 to multiple slow subscribers can be counted more than once. Durable agent events

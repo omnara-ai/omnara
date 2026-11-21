@@ -10,10 +10,10 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/deliveryrunner"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -53,9 +53,10 @@ type Store interface {
 }
 
 type Sender struct {
-	store  Store
-	client *http.Client
-	log    *slog.Logger
+	store    Store
+	client   *http.Client
+	log      *slog.Logger
+	recorder *metrics.OtelExportRecorder
 }
 
 type rejectedError struct{ error }
@@ -73,9 +74,10 @@ type recipientError struct{ error }
 func (e recipientError) Unwrap() error { return e.error }
 
 func New(
-	store Store, log *slog.Logger, httpRecorder *metrics.HTTPClientRecorder, endpointAllowlist *ssrf.Allowlist,
+	store Store, log *slog.Logger, recorder *metrics.OtelExportRecorder,
+	httpRecorder *metrics.HTTPClientRecorder, endpointAllowlist *ssrf.Allowlist,
 ) *Sender {
-	return &Sender{store: store, log: log,
+	return &Sender{store: store, log: log, recorder: recorder,
 		client: metrics.NewObservedHTTPClient(
 			outboundhttp.NewPublicClient(
 				outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: endpointAllowlist},
@@ -85,38 +87,18 @@ func New(
 
 func (s *Sender) Run(ctx context.Context) {
 	defer s.client.CloseIdleConnections()
-	inFlight := 0
-	completed := make(chan struct{}, MaxInFlight)
-	var deliveries sync.WaitGroup
-	defer deliveries.Wait()
-	for ctx.Err() == nil {
-		if inFlight < MaxInFlight {
+	deliveryrunner.Run(ctx, deliveryrunner.Config[executionstore.OtelExportDelivery]{
+		MaxInFlight: MaxInFlight, IdleInterval: idleInterval, Recorder: s.recorder,
+		Claim: func(ctx context.Context) (executionstore.OtelExportDelivery, error) {
 			claimCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-			delivery, err := s.store.ClaimOtelExportDelivery(claimCtx, PerOrgLimit)
-			cancel()
-			if err == nil {
-				inFlight++
-				deliveries.Go(func() {
-					s.deliver(ctx, delivery)
-					completed <- struct{}{}
-				})
-				continue
-			}
-			if !errors.Is(err, storeerr.ErrNotFound) && ctx.Err() == nil {
-				logent.OtelExportStoreFailed(logpkg.WithLogger(ctx, s.log), "claim", err)
-			}
-		}
-		var idle <-chan time.Time
-		if inFlight < MaxInFlight {
-			idle = time.After(idleInterval)
-		}
-		select {
-		case <-ctx.Done():
-		case <-completed:
-			inFlight--
-		case <-idle:
-		}
-	}
+			defer cancel()
+			return s.store.ClaimOtelExportDelivery(claimCtx, PerOrgLimit)
+		},
+		Deliver: s.deliver,
+		ClaimFailed: func(ctx context.Context, err error) {
+			logent.OtelExportStoreFailed(logpkg.WithLogger(ctx, s.log), "claim", err)
+		},
+	})
 }
 
 func (s *Sender) deliver(ctx context.Context, delivery executionstore.OtelExportDelivery) {

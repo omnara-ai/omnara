@@ -12,7 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
 )
 
 func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
@@ -48,6 +51,7 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 					func(context.Context, int32) ([]executionstore.OtelExportDelivery, error) {
 						return []executionstore.OtelExportDelivery{{ID: uuid.New()}}, err
 					},
+					nil,
 				)
 			}},
 		{"refresh model prices", "stored new model prices", "refresh model prices",
@@ -140,15 +144,20 @@ func TestDeleteExpiredOtelExportDeliveriesLogsMetadataEvents(t *testing.T) {
 		AttemptCount: 5, CreatedAt: time.Now().Add(-2 * time.Hour),
 	}
 	var output bytes.Buffer
+	set := metrics.New()
 	job := deleteExpiredOtelExportDeliveries(
 		slog.New(slog.NewJSONHandler(&output, nil)),
 		func(context.Context, int32) ([]executionstore.OtelExportDelivery, error) {
 			return []executionstore.OtelExportDelivery{delivery}, nil
 		},
+		metrics.NewOtelExportExpiryRecorder(set),
 	)
 	result := job(t.Context())
 	require.True(t, result.worked)
 	require.NoError(t, result.err)
+	scraped := httptest.NewRecorder()
+	set.Handler().ServeHTTP(scraped, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Contains(t, scraped.Body.String(), "omnara_otel_export_expired_total 1")
 
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
 	require.GreaterOrEqual(t, len(lines), 1)
