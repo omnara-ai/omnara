@@ -12,6 +12,41 @@ import (
 	"github.com/google/uuid"
 )
 
+const getAgentToolAuthority = `-- name: GetAgentToolAuthority :one
+SELECT agent.current_config_id = $1::uuid AS config_current,
+       EXISTS (
+         SELECT 1 FROM agent_runtime_locks runtime_lock
+         WHERE runtime_lock.agent_id = agent.id AND runtime_lock.id = $2::uuid
+           AND runtime_lock.cancel_requested_at IS NULL AND runtime_lock.lease_expires_at > statement_timestamp()
+       ) AS runtime_active
+FROM agents agent
+WHERE agent.project_id = $3 AND agent.id = $4
+`
+
+type GetAgentToolAuthorityParams struct {
+	ConfigID      uuid.UUID
+	RuntimeLockID uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+}
+
+type GetAgentToolAuthorityRow struct {
+	ConfigCurrent bool
+	RuntimeActive bool
+}
+
+func (q *Queries) GetAgentToolAuthority(ctx context.Context, arg GetAgentToolAuthorityParams) (GetAgentToolAuthorityRow, error) {
+	row := q.db.QueryRow(ctx, getAgentToolAuthority,
+		arg.ConfigID,
+		arg.RuntimeLockID,
+		arg.ProjectID,
+		arg.AgentID,
+	)
+	var i GetAgentToolAuthorityRow
+	err := row.Scan(&i.ConfigCurrent, &i.RuntimeActive)
+	return i, err
+}
+
 const getAssignedIntegrationConversationTarget = `-- name: GetAssignedIntegrationConversationTarget :one
 SELECT target.id
 FROM integration_targets target

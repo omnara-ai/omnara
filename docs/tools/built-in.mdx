@@ -243,7 +243,7 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 ### `list_github_repositories`
 
-Lists the GitHub repositories the agent has access to through its [Git credentials](/integrations/github#git-credentials). Each repository has a `full_name`, such as `acme/app`. `can_push` is `true` when the integration has **Let agents push code** enabled and the credentials aren't `read_only`. Omnara adds this tool when a config has `git_credentials`.
+Lists the GitHub repositories the agent has access to through its [Git credentials](/integrations/github#git-credentials). Each repository has an `id` and a `full_name`, such as `acme/app`. `can_push` is `true` when the integration has **Let agents push code** enabled and the credentials aren't `read_only`. Omnara adds this tool when a config has `git_credentials`.
 
 `list_github_repositories` accepts `offset` (default 0) and `limit` (1–100, default 50). When the result has `has_more: true`, pass `next_offset` as `offset` in the next call to continue listing. A page can hold fewer than `limit` repositories even when more remain.
 

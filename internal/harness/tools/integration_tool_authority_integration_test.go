@@ -24,18 +24,23 @@ import (
 )
 
 func TestIntegrationToolApprovalShowsResolvedDestination(t *testing.T) {
-	for _, tt := range []struct{ provider, operation, input, destination string }{
-		{"slack", "post_message", `{"text":"Review ready"}`, `{"channel_id":"C123","thread_ts":"111.222"}`},
-		{"discord", "post_message", `{"content":"Review ready"}`, `{"thread_id":"555"}`},
-		{"github", "discussion_comment", `{"body":"Review ready"}`, `{"repository_id":123,"pull_request":7}`},
+	for _, tt := range []struct{ name, provider, operation, input, destination string }{
+		{"slack", "slack", "post_message", `{"text":"Review ready"}`, `{"channel_id":"C123","thread_ts":"111.222"}`},
+		{"discord", "discord", "post_message", `{"content":"Review ready"}`, `{"thread_id":"555"}`},
+		{"github", "github", "discussion_comment", `{"body":"Review ready"}`, `{"repository_id":123,"pull_request":7}`},
+		{"github named", "github", "discussion_comment", `{"body":"Review ready","repository_id":123,"pull_request":8}`,
+			`{"repository_id":123,"pull_request":8}`},
 	} {
-		t.Run(tt.provider, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "approval-destination", toolFixtureOptions{
 				withSlackIntegration: tt.provider == "slack", withDiscordIntegration: tt.provider == "discord",
 				withGitHubIntegration: tt.provider == "github", withToolContext: true,
 				slackPermission: toolpermission.ModeAlwaysAsk, githubPermission: toolpermission.ModeAlwaysAsk,
 			})
+			if tt.name == "github named" {
+				seedGitHubAttachment(t, f, 8)
+			}
 			call := f.recordPendingToolCall(
 				t,
 				ctx,
@@ -51,7 +56,11 @@ func TestIntegrationToolApprovalShowsResolvedDestination(t *testing.T) {
 			var destination map[string]any
 			require.NoError(t, json.Unmarshal([]byte(tt.destination), &destination))
 			for field := range destination {
-				require.NotContains(t, schema.Properties, field, "destinations are assigned by the integration")
+				if tt.provider == "github" {
+					require.Contains(t, schema.Properties, field, "GitHub tools can name an attached pull request")
+				} else {
+					require.NotContains(t, schema.Properties, field, "destinations are assigned by the integration")
+				}
 			}
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -90,11 +99,16 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 			`{"channel_id":"C999","text":"hello"}`, "additional properties", true, true},
 		{"discord-destination", "discord", "post_message",
 			`{"channel_id":"999","content":"hello"}`, "additional properties", true, true},
-		{"github-destination", "github", "discussion_comment",
-			`{"pull_request":8,"body":"hello"}`, "additional properties", true, true},
+		{"github-partial-destination", "github", "discussion_comment",
+			`{"pull_request":8,"body":"hello"}`, "repository_id", true, true},
+		{"github-unattached", "github", "discussion_comment",
+			`{"repository_id":123,"pull_request":8,"body":"hello"}`, "is not attached to this agent", true, false},
+		{"github-several-unnamed", "github", "discussion_comment",
+			`{"body":"hello"}`, "required when multiple pull requests are attached", true, false},
 		{"slack-missing", "slack", "post_message", `{"text":"hello"}`, "no assigned conversation", false, false},
 		{"discord-missing", "discord", "post_message", `{"content":"hello"}`, "no assigned conversation", false, false},
-		{"github-missing", "github", "discussion_comment", `{"body":"hello"}`, "no assigned conversation", false, false},
+		{"github-missing", "github", "discussion_comment", `{"body":"hello"}`,
+			"no assigned or attached pull request", false, false},
 		{"disconnected", "slack", "post_message", `{"text":"hello"}`, "integration is unavailable", true, false},
 		{"removed-tool", "slack", "post_message",
 			`{"text":"hello"}`, "unavailable in the original or current config", true, false},
@@ -106,6 +120,9 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 				withGitHubIntegration: test.provider == "github", withToolContext: test.context,
 				slackPermission: toolpermission.ModeAlwaysAsk, githubPermission: toolpermission.ModeAlwaysAsk,
 			})
+			if test.name == "github-several-unnamed" {
+				seedGitHubAttachment(t, f, 8)
+			}
 			call := f.recordPendingToolCall(t, ctx, "invalid",
 				toolcatalog.IntegrationToolName("chat", test.operation), test.args, f.Now)
 			if test.name == "disconnected" {
@@ -532,17 +549,21 @@ func TestIntegrationToolMissingContextBeforeProviderIO(t *testing.T) {
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
 			body := toolResultMapFromTestParts(t, record.ResultContentParts)
 			require.Equal(t, "integration_tool_failed", body["error_code"])
-			require.Contains(t, body["message"], `integration "chat" has no assigned conversation`)
+			want := `integration "chat" has no assigned conversation`
+			if test.provider == "github" {
+				want = `integration "chat" has no assigned or attached pull request`
+			}
+			require.Contains(t, body["message"], want)
 			require.Zero(t, requests.Load(), "missing context fails before provider I/O, including identity checks")
 		})
 	}
 }
 
 func TestIntegrationToolRejectsDestinationArgumentsBeforeProviderIO(t *testing.T) {
-	for _, test := range []struct{ provider, input string }{
-		{"slack", `{"channel_id":"C999"}`},
-		{"discord", `{"thread_id":"999"}`},
-		{"github", `{"pull_request":8}`},
+	for _, test := range []struct{ provider, input, message string }{
+		{"slack", `{"channel_id":"C999"}`, "additional properties"},
+		{"discord", `{"thread_id":"999"}`, "additional properties"},
+		{"github", `{"pull_request":8}`, "'repository_id' required"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			ctx := t.Context()
@@ -563,7 +584,7 @@ func TestIntegrationToolRejectsDestinationArgumentsBeforeProviderIO(t *testing.T
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-			require.Contains(t, string(record.ResultContentParts), "additional properties")
+			require.Contains(t, string(record.ResultContentParts), test.message)
 			require.Zero(t, requests.Load(), "schema validation must precede any provider I/O")
 		})
 	}

@@ -21,7 +21,8 @@ import (
 )
 
 func TestListGitHubRepositoriesUsesAgentGitCredentials(t *testing.T) {
-	app, lib := map[string]any{"full_name": "octo/app"}, map[string]any{"full_name": "octo/lib"}
+	app := map[string]any{"id": float64(123), "full_name": "octo/app"}
+	lib := map[string]any{"id": float64(456), "full_name": "octo/lib"}
 	for _, tt := range []struct {
 		name, gitCredentials, revoke, input, permission string
 		repositoryIDs                                   []int64

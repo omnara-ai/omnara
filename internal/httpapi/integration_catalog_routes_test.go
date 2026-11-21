@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +41,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				destinationFields = []string{"repository_id", "pull_request"}
 				operations = []string{
 					"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-					"resolve_thread",
+					"resolve_thread", "attach_pull_request", "detach_pull_request", "list_attached_pull_requests",
 				}
 			default:
 				t.Fatalf("unexpected integration %q", definition.IntegrationKind)
@@ -50,14 +51,28 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				require.NotEmpty(t, tool.Description)
 				properties, ok := tool.InputSchema["properties"].(map[string]any)
 				require.True(t, ok)
+				kind := integrationdefinition.Kind(definition.IntegrationKind)
+				catalogTool, ok := toolcatalog.LookupIntegrationTool(kind, operation)
+				require.True(t, ok)
+				if catalogTool.Scope == toolcatalog.IntegrationToolScopeIntegration {
+					continue
+				}
 				for _, field := range destinationFields {
-					require.NotContains(t, properties, field, operation)
+					if kind == integrationdefinition.GitHubPR {
+						require.Contains(t, properties, field, operation)
+					} else {
+						require.NotContains(t, properties, field, operation)
+					}
 				}
 			}
 			read, err := json.Marshal(definition.Capabilities.Tools["read"].InputSchema)
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(read, json.RawMessage(`{}`)))
-			require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
+			if definition.IntegrationKind == openapi.IntegrationKindGitHubPR {
+				require.NoError(t, jsonschema.Validate(read, destination), "GitHub tools can name a pull request")
+			} else {
+				require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
+			}
 			require.NotNil(t, definition.Capabilities.Settings)
 			settingsSchema, err := json.Marshal(definition.Capabilities.Settings.InputSchema)
 			require.NoError(t, err)
