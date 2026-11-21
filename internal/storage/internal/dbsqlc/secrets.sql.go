@@ -1394,11 +1394,6 @@ SELECT EXISTS (
   SELECT 1 FROM otel_exporters exporter
   WHERE exporter.org_id = $1 AND exporter.deleted_at IS NULL
     AND exporter.credential_secret_id = $2::uuid
-  UNION ALL
-  SELECT 1 FROM otel_exporters exporter
-  CROSS JOIN LATERAL jsonb_each_text(exporter.secret_headers) header
-  WHERE exporter.org_id = $1 AND exporter.deleted_at IS NULL
-    AND header.value = $2::uuid::text
 ) AS is_referenced
 `
 
@@ -1410,7 +1405,9 @@ type SecretIsReferencedParams struct {
 // @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
 // Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 // checked explicitly. Deleted configs, pools, and installs clear their
-// credential references; any row still holding one blocks deletion.
+// credential references; any row still holding one blocks deletion. Exporter
+// secret_headers are extras, like model provider overlay headers: they do not
+// block deletion, and export omits a header whose secret is gone.
 func (q *Queries) SecretIsReferenced(ctx context.Context, arg SecretIsReferencedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, secretIsReferenced, arg.OrgID, arg.SecretID)
 	var is_referenced bool

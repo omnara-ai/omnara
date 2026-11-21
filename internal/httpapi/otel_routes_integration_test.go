@@ -32,7 +32,6 @@ func TestOtelExporterRoutes(t *testing.T) {
 
 	scopes := []map[string]any{
 		{"type": "project", "project_id": f.project.ProjectID},
-		{"type": "agent", "project_id": f.project.ProjectID, "agent_id": agentID},
 	}
 	var ids []string
 	for _, scope := range scopes {
@@ -84,18 +83,16 @@ func TestOtelExporterRoutes(t *testing.T) {
 		`{"scope":` + projectScope + `,"endpoint":"https://other.example.com","auth_kind":"basic","credential_secret_id":"` + secretID + `"}`,
 		`{"scope":` + projectScope + `,"endpoint":"https://other.example.com","auth_kind":"api_key_header","credential_secret_id":"` + secretID + `"}`,
 		`{"scope":` + projectScope + `,"endpoint":"https://other.example.com","auth_kind":"bearer_token","credential_secret_id":"` + secretID + `","headers":{"Authorization":"Bearer dup"}}`,
-		`{"scope":{"type":"agent","agent_id":"` + agentID + `"},"endpoint":"https://other.example.com"}`,
+		`{"scope":{"type":"agent","project_id":"` + f.project.ProjectID + `","agent_id":"` + agentID + `"},"endpoint":"https://other.example.com"}`,
 		`{"endpoint":"https://other.example.com"}`,
 	} {
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, invalid, "", http.StatusBadRequest, admin)
 	}
 
 	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusOK, admin)
-	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 3)
-	projectQuery := "&project_id=" + f.project.ProjectID
+	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 2)
 	for query, expected := range map[string][]string{
-		"?scope_type=project" + projectQuery:                        {ids[0], testutil.RequireType[string](t, defaults["id"])},
-		"?scope_type=agent" + projectQuery + "&agent_id=" + agentID: {ids[1]},
+		"?project_id=" + f.project.ProjectID: {ids[0], testutil.RequireType[string](t, defaults["id"])},
 	} {
 		listed = requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "", http.StatusOK, admin)
 		var got []string
@@ -104,10 +101,7 @@ func TestOtelExporterRoutes(t *testing.T) {
 		}
 		require.Equal(t, expected, got, query)
 	}
-	for _, invalid := range []string{
-		"?project_id=" + f.project.ProjectID, "?agent_id=" + agentID, "?scope_type=project",
-		"?scope_type=agent&agent_id=" + agentID, "?scope_type=org", "?scope_type=profile",
-	} {
+	for _, invalid := range []string{"?project_id=not-a-project", "?project_id=" + agentID} {
 		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+invalid, "", "", http.StatusBadRequest, admin)
 	}
 	requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusForbidden, operator)

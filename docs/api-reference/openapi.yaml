@@ -301,28 +301,18 @@ paths:
       operationId: listOtelExporters
       tags: [Events]
       summary: List OpenTelemetry exporters
-      description: Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+      description: Lists the organization's exporters across all projects, ordered by created_at then id ascending. Pass project_id to return only that project's exporters. Requires organization management permission.
       parameters:
-        - name: scope_type
-          in: query
-          required: false
-          schema:
-            $ref: '#/components/schemas/OtelExporterScopeType'
         - name: project_id
           in: query
           required: false
           schema:
             $ref: '#/components/schemas/ProjectID'
-        - name: agent_id
-          in: query
-          required: false
-          schema:
-            $ref: '#/components/schemas/AgentID'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Exporters matching the requested scope.
+          description: The organization's exporters, or one project's when project_id is given.
           content:
             application/json:
               schema:
@@ -10899,11 +10889,7 @@ components:
           items:
             type: object
             additionalProperties: true
-    OtelExporterScopeType:
-      type: string
-      enum: [project, agent]
-      x-enum-varnames: [OtelExporterScopeProject, OtelExporterScopeAgent]
-    ProjectOtelExporterScope:
+    OtelExporterScope:
       type: object
       additionalProperties: false
       required: [type, project_id]
@@ -10912,32 +10898,9 @@ components:
         type:
           type: string
           enum: [project]
-          x-enum-varnames: [ProjectOtelExporterScopeTypeProject]
+          x-enum-varnames: [OtelExporterScopeTypeProject]
         project_id:
           $ref: '#/components/schemas/ProjectID'
-    AgentOtelExporterScope:
-      type: object
-      additionalProperties: false
-      required: [type, project_id, agent_id]
-      description: Exports only this agent, not its descendants.
-      properties:
-        type:
-          type: string
-          enum: [agent]
-          x-enum-varnames: [AgentOtelExporterScopeTypeAgent]
-        project_id:
-          $ref: '#/components/schemas/ProjectID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
-    OtelExporterScope:
-      oneOf:
-        - $ref: '#/components/schemas/ProjectOtelExporterScope'
-        - $ref: '#/components/schemas/AgentOtelExporterScope'
-      discriminator:
-        propertyName: type
-        mapping:
-          project: '#/components/schemas/ProjectOtelExporterScope'
-          agent: '#/components/schemas/AgentOtelExporterScope'
     OtelExporterAuthKind:
       type: string
       enum: [none, bearer_token, api_key_header, basic]

@@ -203,7 +203,7 @@ export const listOtelExportersQueryKey = (options: Options<ListOtelExportersData
 /**
  * List OpenTelemetry exporters
  *
- * Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+ * Lists the organization's exporters across all projects, ordered by created_at then id ascending. Pass project_id to return only that project's exporters. Requires organization management permission.
  */
 export const listOtelExportersOptions = (options: Options<ListOtelExportersData>): UnusedSkipTokenOptions<ListOtelExportersResponse2, ListOtelExportersError, ListOtelExportersResponse2, ReturnType<typeof listOtelExportersQueryKey>> & { queryKey: DataTag<ReturnType<typeof listOtelExportersQueryKey>, ListOtelExportersResponse2, ListOtelExportersError> } => queryOptions<ListOtelExportersResponse2, ListOtelExportersError, ListOtelExportersResponse2, ReturnType<typeof listOtelExportersQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -223,7 +223,7 @@ export const listOtelExportersInfiniteQueryKey = (options: Options<ListOtelExpor
 /**
  * List OpenTelemetry exporters
  *
- * Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+ * Lists the organization's exporters across all projects, ordered by created_at then id ascending. Pass project_id to return only that project's exporters. Requires organization management permission.
  */
 export const listOtelExportersInfiniteOptions = (options: Options<ListOtelExportersData>): Omit<UnusedSkipTokenInfiniteOptions<ListOtelExportersResponse2, ListOtelExportersError, InfiniteData<ListOtelExportersResponse2>, QueryKey<Options<ListOtelExportersData>>, string | Pick<QueryKey<Options<ListOtelExportersData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListOtelExportersData>>, InfiniteData<ListOtelExportersResponse2>, ListOtelExportersError> }, 'initialData'> => {
     const opts = infiniteQueryOptions<ListOtelExportersResponse2, ListOtelExportersError, InfiniteData<ListOtelExportersResponse2>, QueryKey<Options<ListOtelExportersData>>, string | Pick<QueryKey<Options<ListOtelExportersData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

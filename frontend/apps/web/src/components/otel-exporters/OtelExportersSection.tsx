@@ -8,7 +8,7 @@ import {
   AgentCardStat,
   AgentCardTime,
 } from '@/components/agents/AgentCardList'
-import { Bot, Folder, FunnelIcon, KeyRound, PlusIcon } from '@/components/icons'
+import { Folder, FunnelIcon, KeyRound, PlusIcon } from '@/components/icons'
 import { OtelExporterDialog } from '@/components/otel-exporters/OtelExporterDialog'
 import {
   otelAuthKindLabels,
@@ -24,11 +24,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { errorMessage } from '@/lib/submit-status'
 
-const scopeIcons = { project: Folder, agent: Bot }
-
 /**
  * The organization's exporters fetched in a single list. Inside a project the list narrows
- * to the project's own and its agents' exporters. The heading shares a row with the add button.
+ * to the project's own exporters. The heading shares a row with the add button.
  */
 export function OtelExportersSection({
   orgId,
@@ -62,7 +60,6 @@ export function OtelExportersSection({
       {exporters.length > 0 && (
         <ul className="flex flex-col gap-2">
           {exporters.map((exporter) => {
-            const ScopeIcon = scopeIcons[exporter.scope.type]
             const extraHeaders =
               Object.keys(exporter.headers).length + Object.keys(exporter.secret_headers).length
             return (
@@ -107,7 +104,7 @@ export function OtelExportersSection({
                   }
                   footer={
                     <span className="flex min-w-0 items-center gap-1.5">
-                      <ScopeIcon className="size-4 shrink-0" aria-hidden="true" />
+                      <Folder className="size-4 shrink-0" aria-hidden="true" />
                       <OtelExporterScopeLabel
                         orgId={orgId}
                         projectId={projectId}

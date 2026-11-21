@@ -389,29 +389,13 @@ export const zOtelTrace = z.object({
     resourceSpans: z.array(z.record(z.string(), z.unknown()))
 });
 
-export const zOtelExporterScopeType = z.enum(['project', 'agent']);
-
 /**
  * Exports every agent in one project.
  */
-export const zProjectOtelExporterScope = z.object({
+export const zOtelExporterScope = z.object({
     type: z.enum(['project']),
     project_id: zProjectId
 });
-
-/**
- * Exports only this agent, not its descendants.
- */
-export const zAgentOtelExporterScope = z.object({
-    type: z.enum(['agent']),
-    project_id: zProjectId,
-    agent_id: zAgentId
-});
-
-export const zOtelExporterScope = z.discriminatedUnion('type', [
-    zProjectOtelExporterScope.extend({ type: z.literal('project') }),
-    zAgentOtelExporterScope.extend({ type: z.literal('agent') })
-]);
 
 /**
  * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
@@ -4062,15 +4046,13 @@ export const zListOtelExportersPath = z.object({
 });
 
 export const zListOtelExportersQuery = z.object({
-    scope_type: zOtelExporterScopeType.optional(),
     project_id: zProjectId.optional(),
-    agent_id: zAgentId.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
 
 /**
- * Exporters matching the requested scope.
+ * The organization's exporters, or one project's when project_id is given.
  */
 export const zListOtelExportersResponse2 = zListOtelExportersResponse;
 

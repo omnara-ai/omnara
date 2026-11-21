@@ -227,7 +227,7 @@ type DeleteProjectOtelExportersParams struct {
 	ProjectID uuid.UUID
 }
 
-// A deleted project retires its own and its agents' exporters.
+// A deleted project retires its exporters.
 func (q *Queries) DeleteProjectOtelExporters(ctx context.Context, arg DeleteProjectOtelExportersParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectOtelExporters, arg.OrgID, arg.ProjectID)
 	return err
@@ -242,7 +242,6 @@ JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
 JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND exporter.project_id = agent.project_id
-    AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE turn.agent_id = $1
   AND turn.id = ANY($2::uuid[])
   AND exporter.deleted_at IS NULL
@@ -265,7 +264,7 @@ func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOt
 }
 
 const getOtelExporter = `-- name: GetOtelExporter :one
-SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
        exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
@@ -286,7 +285,6 @@ func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,
@@ -401,18 +399,17 @@ func (q *Queries) GetTurnTraceContext(ctx context.Context, arg GetTurnTraceConte
 
 const insertOtelExporter = `-- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+    org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
     headers, secret_headers, sample_percent
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at
 `
 
 type InsertOtelExporterParams struct {
 	OrgID              uuid.UUID
 	ProjectID          uuid.UUID
-	AgentID            *uuid.UUID
 	Endpoint           string
 	Variant            string
 	Encoding           string
@@ -428,7 +425,6 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 	row := q.db.QueryRow(ctx, insertOtelExporter,
 		arg.OrgID,
 		arg.ProjectID,
-		arg.AgentID,
 		arg.Endpoint,
 		arg.Variant,
 		arg.Encoding,
@@ -444,7 +440,6 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,
@@ -462,30 +457,25 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 }
 
 const listOtelExporters = `-- name: ListOtelExporters :many
-SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
        exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = $1
-  AND (NOT $2::boolean OR (
-    exporter.project_id = $3::uuid
-    AND exporter.agent_id IS NOT DISTINCT FROM $4::uuid
-  ))
+  AND ($2::uuid IS NULL OR exporter.project_id = $2::uuid)
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
-    coalesce($5::timestamptz, '-infinity'::timestamptz),
-    coalesce($6::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce($3::timestamptz, '-infinity'::timestamptz),
+    coalesce($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
 ORDER BY exporter.created_at, exporter.id
-LIMIT $7
+LIMIT $5
 `
 
 type ListOtelExportersParams struct {
 	OrgID           uuid.UUID
-	FilterScope     bool
 	ProjectID       *uuid.UUID
-	AgentID         *uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int32
@@ -494,9 +484,7 @@ type ListOtelExportersParams struct {
 func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersParams) ([]OtelExporter, error) {
 	rows, err := q.db.Query(ctx, listOtelExporters,
 		arg.OrgID,
-		arg.FilterScope,
 		arg.ProjectID,
-		arg.AgentID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
@@ -512,7 +500,6 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 			&i.ID,
 			&i.OrgID,
 			&i.ProjectID,
-			&i.AgentID,
 			&i.Endpoint,
 			&i.Variant,
 			&i.Encoding,
@@ -543,36 +530,64 @@ WITH recent AS (
            projection.content_blocks, projection.created_at,
            octet_length(projection.content_blocks::text) AS content_bytes
     FROM agent_event_read_projection projection
-    WHERE projection.project_id = $5
-      AND projection.agent_id = $6
-      AND projection.turn_id = $7
+    WHERE projection.project_id = $3
+      AND projection.agent_id = $4
+      AND projection.turn_id = $5
     ORDER BY projection.sequence DESC
-    LIMIT $8
-), budgeted AS (
+    LIMIT $6
+), shared AS (
+    -- A character is at most 4 bytes, so a share counted in characters stays
+    -- within the same share of the byte budget.
     SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
            model_stop_reason, content_blocks, created_at, content_bytes,
-           sum(least(content_bytes, $2::integer))
-               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
+           least($7::integer,
+                 $2::integer / 4 / greatest(
+                     CASE WHEN jsonb_typeof(content_blocks) = 'array' THEN jsonb_array_length(content_blocks) END, 1)
+           ) AS block_chars
     FROM recent
+), clipped AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, block_chars,
+           (CASE
+               WHEN content_bytes <= $2::integer THEN content_blocks
+               ELSE coalesce((
+                   SELECT jsonb_agg(
+                       CASE
+                           WHEN elem.block ? 'text' AND char_length(elem.block->>'text') > block_chars
+                               THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', block_chars)))
+                           WHEN elem.block ? 'value' AND char_length((elem.block->'value')::text) > block_chars
+                               THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, block_chars)))
+                           WHEN elem.block ? 'input' AND char_length((elem.block->'input')::text) > block_chars
+                               THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, block_chars)))
+                           ELSE elem.block
+                       END
+                       ORDER BY elem.position
+                   )
+                   FROM jsonb_array_elements(content_blocks) WITH ORDINALITY AS elem(block, position)
+               ), '[]'::jsonb)
+           END)::jsonb AS clipped_blocks
+    FROM shared
+), bounded AS (
+    -- Blocks can carry more than the clipped fields, so the result is measured
+    -- rather than assumed to fit.
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, clipped_blocks,
+           (CASE
+               WHEN octet_length(clipped_blocks::text) > $2::integer THEN '[]'::jsonb
+               ELSE clipped_blocks
+           END)::jsonb AS bounded_blocks
+    FROM clipped
+), budgeted AS (
+    SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id,
+           model_stop_reason, content_blocks, created_at, content_bytes, bounded_blocks,
+           sum(octet_length(bounded_blocks::text))
+               OVER (ORDER BY is_opening_event DESC, sequence DESC) AS cumulative_bytes
+    FROM bounded
 )
 SELECT sequence, event_kind, is_opening_event, model_call_context_id, tool_call_id, model_stop_reason,
        (CASE
            WHEN cumulative_bytes > $1::bigint THEN '[]'::jsonb
-           WHEN content_bytes > $2::integer THEN coalesce((
-               SELECT jsonb_agg(
-                   CASE
-                       WHEN elem.block ? 'text' AND octet_length(elem.block->>'text') > $3::integer
-                           THEN jsonb_set(elem.block, '{text}', to_jsonb(left(elem.block->>'text', $4::integer)))
-                       WHEN elem.block ? 'value' AND octet_length((elem.block->'value')::text) > $3::integer
-                           THEN jsonb_set(elem.block, '{value}', to_jsonb(left((elem.block->'value')::text, $4::integer)))
-                       WHEN elem.block ? 'input' AND octet_length((elem.block->'input')::text) > $3::integer
-                           THEN jsonb_set(elem.block, '{input}', to_jsonb(left((elem.block->'input')::text, $4::integer)))
-                       ELSE elem.block
-                   END
-               )
-               FROM jsonb_array_elements(content_blocks) AS elem(block)
-           ), '[]'::jsonb)
-           ELSE content_blocks
+           ELSE bounded_blocks
        END)::jsonb AS content_blocks,
        (cumulative_bytes > $1::bigint
            OR content_bytes > $2::integer)::boolean AS content_truncated,
@@ -584,12 +599,11 @@ ORDER BY sequence DESC
 type ListTurnTraceEventsParams struct {
 	MaxTotalBytes int64
 	MaxEventBytes int32
-	MaxValueBytes int32
-	MaxValueChars int32
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
 	TurnID        uuid.UUID
 	RowLimit      int32
+	MaxValueChars int32
 }
 
 type ListTurnTraceEventsRow struct {
@@ -605,21 +619,23 @@ type ListTurnTraceEventsRow struct {
 }
 
 // Newest first, bounded by row count and cumulative content-block bytes read
-// before rows leave Postgres. Oversized single events clip each block in JSONB
-// so tool_call structure and valid JSON survive; events past the cumulative
-// budget omit content blocks and flag content_truncated. The budget is charged
-// to the turn's opening inputs first and then newest first, so a turn with
-// large later content still exports the messages that opened it.
+// before rows leave Postgres. An oversized event has every block's text,
+// value, and input clipped to an equal share of the event budget, so
+// tool_call structure and valid JSON survive however many blocks it has; an
+// event still over the budget after clipping omits its content blocks. The
+// cumulative budget is charged the bytes actually returned, to the turn's
+// opening inputs first and then newest first, so a turn with large later
+// content still exports the messages that opened it. Events past it omit
+// content blocks and flag content_truncated.
 func (q *Queries) ListTurnTraceEvents(ctx context.Context, arg ListTurnTraceEventsParams) ([]ListTurnTraceEventsRow, error) {
 	rows, err := q.db.Query(ctx, listTurnTraceEvents,
 		arg.MaxTotalBytes,
 		arg.MaxEventBytes,
-		arg.MaxValueBytes,
-		arg.MaxValueChars,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.TurnID,
 		arg.RowLimit,
+		arg.MaxValueChars,
 	)
 	if err != nil {
 		return nil, err
@@ -967,7 +983,7 @@ UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind 
     credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
     updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
+RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at
 `
 
@@ -1004,7 +1020,6 @@ func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporter
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
-		&i.AgentID,
 		&i.Endpoint,
 		&i.Variant,
 		&i.Encoding,

@@ -240,6 +240,18 @@ func (s *Store) currentMCPURLTx(
 	return payload[secrets.KeyMCPURL], nil
 }
 
+// ReadOrgOwnedSecretPayloadTx reads through the caller's transaction, so a
+// caller already holding a connection does not need a second one from the pool.
+func (s *Store) ReadOrgOwnedSecretPayloadTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input ReadOrgOwnedSecretPayloadInput,
+) (SecretPayloadRecord, error) {
+	reader := *s
+	reader.q = s.q.WithTx(tx)
+	return reader.ReadOrgOwnedSecretPayload(ctx, input)
+}
+
 func (s *Store) ReadOrgOwnedSecretPayload(
 	ctx context.Context,
 	input ReadOrgOwnedSecretPayloadInput,

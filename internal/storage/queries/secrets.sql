@@ -327,7 +327,9 @@ WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 -- @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
 -- Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 -- checked explicitly. Deleted configs, pools, and installs clear their
--- credential references; any row still holding one blocks deletion.
+-- credential references; any row still holding one blocks deletion. Exporter
+-- secret_headers are extras, like model provider overlay headers: they do not
+-- block deletion, and export omits a header whose secret is gone.
 SELECT EXISTS (
   SELECT 1 FROM model_provider_configs config
   WHERE config.org_id = sqlc.arg(org_id) AND config.credential_secret_id = sqlc.arg(secret_id)::uuid
@@ -341,11 +343,6 @@ SELECT EXISTS (
   SELECT 1 FROM otel_exporters exporter
   WHERE exporter.org_id = sqlc.arg(org_id) AND exporter.deleted_at IS NULL
     AND exporter.credential_secret_id = sqlc.arg(secret_id)::uuid
-  UNION ALL
-  SELECT 1 FROM otel_exporters exporter
-  CROSS JOIN LATERAL jsonb_each_text(exporter.secret_headers) header
-  WHERE exporter.org_id = sqlc.arg(org_id) AND exporter.deleted_at IS NULL
-    AND header.value = sqlc.arg(secret_id)::uuid::text
 ) AS is_referenced;
 
 -- name: InsertSecretGrant :one

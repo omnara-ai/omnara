@@ -118,7 +118,7 @@ func (s *Store) GetOtelExportDestination(
 	}
 	maps.Copy(destination.Headers, record.Settings.Headers)
 	if record.Settings.AuthKind != otelconfig.AuthKindNone && record.Settings.AuthKind != "" {
-		value, err := s.readOtelExporterSecret(ctx, orgID, record.Settings.CredentialSecretID)
+		value, err := s.readOtelExporterSecret(ctx, nil, orgID, record.Settings.CredentialSecretID)
 		if errors.Is(err, storeerr.ErrNotFound) {
 			return OtelExportDestination{}, fmt.Errorf(
 				"%w: credential secret is unavailable", ErrOtelExporterMisconfigured)
@@ -137,10 +137,11 @@ func (s *Store) GetOtelExportDestination(
 		}
 	}
 	for name, secretID := range record.Settings.SecretHeaders {
-		value, err := s.readOtelExporterSecret(ctx, orgID, secretID)
+		value, err := s.readOtelExporterSecret(ctx, nil, orgID, secretID)
 		if errors.Is(err, storeerr.ErrNotFound) {
-			return OtelExportDestination{}, fmt.Errorf(
-				"%w: secret header %s is unavailable", ErrOtelExporterMisconfigured, name)
+			// Extra header secrets do not block their own deletion, so a
+			// deleted one is left out rather than failing the export.
+			continue
 		}
 		if err != nil {
 			return OtelExportDestination{}, fmt.Errorf("read exporter secret header: %w", err)

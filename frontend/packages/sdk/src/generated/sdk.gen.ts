@@ -143,7 +143,7 @@ export const updateEventWebhook = <ThrowOnError extends boolean = true>(options:
 /**
  * List OpenTelemetry exporters
  *
- * Lists the organization's exporters across all projects and agents, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
+ * Lists the organization's exporters across all projects, ordered by created_at then id ascending. Pass project_id to return only that project's exporters. Requires organization management permission.
  */
 export const listOtelExporters = <ThrowOnError extends boolean = true>(options: Options<ListOtelExportersData, ThrowOnError>): RequestResult<ListOtelExportersResponses, ListOtelExportersErrors, ThrowOnError> => (options.client ?? client).get<ListOtelExportersResponses, ListOtelExportersErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListOtelExportersResponse2),

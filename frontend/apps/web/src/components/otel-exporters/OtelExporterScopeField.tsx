@@ -1,9 +1,7 @@
 import type { OtelExporterScope } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { useId, useState } from 'react'
+import { useId } from 'react'
 
-import { FetchedAgentReferenceLink } from '@/components/agents/AgentReferenceLinks'
-import { AgentPicker } from '@/components/projects/EventWebhookScopeField'
 import { Field, FieldLabel } from '@/components/ui/field'
 import {
   Select,
@@ -14,16 +12,9 @@ import {
 } from '@/components/ui/select'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 
-function scopeLabels(inProject: boolean) {
-  return {
-    project: inProject ? 'All agents in this project' : 'All agents in one project',
-    agent: 'One agent',
-  }
-}
-
 /**
- * Picks what an exporter covers. Inside a project the project is fixed, so the choice is
- * between the whole project and one of its agents.
+ * Picks the project an exporter covers. Inside a project the project is fixed, so there is
+ * nothing to choose and the field only states what is exported.
  */
 export function OtelExporterScopeField({
   orgId,
@@ -37,60 +28,21 @@ export function OtelExporterScopeField({
   value: OtelExporterScope
   onChange: (value: OtelExporterScope) => void
 }) {
-  const id = useId()
-  const labels = scopeLabels(projectId !== undefined)
-  const [agent, setAgent] = useState<{ id: string; name: string }>()
-  const selectedProjectId = value.project_id
-  return (
-    <>
+  if (projectId !== undefined)
+    return (
       <Field>
-        <FieldLabel htmlFor={id}>Export traces from</FieldLabel>
-        <Select
-          value={value.type}
-          onValueChange={(type) => {
-            setAgent(undefined)
-            const project_id = projectId ?? selectedProjectId
-            if (type === 'project') onChange({ type, project_id })
-            if (type === 'agent') onChange({ type, project_id, agent_id: '' })
-          }}
-        >
-          <SelectTrigger id={id}>
-            <SelectValue>{labels[value.type]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="project">{labels.project}</SelectItem>
-            <SelectItem value="agent">{labels.agent}</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="type-label">Export traces from</div>
+        <div className="flex min-h-9 items-center text-sm">All agents in this project</div>
       </Field>
-      {projectId === undefined && (
-        <ProjectPicker
-          orgId={orgId}
-          value={value.project_id}
-          onChange={(project_id) => {
-            setAgent(undefined)
-            onChange(
-              value.type === 'agent'
-                ? { type: 'agent', project_id, agent_id: '' }
-                : { type: 'project', project_id },
-            )
-          }}
-        />
-      )}
-      {value.type === 'agent' && value.project_id && (
-        <AgentPicker
-          key={value.project_id}
-          orgId={orgId}
-          projectId={value.project_id}
-          value={value.agent_id}
-          selection={agent}
-          onChange={(item) => {
-            setAgent(item ?? undefined)
-            onChange({ type: 'agent', project_id: value.project_id, agent_id: item?.id ?? '' })
-          }}
-        />
-      )}
-    </>
+    )
+  return (
+    <ProjectPicker
+      orgId={orgId}
+      value={value.project_id}
+      onChange={(project_id) => {
+        onChange({ type: 'project', project_id })
+      }}
+    />
   )
 }
 
@@ -108,7 +60,7 @@ function ProjectPicker({
   const projects = [...loaded.values()].sort((left, right) => left.name.localeCompare(right.name))
   return (
     <Field>
-      <FieldLabel htmlFor={id}>Project</FieldLabel>
+      <FieldLabel htmlFor={id}>Export traces from</FieldLabel>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger id={id}>
           <SelectValue placeholder="Choose a project…">{loaded.get(value)?.name}</SelectValue>
@@ -136,17 +88,6 @@ export function OtelExporterScopeLabel({
   scope: OtelExporterScope
 }) {
   const { loaded } = useProjectDirectory(orgId)
-  if (scope.type === 'agent')
-    return (
-      <span className="flex min-w-0 items-center gap-1">
-        Agent:{' '}
-        <FetchedAgentReferenceLink
-          orgId={orgId}
-          projectId={scope.project_id}
-          agentId={scope.agent_id}
-        />
-      </span>
-    )
   if (scope.project_id === projectId) return <>All agents in this project</>
   return (
     <span className="flex min-w-0 items-center gap-1">
