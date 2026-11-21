@@ -1,11 +1,12 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
+import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
@@ -24,7 +25,10 @@ it('sends integration selection to preview and exposes the resolver issue to the
       path: `/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/agent-configs/tools`,
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        expect(request.source).toHaveProperty('tools.int__chat__post_message', tool)
+        expect(parse(z.string().parse(request.source))).toHaveProperty(
+          'tools.int__chat__post_message',
+          tool,
+        )
         return jsonResponse(
           {
             code: 'invalid_request',
@@ -37,7 +41,7 @@ it('sends integration selection to preview and exposes the resolver issue to the
     },
   ])
   function Builder() {
-    const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, scope)
+    const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, scope)
     return <output>{form.toolsError ? form.toolsErrorMessage : 'Resolving tools'}</output>
   }
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
@@ -57,7 +61,7 @@ it('sends integration selection to preview and exposes the resolver issue to the
     })
     await waitForUI(() => {
       expect(container.textContent).toContain(
-        '/tools/int__chat__post_message: Integration not found',
+        'tools.int__chat__post_message: Integration not found',
       )
     })
     expect(api.requests).toHaveLength(1)

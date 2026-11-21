@@ -36,7 +36,7 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 		{"delete expired webhook deliveries",
 			"cleaned expired event webhook deliveries", "cleanup expired event webhook deliveries",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
-				return deleteExpiredWebhookDeliveries(log, func(context.Context, int32) (int64, error) { return 1, err })
+				return deleteExpiredWebhookDeliveries(log, func(context.Context, int32) (int64, error) { return 1, err }, nil)
 			}},
 		{"cleanup auth state", "cleaned inactive auth state", "cleanup inactive auth state",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
@@ -90,7 +90,7 @@ func TestCleanupJobsRerunOnlyWhileBehind(t *testing.T) {
 	webhooks := func(count int64) bool {
 		return deleteExpiredWebhookDeliveries(log, func(context.Context, int32) (int64, error) {
 			return count, nil
-		})(t.Context()).more
+		}, nil)(t.Context()).more
 	}
 	states := func(count int64) bool {
 		return cleanupIntegrationStates(log, func(context.Context, time.Duration, int) (int64, error) {

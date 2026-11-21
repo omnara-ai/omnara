@@ -74,7 +74,7 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 		eventType string
 		kind      integrationdefinition.EventKind
 		key       string
-		steering  bool
+		human     bool
 	}{
 		{"issue_comment", integrationdefinition.EventDiscussionComment, "github:1001:discussion_comment:3001:created", true},
 		{
@@ -94,7 +94,7 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("normalize: ok=%v err=%v", ok, err)
 			}
-			if event.Event.Kind != tc.kind || event.SemanticKey != tc.key || event.CancelOpenInteractions != tc.steering {
+			if event.Event.Kind != tc.kind || event.SemanticKey != tc.key || event.CancelOpenInteractions != tc.human {
 				t.Fatalf("event: %+v", event)
 			}
 			if event.Event.Scope.GitHub.RepositoryID != 1001 || event.Event.Scope.GitHub.PullRequest != 42 {
@@ -102,15 +102,11 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 			}
 			mentionSettings := testLaunchSettings(definition.IntegrationKind, integrationdefinition.TriggerMention)
 			openSettings := testLaunchSettings(definition.IntegrationKind, integrationdefinition.TriggerPullRequestOpened)
-			if definition.MatchesLaunch(mentionSettings, event.Event) != tc.steering ||
-				definition.MatchesLaunch(openSettings, event.Event) == tc.steering {
+			if definition.MatchesLaunch(mentionSettings, event.Event) != tc.human ||
+				definition.MatchesLaunch(openSettings, event.Event) == tc.human {
 				t.Fatalf("trigger: %+v", event.Event)
 			}
-			mode := executionstore.DeliveryModeQueued
-			if tc.steering {
-				mode = executionstore.DeliveryModeSteering
-			}
-			if event.DeliveryMode != mode || event.Actor.ProviderUserID != "71" ||
+			if event.DeliveryMode != executionstore.DeliveryModeSteering || event.Actor.ProviderUserID != "71" ||
 				event.Actor.Provider != executionstore.ActorProviderIntegration ||
 				event.Actor.ProviderTenantID != "github:github.com" || event.Actor.Metadata["source_label"] != "GitHub" {
 				t.Fatalf("delivery/actor: %+v", event)
@@ -165,12 +161,12 @@ func TestGitHubInlineInputDoesNotInventCurrentLineForOutdatedComments(t *testing
 	}
 }
 
-func TestGitHubSynchronizeQueuesAndUsesTransitionIdentity(t *testing.T) {
+func TestGitHubSynchronizeSteersAndUsesTransitionIdentity(t *testing.T) {
 	t.Parallel()
 	payload := githubEventFixture("pull_request")
 	payload.Action, payload.Before, payload.After = "synchronize", strings.Repeat("a", 40), strings.Repeat("b", 40)
 	event, ok, err := NormalizeGitHubIntegrationEvent(githubEventIntegration(), githubEventJSON(t, payload))
-	if err != nil || !ok || event.DeliveryMode != executionstore.DeliveryModeQueued ||
+	if err != nil || !ok || event.DeliveryMode != executionstore.DeliveryModeSteering ||
 		event.CancelOpenInteractions || event.Event.Mentioned || event.Event.Kind != integrationdefinition.EventCommit {
 		t.Fatalf("commit: %+v %v %v", event, ok, err)
 	}

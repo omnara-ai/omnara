@@ -13,6 +13,33 @@ import (
 	"github.com/google/uuid"
 )
 
+const getCustomToolCallInput = `-- name: GetCustomToolCallInput :one
+SELECT tool_call.name, tool_call.input
+FROM tool_calls tool_call
+WHERE tool_call.project_id = $1
+  AND tool_call.agent_id = $2
+  AND tool_call.id = $3
+  AND tool_call.type = 'custom'
+`
+
+type GetCustomToolCallInputParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetCustomToolCallInputRow struct {
+	Name  string
+	Input json.RawMessage
+}
+
+func (q *Queries) GetCustomToolCallInput(ctx context.Context, arg GetCustomToolCallInputParams) (GetCustomToolCallInputRow, error) {
+	row := q.db.QueryRow(ctx, getCustomToolCallInput, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetCustomToolCallInputRow
+	err := row.Scan(&i.Name, &i.Input)
+	return i, err
+}
+
 const getToolCall = `-- name: GetToolCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -200,6 +227,86 @@ func (q *Queries) GetToolCallByProviderCall(ctx context.Context, arg GetToolCall
 	return i, err
 }
 
+const getToolCallStatus = `-- name: GetToolCallStatus :one
+SELECT type, state
+FROM tool_calls
+WHERE project_id = $1
+  AND agent_id = $2
+  AND id = $3
+`
+
+type GetToolCallStatusParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetToolCallStatusRow struct {
+	Type  string
+	State string
+}
+
+func (q *Queries) GetToolCallStatus(ctx context.Context, arg GetToolCallStatusParams) (GetToolCallStatusRow, error) {
+	row := q.db.QueryRow(ctx, getToolCallStatus, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetToolCallStatusRow
+	err := row.Scan(&i.Type, &i.State)
+	return i, err
+}
+
+const getToolCallSummary = `-- name: GetToolCallSummary :one
+SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
+  call.name, call.input, call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+FROM tool_calls call
+JOIN agent_events source_event ON source_event.agent_id = call.agent_id
+  AND source_event.model_output_id = call.model_output_id
+  AND source_event.event_kind = 'model_output'
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = $1
+  AND call.agent_id = $2
+  AND call.id = $3
+`
+
+type GetToolCallSummaryParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetToolCallSummaryRow struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummaryParams) (GetToolCallSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getToolCallSummary, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetToolCallSummaryRow
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.ProviderCallID,
+		&i.Name,
+		&i.Input,
+		&i.Type,
+		&i.State,
+		&i.Outcome,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const listCompletedToolCallsAtWatermark = `-- name: ListCompletedToolCallsAtWatermark :many
 WITH selected_calls AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -334,13 +441,10 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 }
 
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
@@ -371,22 +475,17 @@ type ListToolCallsForAgentParams struct {
 }
 
 type ListToolCallsForAgentRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-	CompletedAt        *time.Time
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
 }
 
 func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsForAgentParams) ([]ListToolCallsForAgentRow, error) {
@@ -408,19 +507,114 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 		var i ListToolCallsForAgentRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.ProjectID,
 			&i.AgentID,
 			&i.TurnID,
-			&i.SourceEventID,
-			&i.ModelCallContextID,
 			&i.ProviderCallID,
 			&i.Name,
 			&i.Input,
 			&i.Type,
 			&i.State,
 			&i.Outcome,
-			&i.RuntimeLockID,
-			&i.ResultContentParts,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnfinishedToolCallsForProject = `-- name: ListUnfinishedToolCallsForProject :many
+WITH page AS (
+  SELECT tool_call.agent_id, tool_call.id
+  FROM tool_calls tool_call
+  WHERE tool_call.project_id = $1
+    AND tool_call.state <> 'completed'
+    AND ($2::text = '' OR tool_call.state = $2)
+    AND ($3::text = '' OR tool_call.type = $3)
+    AND ($4::text[] IS NULL OR tool_call.name = ANY($4::text[]))
+    AND (
+      SELECT agent.state = 'active'
+        AND ($5::uuid IS NULL OR agent.agent_profile_id = $5::uuid)
+      FROM agents agent
+      WHERE agent.id = tool_call.agent_id
+    )
+    -- Keep the cursor indexable when PostgreSQL uses a generic prepared plan.
+    AND (tool_call.created_at, tool_call.id) > (
+      coalesce($6::timestamptz, '-infinity'::timestamptz),
+      coalesce($7::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    )
+  ORDER BY tool_call.created_at ASC, tool_call.id ASC
+  LIMIT $8::bigint
+)
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  ''::text AS outcome,
+  call.created_at, NULL::timestamptz AS completed_at
+FROM page
+JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
+  AND call.id = page.id
+ORDER BY call.created_at ASC, call.id ASC
+`
+
+type ListUnfinishedToolCallsForProjectParams struct {
+	ProjectID       uuid.UUID
+	State           string
+	Type            string
+	Names           []string
+	AgentProfileID  *uuid.UUID
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
+}
+
+type ListUnfinishedToolCallsForProjectRow struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg ListUnfinishedToolCallsForProjectParams) ([]ListUnfinishedToolCallsForProjectRow, error) {
+	rows, err := q.db.Query(ctx, listUnfinishedToolCallsForProject,
+		arg.ProjectID,
+		arg.State,
+		arg.Type,
+		arg.Names,
+		arg.AgentProfileID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnfinishedToolCallsForProjectRow{}
+	for rows.Next() {
+		var i ListUnfinishedToolCallsForProjectRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.ProviderCallID,
+			&i.Name,
+			&i.Input,
+			&i.Type,
+			&i.State,
+			&i.Outcome,
 			&i.CreatedAt,
 			&i.CompletedAt,
 		); err != nil {

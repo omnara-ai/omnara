@@ -25,8 +25,8 @@ const (
 )
 
 type apiClient interface {
-	ListTemplates(ctx context.Context, search, cursor string) ([]template, string, error)
-	ResolveTemplateAlias(ctx context.Context, alias string) (string, error)
+	GetTemplate(ctx context.Context, ref string) (template, error)
+	DefaultTemplates(ctx context.Context) ([]template, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	FindSandboxes(ctx context.Context, metadata map[string]string) ([]sandbox, error)
 	GetSandbox(ctx context.Context, id string) (sandbox, bool, error)
@@ -41,7 +41,6 @@ type template struct {
 	Names      []string `json:"names"`
 	CPUCount   int      `json:"cpuCount"`
 	MemoryMB   int      `json:"memoryMB"`
-	IsDefault  bool     `json:"isDefault"`
 }
 
 type sandbox struct {
@@ -63,7 +62,16 @@ type createSandboxRequest struct {
 }
 
 type networkConfig struct {
-	AllowPublicTraffic bool `json:"allowPublicTraffic"`
+	AllowPublicTraffic bool                     `json:"allowPublicTraffic"`
+	Rules              map[string][]networkRule `json:"rules,omitempty"`
+}
+
+type networkRule struct {
+	Transform networkTransform `json:"transform"`
+}
+
+type networkTransform struct {
+	Headers map[string]string `json:"headers"`
 }
 
 type process struct {
@@ -91,30 +99,21 @@ func newRESTClient(domain, token string, client *http.Client) *restClient {
 	return &restClient{domain: domain, token: token, httpClient: client}
 }
 
-func (c *restClient) ListTemplates(ctx context.Context, search, cursor string) ([]template, string, error) {
-	values := url.Values{"search": {search}, "limit": {"100"}}
-	if cursor != "" {
-		values.Set("cursor", cursor)
-	}
+func (c *restClient) GetTemplate(ctx context.Context, ref string) (template, error) {
 	var out struct {
-		Data       []template `json:"data"`
-		NextCursor *string    `json:"nextCursor"`
+		DefaultBuild struct {
+			CPUCount int `json:"cpuCount"`
+			MemoryMB int `json:"memoryMB"`
+		} `json:"defaultBuild"`
 	}
-	requestURL := "https://dashboard-api." + c.domain + "/templates?" + values.Encode()
-	err := c.do(ctx, http.MethodGet, requestURL, c.apiKey(), nil, &out)
-	next := ""
-	if out.NextCursor != nil {
-		next = *out.NextCursor
-	}
-	return out.Data, next, err
+	err := c.do(ctx, http.MethodGet, c.apiURL("/v2/templates/"+url.PathEscape(ref)), c.apiKey(), nil, &out)
+	return template{CPUCount: out.DefaultBuild.CPUCount, MemoryMB: out.DefaultBuild.MemoryMB}, err
 }
 
-func (c *restClient) ResolveTemplateAlias(ctx context.Context, alias string) (string, error) {
-	var out struct {
-		TemplateID string `json:"templateID"`
-	}
-	err := c.do(ctx, http.MethodGet, c.apiURL("/templates/aliases/"+url.PathEscape(alias)), c.apiKey(), nil, &out)
-	return out.TemplateID, err
+func (c *restClient) DefaultTemplates(ctx context.Context) ([]template, error) {
+	var out []template
+	err := c.do(ctx, http.MethodGet, c.apiURL("/default-templates"), c.apiKey(), nil, &out)
+	return out, err
 }
 
 func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxRequest) (sandbox, error) {

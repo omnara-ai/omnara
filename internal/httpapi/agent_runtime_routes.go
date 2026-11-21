@@ -342,6 +342,8 @@ func (s strictOpenAPIServer) CreateAgentInput(
 	return s.createAgentInput(ctx, request, scope.project, scope.agent)
 }
 
+const maxScheduledInputDelay = 90 * 24 * time.Hour
+
 func (s strictOpenAPIServer) createAgentInput(
 	ctx context.Context,
 	request openapi.CreateAgentInputRequestObject,
@@ -375,6 +377,13 @@ func (s strictOpenAPIServer) createAgentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		)
 	}
+	scheduledFor := request.Body.ScheduledFor
+	if scheduledFor != nil && cancelOpenInteractions {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"cancel_open_interactions is not allowed for scheduled inputs",
+		)
+	}
 	contentBlocks, err := rawJSONFromContentBlocks(request.Body.ContentBlocks)
 	if err != nil {
 		return nil, err
@@ -395,6 +404,8 @@ func (s strictOpenAPIServer) createAgentInput(
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
+			SourceScheduledFor:     scheduledFor,
+			MaxScheduledDelay:      maxScheduledInputDelay,
 		},
 	)
 	if err != nil || !created {
@@ -707,7 +718,7 @@ func (s *Server) streamAgentEvents(
 		return
 	}
 	notify := make(chan struct{}, 1)
-	toolCallUpdates := make(chan notifications.ToolCallUpdatedCommitted, streamFrameChannelSize)
+	toolCallUpdates := make(chan toolCallStreamUpdate, streamFrameChannelSize)
 	var streamDeltas chan json.RawMessage
 	if streamDeltasEnabled {
 		streamDeltas = make(chan json.RawMessage, streamFrameChannelSize)
@@ -733,15 +744,16 @@ func (s *Server) streamAgentEvents(
 		agent.ID,
 		func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
 			select {
-			case toolCallUpdates <- update:
+			case toolCallUpdates <- toolCallStreamUpdate{
+				ToolCallUpdatedCommitted: update,
+				agent: publicevents.AgentContext{
+					OrgID: agent.OrgID, ProjectID: project.ID,
+					AgentID: agent.ID, AgentProfileID: agent.AgentProfileID,
+					ParentAgentID: agent.ParentAgentID, RootAgentID: agent.RootAgentID,
+				},
+			}:
 			default:
-				if s.log != nil {
-					s.log.Debug(
-						"drop tool call update because subscriber buffer is full",
-						"agent_id",
-						agent.ID,
-					)
-				}
+				s.agentStreamRecorder.RecordDrop("tool_call_update")
 			}
 		},
 	)
@@ -763,13 +775,7 @@ func (s *Server) streamAgentEvents(
 				select {
 				case streamDeltas <- payload:
 				default:
-					if s.log != nil {
-						s.log.Debug(
-							"drop agent stream delta because subscriber buffer is full",
-							"agent_id",
-							agent.ID,
-						)
-					}
+					s.agentStreamRecorder.RecordDrop("model_output_delta")
 				}
 			},
 		)
@@ -797,7 +803,7 @@ func (s *Server) streamAgentEvents(
 		stopCloseWatch()
 		cancelStream(nil)
 	}()
-	subagents := newSubagentStreamSubscriptions(s, project.ID, agent.ID, toolCallUpdates)
+	subagents := newSubagentStreamSubscriptions(s, agent.OrgID, project.ID, agent.ID, toolCallUpdates)
 	defer subagents.close()
 	if err := subagents.refresh(streamCtx); err != nil {
 		s.log.Warn("subagent stream subscribe failed", "agent_id", agent.ID, "error", err)
@@ -907,7 +913,7 @@ func (s *Server) streamAgentEvents(
 						s.log.Warn("subagent stream refresh failed", "agent_id", agent.ID, "error", err)
 					}
 				}
-				if !writeToolCallUpdateFrame(w, update) {
+				if !writeToolCallUpdateFrame(w, update.ToolCallUpdatedCommitted, update.agent) {
 					flusher.Flush()
 					return
 				}
@@ -927,12 +933,16 @@ func (s *Server) streamAgentEvents(
 	}
 }
 
-func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCallUpdatedCommitted) bool {
+func writeToolCallUpdateFrame(
+	w http.ResponseWriter,
+	update notifications.ToolCallUpdatedCommitted,
+	agent publicevents.AgentContext,
+) bool {
 	state := openapi.ToolCallState(update.State)
 	if !state.Valid() {
 		return true
 	}
-	response, err := publicevents.ToolCallUpdate(update)
+	response, err := publicevents.ToolCallUpdate(update, agent)
 	if err != nil {
 		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
 		return false

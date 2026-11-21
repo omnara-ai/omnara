@@ -1,6 +1,9 @@
 -- name: DBNow :one
 SELECT transaction_timestamp()::timestamptz;
 
+-- name: DBStatementNow :one
+SELECT statement_timestamp()::timestamptz;
+
 -- name: LockAgentRuntimeLockForOwnedMutation :one
 SELECT runtime_lock.id
 FROM agent_runtime_locks runtime_lock

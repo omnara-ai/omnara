@@ -22,6 +22,8 @@ const interaction = {
   org_id: orgId,
   project_id: projectId,
   agent_id: agentId,
+  agent_name: 'Worker',
+  subagent_key: 'worker',
   tool_call_id: fakeId('tcl'),
   tool_name: 'bash',
   interaction_kind: 'permission',
@@ -60,12 +62,12 @@ afterEach(() => {
   restore()
 })
 
-async function render() {
+async function render(record = interaction) {
   const api = fakeApi([
     {
       method: 'GET',
       path: `${agentPath}/interactions`,
-      respond: () => jsonResponse({ data: [interaction], next_cursor: null }),
+      respond: () => jsonResponse({ data: [record], next_cursor: null }),
     },
     {
       method: 'POST',
@@ -90,6 +92,15 @@ async function render() {
   })
   return api
 }
+
+it.each([
+  { ownerID: agentId, label: null },
+  { ownerID: `agt_${'b'.repeat(26)}`, label: 'From subagent Worker' },
+])('labels interactions by owning agent $ownerID, not its name', async ({ ownerID, label }) => {
+  await render({ ...interaction, agent_id: ownerID })
+  if (label == null) expect(container.textContent).not.toContain('From subagent')
+  else expect(container.textContent).toContain(label)
+})
 
 async function pressEnter(label: string, keyCode: number) {
   const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })

@@ -50,6 +50,10 @@ type githubReplyInput struct {
 	Body      string `json:"body"`
 }
 
+type githubResolveThreadInput struct {
+	ReviewThreadID string `json:"review_thread_id"`
+}
+
 func runGitHubTool(
 	ctx context.Context,
 	call asyncToolContext,
@@ -167,6 +171,12 @@ func runGitHubTool(
 			return integrationToolFailure(err)
 		}
 		result, err = client.Reply(ctx, providerScope, input.CommentID, input.Body)
+	case toolcatalog.IntegrationOperationResolveThread:
+		var input githubResolveThreadInput
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub resolve thread"); err != nil {
+			return integrationToolFailure(err)
+		}
+		result, err = client.ResolveReviewThread(ctx, providerScope, input.ReviewThreadID)
 	default:
 		return nil, fmt.Errorf("unsupported GitHub tool \"%s\"", record.Name)
 	}

@@ -4,11 +4,13 @@ description: "Event webhook bodies and generated SDK schemas"
 icon: "webhook"
 ---
 
-Event webhooks send JSON POST requests with `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. They are managed independently of agent configuration.
+Event webhooks send JSON POST requests with `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. Each webhook is a project-owned subscription, managed independently of agent configuration.
 
 ## Configure
 
-Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
+Open the project's **Webhooks** tab to see and manage every subscription. The create/edit form sets the destination URL, event types, optional signing secret, and **Receive events from** selection: all agents in the project, agents using one profile, or one agent.
+
+The API uses `POST /orgs/{orgID}/projects/{projectID}/event-webhooks` to create a subscription:
 
 ```json
 {
@@ -21,11 +23,28 @@ Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
 }
 ```
 
-Each webhook watches a project, profile, or single agent. Profile webhooks cover existing and future agents of that profile; agent webhooks do not include descendants. Matching scopes are additive; overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event. Each project, profile, or agent can have up to 16 directly attached webhooks, with one webhook per URL. Listing requires project read permission; changes require project management permission.
+Project selections include all existing and future agents, including subagents. Profile selections cover agents using that profile; an agent selection watches only that agent, not its descendants. To receive events from launch onward, configure a project or profile selection before launching agents.
 
-See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks-for-one-scope), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) webhooks. In the dashboard, manage webhooks from the profile’s Webhooks tab or the agent’s sidebar. Inherited webhooks are shown read-only; project webhooks are managed through the API. To receive events from launch onward, configure a profile webhook before launching its agents.
+Projects have a creation limit of **100 active subscriptions across all selections**. Creating another subscription at the limit returns `409`; existing subscriptions remain active, editing does not consume another slot, and deletion frees one. Each selection can have only one active subscription per URL; conflicting creates and edits return `409`. Overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event.
 
-The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New webhooks and filter changes affect future events, with no historical replay. URL/signing changes apply to pending attempts too. Removing the selected webhook stops its pending attempts without transferring them to another webhook; in-flight requests may finish. Deleting a profile removes its webhooks.
+`GET /orgs/{orgID}/projects/{projectID}/event-webhooks` lists subscriptions across the project, ordered by creation time and ID. Pass `limit` (1–100, default 50), then pass the returned `next_cursor` as `cursor` until it is `null`. To list an exact selection, pass `scope_type=project`, `scope_type=profile&agent_profile_id=...`, or `scope_type=agent&agent_id=...`. The filters return directly selected subscriptions, not inherited matches. Listing requires project read permission; changes require project management permission.
+
+Responses include `scope_name`, the current name of the selected agent or profile. It is omitted for project scope or an unavailable name; use the selected resource ID as a fallback.
+
+To change a subscription's selection, send its complete new `scope` to `PATCH /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}`:
+
+```json
+{
+  "scope": {
+    "type": "profile",
+    "agent_profile_id": "aprf_5n6a2bfgik7mv4qtrwz3jehcyd"
+  }
+}
+```
+
+The selected agent or profile must belong to the same project. Omitted settings stay unchanged, and the subscription keeps its ID. See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) subscriptions.
+
+The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New subscriptions and selection/filter edits apply to newly queued notifications, with no historical replay. A notification selected before an edit can still arrive afterward, even if its agent no longer matches the selection. URL and signing changes also apply to pending attempts. Removing the selected subscription stops its pending attempts without transferring them to another subscription; in-flight requests may finish. Deleting a profile removes subscriptions that select it.
 
 Deliveries retry independently for up to ten minutes, with a five-second request timeout and exponential backoff with jitter. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
 
@@ -82,7 +101,11 @@ Expose `/webhook` over public HTTPS. This snippet only validates and acknowledge
 
 ## Payload examples
 
-Timeline events include event, agent, project, organization, and turn identifiers, an event sequence, and a creation timestamp. The examples below include all required fields; the OpenAPI schemas describe optional fields and content-block variants.
+Every event includes the same [organization, project, agent, and ancestry fields](/events/streaming) as SSE and REST timeline events.
+
+Timeline events also include event and turn identifiers, an event sequence,
+and a creation timestamp. The examples below include all required fields;
+the OpenAPI schemas describe optional fields and content-block variants.
 
 <AccordionGroup>
 <Accordion title="Agent input (`agent_input`)">
@@ -95,6 +118,9 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
+    "parent_agent_id": null,
+    "root_agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": true,
@@ -124,6 +150,9 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
+    "parent_agent_id": null,
+    "root_agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -153,6 +182,9 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
+    "parent_agent_id": null,
+    "root_agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -182,6 +214,9 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
+    "parent_agent_id": null,
+    "root_agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -202,8 +237,13 @@ Timeline events include event, agent, project, organization, and turn identifier
 {
   "event": "tool_call_update",
   "data": {
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "tool_call_id": "tcl_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
+    "parent_agent_id": null,
+    "root_agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
     "state": "awaiting_permission",
     "interaction_update": {
       "id": "int_5n6a2bfgik7mv4qtrwz3jehcyd",
@@ -217,6 +257,6 @@ Timeline events include event, agent, project, organization, and turn identifier
 </Accordion>
 </AccordionGroup>
 
-`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not the tool arguments or a timeline sequence. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Subagents follow the same scope rules and send their own agent IDs.
+`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not a timeline sequence. When a custom call becomes `ready`, it also includes the tool's `name`, plus its `input` if the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Subagents follow the same scope rules and send their own agent IDs.
 
 When a permission or question opens or closes, `interaction_update` includes its ID, kind, and state (`open`, `resolved`, or `canceled`). Omission means no interaction change. Track interactions by ID; a terminal update takes precedence over a late `open` update. Fetch interactions when you need the full form.

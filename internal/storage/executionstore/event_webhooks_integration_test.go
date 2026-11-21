@@ -97,6 +97,39 @@ func assertInteractionWebhookUpdates(
 	require.Equal(t, expected, queued)
 }
 
+func TestApprovedCustomToolCallUpdateCarriesInput(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "custom_approval")
+	toolID := createTypedToolCallForProcessTest(t, ctx, fixture,
+		"custom_approval", "lookup_customer", toolcatalog.ToolTypeCustom, false)
+	publisher := &recordingPostCommitPublisher{}
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
+	interaction := createPermissionInteractionForTest(t, ctx, fixture, toolID,
+		permissionRequestForStorageTest(t, "lookup_customer"))
+	_, err := fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, ID: interaction.ID,
+		Resolution: interactionform.Resolution{
+			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
+		},
+		Actor: mustOmnaraActorParams(t, fixture.UserID),
+	})
+	require.NoError(t, err)
+	call, found, err := fixture.Store.Execution().GetCustomToolCallInput(ctx, testProjectID, fixture.AgentID, toolID)
+	require.NoError(t, err)
+	require.True(t, found)
+	var ready []notifications.ToolCallUpdatedCommitted
+	for _, intent := range publisher.intents {
+		if update, ok := intent.(notifications.ToolCallUpdatedCommitted); ok &&
+			update.ToolCallID == toolID && update.State == "ready" {
+			ready = append(ready, update)
+		}
+	}
+	require.Len(t, ready, 1)
+	require.Equal(t, "lookup_customer", ready[0].Name)
+	require.JSONEq(t, string(call.Input), string(ready[0].Input))
+}
+
 func TestInteractionWebhookLifecycle(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"permission", "question"} {
@@ -541,6 +574,23 @@ func TestEventWebhookClaimsShareOrganizationLimits(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, claimed[2].ID, recovered.ID)
 	require.NotEqual(t, claimed[2].ClaimToken, recovered.ClaimToken)
+}
+
+func TestGetCustomToolCallInputSkipsOtherToolTypes(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "custom_input")
+	ids := createToolCallBatchForProcessTest(t, ctx, fixture, "custom_input", []processToolCallBatchItem{
+		customProcessToolCallBatchItem("custom_input_custom", "lookup_customer"),
+		builtInProcessToolCallBatchItem("custom_input_built_in", "run_command"),
+	})
+	call, found, err := fixture.Store.Execution().GetCustomToolCallInput(ctx, testProjectID, fixture.AgentID, ids[0])
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "lookup_customer", call.Name)
+	_, found, err = fixture.Store.Execution().GetCustomToolCallInput(ctx, testProjectID, fixture.AgentID, ids[1])
+	require.NoError(t, err)
+	require.False(t, found)
 }
 
 func TestEventWebhookEnqueueFailureRollsBackTransaction(t *testing.T) {

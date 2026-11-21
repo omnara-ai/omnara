@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestPrepareProvisioningKeepsStoredSize(t *testing.T) {
-	a := &fakeAPI{templateErr: errors.New("dashboard down")}
+	a := &fakeAPI{ownedErr: errors.New("template lookup down")}
 	facts, err := testProvider(a).PrepareProvisioning(t.Context(), testProvisioning(t))
 	require.NoError(t, err)
 	require.Equal(t, 2, *facts.CPU)
@@ -30,74 +31,48 @@ func TestPrepareProvisioningKeepsStoredSize(t *testing.T) {
 }
 
 func TestPrepareProvisioningResolvesTemplatesLikeE2B(t *testing.T) {
-	public := template{
-		TemplateID: "pub123", Names: []string{"claude", "e2b/claude"},
-		CPUCount: 2, MemoryMB: 2048, IsDefault: true,
-	}
-	historical := template{
-		TemplateID: "old789", Names: []string{"old-acme/claude"}, CPUCount: 8, MemoryMB: 8192,
-	}
-	current := template{
-		TemplateID: "team456", Names: []string{"acme/claude"}, CPUCount: 4, MemoryMB: 4096,
-	}
+	public := template{TemplateID: "pub123", Names: []string{"claude", "e2b/claude"}, CPUCount: 2, MemoryMB: 2048}
+	team := template{CPUCount: 4, MemoryMB: 4096}
 	for _, test := range []struct {
-		ref         string
-		teamAliases map[string]string
-		cpu         int
+		ref   string
+		owned map[string]template
+		cpu   int
+		calls int
 	}{
-		{ref: "claude", teamAliases: map[string]string{"claude": "team456"}, cpu: 4},
-		{ref: "claude", cpu: 2},
-		{ref: "team456", teamAliases: map[string]string{"team456": "team456"}, cpu: 4},
-		{ref: "pub123", cpu: 2},
-		{ref: "e2b/claude", cpu: 2},
-		{ref: "acme/claude", cpu: 4},
-		{ref: "old-acme/claude", cpu: 8},
+		{ref: "claude", owned: map[string]template{"claude": team}, cpu: 4, calls: 1},
+		{ref: "acme/claude", owned: map[string]template{"acme/claude": team}, cpu: 4, calls: 1},
+		{ref: "claude", cpu: 2, calls: 2},
+		{ref: "pub123", cpu: 2, calls: 2},
+		{ref: "e2b/claude", cpu: 2, calls: 2},
 	} {
-		a := &fakeAPI{templatePages: [][]template{{public, historical}, {current}}, teamAliases: test.teamAliases}
+		a := &fakeAPI{defaults: []template{public}, owned: test.owned}
 		facts, err := testProvider(a).PrepareProvisioning(
 			t.Context(),
 			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, test.ref)},
 		)
 		require.NoError(t, err, test.ref)
 		require.Equal(t, test.cpu, *facts.CPU, test.ref)
+		require.Equal(t, test.calls, a.templateCalls, test.ref)
 	}
 }
 
 func TestPrepareProvisioningReportsUnusableTemplates(t *testing.T) {
-	building := template{TemplateID: "b1", Names: []string{"acme/building"}}
-	pages := [][]template{{building}}
 	unavailable := apiError{StatusCode: http.StatusServiceUnavailable}
 	for _, test := range []struct {
 		name        string
 		api         *fakeAPI
-		ref         string
 		want        string
 		unavailable bool
 	}{
-		{name: "missing", api: &fakeAPI{templatePages: pages}, ref: "nope", want: "not found"},
-		{name: "missing name", api: &fakeAPI{templatePages: pages}, ref: "acme/nope", want: "not found"},
-		{
-			name: "no build",
-			api:  &fakeAPI{templatePages: pages, teamAliases: map[string]string{"building": "b1"}},
-			ref:  "building",
-			want: "no ready build",
-		},
-		{
-			name: "repeated cursor",
-			api:  &fakeAPI{templatePages: [][]template{{building}, {building}}, repeatCursor: true},
-			ref:  "acme/nope",
-			want: "repeated a page cursor",
-		},
-		{name: "rejected key", api: &fakeAPI{resolveErr: apiError{StatusCode: http.StatusUnauthorized}}, ref: "claude",
-			want: "HTTP 401"},
-		{name: "alias lookup down", api: &fakeAPI{resolveErr: unavailable}, ref: "claude", want: "HTTP 503",
-			unavailable: true},
-		{name: "template list down", api: &fakeAPI{templateErr: unavailable}, ref: "acme/claude", want: "HTTP 503",
-			unavailable: true},
+		{name: "missing", api: &fakeAPI{}, want: "not found"},
+		{name: "no build", api: &fakeAPI{owned: map[string]template{"claude": {}}}, want: "no ready build"},
+		{name: "rejected key", api: &fakeAPI{ownedErr: apiError{StatusCode: http.StatusUnauthorized}}, want: "HTTP 401"},
+		{name: "team template lookup down", api: &fakeAPI{ownedErr: unavailable}, want: "HTTP 503", unavailable: true},
+		{name: "public template list down", api: &fakeAPI{defaultsErr: unavailable}, want: "HTTP 503", unavailable: true},
 	} {
 		_, err := testProvider(test.api).PrepareProvisioning(
 			t.Context(),
-			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, test.ref)},
+			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, "claude")},
 		)
 		require.ErrorContains(t, err, test.want, test.name)
 		require.Equal(t, test.unavailable, errors.Is(err, storeerr.ErrMachineProviderUnavailable), test.name)
@@ -119,7 +94,11 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 		TemplateID: "claude",
 		Timeout:    createTimeoutSeconds,
 		Metadata:   metadata,
-		Network:    networkConfig{AllowPublicTraffic: false},
+		Network: networkConfig{AllowPublicTraffic: false, Rules: map[string][]networkRule{
+			"api.omnara.test": {{Transform: networkTransform{
+				Headers: map[string]string{daemonprotocol.MachineTokenHeader: "machine-token"},
+			}}},
+		}},
 	}}, a.creates)
 	require.Equal(t, []string{"sbx1"}, a.extended)
 	require.Len(t, a.starts, 1)
@@ -129,7 +108,7 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 	require.Equal(t, []string{launcher[1], launcherGuard(launcherLockPath) + launcher[2]}, start.Process.Args)
 	require.Equal(t, daemonProcessTag, start.Tag)
 	require.False(t, start.Stdin)
-	require.Equal(t, "machine-token", start.Process.Envs["OMNARA_MACHINE_TOKEN"])
+	require.Equal(t, daemonprotocol.ProviderInjectedMachineToken, start.Process.Envs["OMNARA_MACHINE_TOKEN"])
 	require.Equal(t, "value", start.Process.Envs["USER_KEY"])
 	require.Equal(t, providers.ManagedBootScriptPayload(), start.Process.Envs[providers.ManagedBootstrapScriptEnvVar])
 }

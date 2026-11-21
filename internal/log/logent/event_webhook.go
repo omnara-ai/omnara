@@ -2,7 +2,6 @@ package logent
 
 import (
 	"context"
-	"errors"
 	"net/url"
 	"time"
 
@@ -21,6 +20,12 @@ func EventWebhookDeliveryAttempt(
 		"event_webhook.attempt":     delivery.AttemptCount,
 	})
 	ctx = log.WithEvent(ctx, event)
+	if !delivery.CreatedAt.IsZero() {
+		log.Attach(ctx, log.Fields{"event_webhook.age_seconds": max(time.Since(delivery.CreatedAt).Seconds(), 0)})
+	}
+	if !delivery.NextAttemptAt.IsZero() {
+		log.Attach(ctx, log.Fields{"event_webhook.wait_seconds": max(time.Since(delivery.NextAttemptAt).Seconds(), 0)})
+	}
 	if delivery.EventSequence != nil {
 		log.Attach(ctx, log.Fields{"event_webhook.event_sequence": *delivery.EventSequence})
 	}
@@ -47,9 +52,9 @@ func EventWebhookResponse(ctx context.Context, status int) {
 }
 
 func EventWebhookDeliveryAttemptResult(
-	ctx context.Context, outcome string, err error, retryAt time.Time,
+	ctx context.Context, outcome, cause string, err error, retryAt time.Time,
 ) {
-	log.Attach(ctx, log.Fields{"event_webhook.outcome": outcome})
+	log.Attach(ctx, log.Fields{"event_webhook.outcome": outcome, "event_webhook.cause": cause})
 	log.Error(ctx, err)
 	if !retryAt.IsZero() {
 		log.Attach(ctx, log.Fields{"event_webhook.retry_at": retryAt})
@@ -57,8 +62,7 @@ func EventWebhookDeliveryAttemptResult(
 	switch outcome {
 	case "gave_up":
 		log.Attach(ctx, log.Fields{"event_webhook.gave_up": true})
-		var recipient interface{ EventWebhookRecipientFailure() }
-		if errors.As(err, &recipient) {
+		if cause == "recipient" || cause == "configuration" {
 			log.Level(ctx, log.WarnLevel)
 		} else {
 			log.Level(ctx, log.ErrorLevel)

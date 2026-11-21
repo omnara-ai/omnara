@@ -145,6 +145,7 @@ func (s *Store) VisitSearchStores(
 	}
 	view := storeFS{globFS: globFS{checkCanceled: ctx.Err}, files: s.files, projectID: projectID, stores: stores}
 	defer func() { _ = view.Close() }()
+	literal := !strings.ContainsAny(pattern, "*?")
 	for _, store := range stores {
 		matches, err := doublestar.Match(storePattern, store.Name)
 		if err != nil {
@@ -154,13 +155,13 @@ func (s *Store) VisitSearchStores(
 			continue
 		}
 		root, err := view.openStore(store)
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) && !literal {
 			continue
 		}
 		if err != nil {
-			return err
+			return fileReadError(err)
 		}
-		if !strings.ContainsAny(pattern, "*?") {
+		if literal {
 			_, name, err := ParsePath(pattern)
 			if err != nil {
 				return err

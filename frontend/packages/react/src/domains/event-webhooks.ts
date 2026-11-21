@@ -1,30 +1,27 @@
-import { type EventWebhookScope, sdk, type UpdateEventWebhookRequest } from '@omnara/sdk'
-import { listEventWebhooksOptions } from '@omnara/sdk/tanstack'
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { sdk, type UpdateEventWebhookRequest } from '@omnara/sdk'
+import { listEventWebhooksInfiniteOptions } from '@omnara/sdk/tanstack'
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { cursorPaginated } from './pagination'
 import { generatedQueryKey } from './query-keys'
 import { useScopedMutation } from './scoped-mutation'
 
-export function useEventWebhooks(
-  orgID: string,
-  projectID: string,
-  scope: EventWebhookScope,
-  options?: { enabled?: boolean },
-) {
+export function useEventWebhooks(orgID: string, projectID: string) {
   const client = useOmnaraClient()
-  return useQuery({
-    ...listEventWebhooksOptions({
-      client,
-      path: { orgID, projectID },
-      query: {
-        scope_type: scope.type,
-        agent_profile_id: scope.type === 'profile' ? scope.agent_profile_id : undefined,
-        agent_id: scope.type === 'agent' ? scope.agent_id : undefined,
-      },
-    }),
-    enabled: options?.enabled,
-  })
+  return useInfiniteQuery(
+    cursorPaginated(
+      listEventWebhooksInfiniteOptions({
+        client,
+        path: { orgID, projectID },
+      }),
+    ),
+  )
 }
 
 export function useCreateEventWebhook(orgID: string, projectID: string) {

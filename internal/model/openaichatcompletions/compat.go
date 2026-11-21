@@ -29,10 +29,12 @@ type compat struct {
 	usageViaStreamOptions        bool
 	usageChunkCompletesStream    bool
 	refinesErrorsFromRawDetails  bool
+	reportsOpenRouterLimits      bool
 	reportsServedProviderAndCost bool
 	reportsNativeFinishReason    bool
 	parsesPDFDocuments           bool
 	routesFallbackModels         bool
+	acceptsM4AAndFLACAudio       bool
 }
 
 func compatFor(route model.ProviderRoute) compat {
@@ -43,10 +45,12 @@ func compatFor(route model.ProviderRoute) compat {
 			reasoningFormat:              reasoningFormatOpenRouter,
 			conversationKeyField:         conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
+			reportsOpenRouterLimits:      true,
 			reportsServedProviderAndCost: true,
 			reportsNativeFinishReason:    true,
 			parsesPDFDocuments:           true,
 			routesFallbackModels:         true,
+			acceptsM4AAndFLACAudio:       true,
 		}
 	case modelprotocol.APIVariantBedrock:
 		return compat{

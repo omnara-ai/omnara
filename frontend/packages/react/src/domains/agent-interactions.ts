@@ -149,12 +149,13 @@ async function sentBySubagent(
 ): Promise<boolean> {
   if (event.event_kind !== 'agent_input' || event.actor_id == null) return false
   const actor = await queryClient
-    .ensureQueryData(
-      getActorOptions({
+    .query({
+      ...getActorOptions({
         path: { orgID: scope.orgID, projectID: scope.projectID, actorID: event.actor_id },
         client,
       }),
-    )
+      staleTime: 'static',
+    })
     .catch(() => null)
   return actor != null && isAgentActor(actor)
 }

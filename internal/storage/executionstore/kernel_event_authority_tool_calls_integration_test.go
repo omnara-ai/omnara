@@ -705,6 +705,7 @@ func TestToolCallInputRequiresJSONObject(t *testing.T) {
 	if _, err := fixture.Store.pool.Exec(ctx, `
 INSERT INTO tool_calls (
     id,
+    project_id,
     agent_id,
     model_output_id,
     provider_call_id,
@@ -717,6 +718,7 @@ INSERT INTO tool_calls (
 )
 SELECT
     uuidv7(),
+    project_id,
     agent_id,
     model_output_id,
     provider_call_id || '_invalid_input',
@@ -747,10 +749,10 @@ func TestKernelToolCallProviderIdentityBound(t *testing.T) {
 	)
 	_, err := fixture.Store.pool.Exec(ctx, `
 INSERT INTO tool_calls(
-  agent_id, model_output_id,
+  project_id, agent_id, model_output_id,
   provider_call_id, name, input, type, state, created_at
 )
-SELECT agent_id, model_output_id,
+SELECT project_id, agent_id, model_output_id,
 	       $3, name, input, type, state, created_at
 FROM tool_calls
 WHERE agent_id = $1 AND id = $2

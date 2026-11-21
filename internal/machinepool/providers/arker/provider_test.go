@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -49,7 +50,7 @@ func TestArkerProviderProvisionForksByAllocationName(t *testing.T) {
 	}
 }
 
-func TestArkerProviderProvisionKeyIsStableAcrossAttempts(t *testing.T) {
+func TestArkerProviderRetryReusesTheForkedVM(t *testing.T) {
 	name := testAllocationName(t)
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, name).URL)
@@ -62,9 +63,38 @@ func TestArkerProviderProvisionKeyIsStableAcrossAttempts(t *testing.T) {
 			t.Fatalf("provision under %s: %v", token, err)
 		}
 	}
-	keys, _, _, _ := fake.snapshot()
-	if len(keys) != 2 || keys[0] != name || keys[1] != name {
-		t.Fatalf("attempts sent keys %v, want the allocation name %q", keys, name)
+	keys, _, env, _ := fake.snapshot()
+	if len(keys) != 1 || keys[0] != name {
+		t.Fatalf("attempts sent fork keys %v, want one fork keyed by the allocation name %q", keys, name)
+	}
+	if env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken {
+		t.Fatalf("reused machine env token = %q, want the provider-injected marker", env["OMNARA_MACHINE_TOKEN"])
+	}
+}
+
+func TestArkerProviderLaterAttemptForksWhenTheVMIsMissing(t *testing.T) {
+	name := testAllocationName(t)
+	fake := &fakeArker{vmMissingUntilFork: true}
+	machineProvider := newTestProvider(fake.start(t, name).URL)
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, false,
+	); err != nil {
+		t.Fatalf("provision later attempt: %v", err)
+	}
+	if keys, _, _, _ := fake.snapshot(); len(keys) != 1 || keys[0] != name {
+		t.Fatalf("later attempt sent fork keys %v, want one fork keyed by %q", keys, name)
+	}
+}
+
+func TestArkerProviderRejectsAnAPIURLThatCannotBeInjected(t *testing.T) {
+	fake := &fakeArker{}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+	machineProvider.omnaraAPIURL = "http://omnara.example"
+	_, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, true,
+	)
+	if keys, _, _, _ := fake.snapshot(); !errors.Is(err, providers.ErrPermanent) || len(keys) != 0 {
+		t.Fatalf("error = %v forks = %d, want a permanent error before any fork", err, len(keys))
 	}
 }
 
@@ -78,11 +108,23 @@ func TestArkerProviderStartsTheDaemonInASessionWithTheMachineEnv(t *testing.T) {
 	); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	_, _, env, command := fake.snapshot()
+	_, forkBody, env, command := fake.snapshot()
 	var sessionID string
 	fake.record(func() { sessionID = fake.runSessionID })
-	if _, dropped := env["MY-VAR"]; dropped || env["OMNARA_MACHINE_TOKEN"] != "tok-1" || env["MY_VAR"] != "value" {
+	if _, dropped := env["MY-VAR"]; dropped ||
+		env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken || env["MY_VAR"] != "value" {
 		t.Fatalf("session env = %v", env)
+	}
+	policies, err := json.Marshal(forkBody["policies"])
+	if err != nil {
+		t.Fatalf("encode fork policies: %v", err)
+	}
+	const wantPolicies = `{"rules":{"omnara-machine-token":{"action":{"rewrite":{"headers":{"authorization":` +
+		`"Bearer ${secret:OMNARA_MACHINE_TOKEN}"}}},"match":{"headers":{"authorization":["Bearer provider-injected"]},` +
+		`"hosts":["omnara.example"],"ports":[443]},"priority":1000000,"type":"outbound"}},` +
+		`"secrets":{"OMNARA_MACHINE_TOKEN":"tok-1"}}`
+	if string(policies) != wantPolicies {
+		t.Fatalf("fork policies = %s", policies)
 	}
 	if env[providers.ManagedBootstrapScriptEnvVar] != providers.ManagedBootScriptPayload() {
 		t.Fatal("session env is missing the bootstrap payload")

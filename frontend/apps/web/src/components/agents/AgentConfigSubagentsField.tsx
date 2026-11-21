@@ -53,13 +53,12 @@ export function AgentConfigSubagentsField({
   orgId: string
   projectId: string
   subagents: BasicSubagent[]
-  /** The agent's explicit reasoning effort, which clones keep unless they set their own. */
   parentReasoningEffort: string
   maxSubagents: string
   maxDepth: string
   onSubagentsChange: (subagents: BasicSubagent[]) => void
-  onMaxSubagentsChange: (value: string) => void
-  onMaxDepthChange: (value: string) => void
+  onMaxSubagentsChange?: (value: string) => void
+  onMaxDepthChange?: (value: string) => void
 }) {
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set())
   function setExpanded(id: string, expanded: boolean) {
@@ -139,9 +138,10 @@ export function AgentConfigSubagentsField({
                 id="agent-config-max-subagents"
                 inputMode="numeric"
                 value={maxSubagents}
-                placeholder="Unlimited"
+                disabled={!onMaxSubagentsChange}
+                placeholder={onMaxSubagentsChange ? 'Unlimited' : 'Preserved in source'}
                 onChange={(event) => {
-                  onMaxSubagentsChange(event.target.value.trim())
+                  onMaxSubagentsChange?.(event.target.value.trim())
                 }}
               />
             </Field>
@@ -151,9 +151,10 @@ export function AgentConfigSubagentsField({
                 id="agent-config-max-depth"
                 inputMode="numeric"
                 value={maxDepth}
-                placeholder="1"
+                disabled={!onMaxDepthChange}
+                placeholder={onMaxDepthChange ? '1' : 'Preserved in source'}
                 onChange={(event) => {
-                  onMaxDepthChange(event.target.value.trim())
+                  onMaxDepthChange?.(event.target.value.trim())
                 }}
               />
             </Field>
@@ -211,8 +212,6 @@ function SubagentFields({
         <PillTabs
           value={subagent.type}
           onValueChange={(type) => {
-            // Both types accept a model override, so it carries over; profile subagents show
-            // the notice below instead of the picker.
             edit({ type })
           }}
           tabs={subagentTypeOptions}

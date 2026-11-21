@@ -16,12 +16,35 @@ func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 		statusCode int
 		body       string
 		want       model.ErrorKind
+		wantCode   string
 	}{
 		{
 			name:       "billing",
 			statusCode: http.StatusPaymentRequired,
 			body:       `{"type":"error","error":{"type":"billing_error","message":"pay up"},"request_id":"req_bill"}`,
 			want:       model.ErrorKindBillingAccount,
+		},
+		{
+			name:       "low credit balance",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low ` +
+				`to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}`,
+			want: model.ErrorKindBillingAccount,
+		},
+		{
+			name:       "spend limit",
+			statusCode: http.StatusBadRequest,
+			body: `{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your ` +
+				`specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC."}}`,
+			want: model.ErrorKindBillingAccount,
+		},
+		{
+			name:       "spend cap",
+			statusCode: http.StatusTooManyRequests,
+			body: `{"type":"error","error":{"type":"rate_limit_error","message":"You have reached your API usage ` +
+				`limits.","details":{"error_code":"enforced_spend_limit_reached"}}}`,
+			want:     model.ErrorKindBillingAccount,
+			wantCode: "enforced_spend_limit_reached",
 		},
 		{
 			name:       "generic context prose is invalid request",
@@ -162,7 +185,7 @@ func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 			_, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"messages":[]}`)})
 			providerErr, ok := model.ClassifyError(err)
 			if !ok || providerErr.Kind != tt.want || providerErr.Source != server.URL ||
-				providerErr.StatusCode != tt.statusCode {
+				providerErr.StatusCode != tt.statusCode || (tt.wantCode != "" && providerErr.Code != tt.wantCode) {
 				t.Fatalf("classified error = %+v ok=%v err=%v", providerErr, ok, err)
 			}
 		})

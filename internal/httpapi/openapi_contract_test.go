@@ -176,6 +176,45 @@ func TestOpenAPIIntegrationIDsUseSharedSchemas(t *testing.T) {
 	}
 }
 
+func TestOpenAPIReplaySafetyAnnotations(t *testing.T) {
+	spec, err := openapi3.NewLoader().LoadFromData(openapispec.YAML)
+	if err != nil {
+		t.Fatalf("load source OpenAPI spec: %v", err)
+	}
+	var annotated []string
+	for path, item := range spec.Paths.Map() {
+		for method, operation := range item.Operations() {
+			value, exists := operation.Extensions["x-omnara-idempotent"]
+			if !exists {
+				continue
+			}
+			annotated = append(annotated, operation.OperationID)
+			t.Run(operation.OperationID, func(t *testing.T) {
+				if enabled, ok := value.(bool); !ok || !enabled {
+					t.Errorf("%s %s x-omnara-idempotent = %#v, want true", method, path, value)
+				}
+				if method == http.MethodGet || method == http.MethodHead {
+					t.Errorf("%s %s is already replay-safe by method", method, path)
+				}
+				for _, ref := range slices.Concat(item.Parameters, operation.Parameters) {
+					if ref.Value == nil {
+						t.Fatalf("%s %s has unresolved parameter %q", method, path, ref.Ref)
+					}
+					parameter := ref.Value
+					if parameter.In == openapi3.ParameterInHeader && strings.EqualFold(parameter.Name, "Idempotency-Key") {
+						t.Errorf("%s %s already declares replay safety through Idempotency-Key", method, path)
+					}
+				}
+			})
+		}
+	}
+	slices.Sort(annotated)
+	want := []string{"archiveAgent", "submitToolCallResult", "writeMemoryFile"}
+	if !slices.Equal(annotated, want) {
+		t.Errorf("replay-safe mutations = %v, want reviewed operations %v", annotated, want)
+	}
+}
+
 func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	var doc struct {
 		Security   []any          `yaml:"security"`
@@ -454,6 +493,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ModelToolCallContentBlock.name":                          "",
 		"OrgMember.display_name":                                  "",
 		"ToolCall.name":                                           "",
+		"ToolCallUpdate.name":                                     "",
 		"ToolCatalogEntry.name":                                   "",
 		"ResolvedAgentConfigTool.name":                            "",
 		"CheckMachinePoolConnectionRequest.provider_config":       "",
@@ -1003,6 +1043,20 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			name: "agent37 missing memory",
 			body: `{"provider":"agent37",` + common +
 				`,"default_machine_cpu":2,"max_total_cpu":8,"max_total_memory_mb":16384,` +
+				`"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "docker",
+			body: `{"provider":"docker",` + common +
+				`,"default_machine_cpu":2,"default_machine_memory_mb":4096,` +
+				`"max_total_cpu":8,"max_total_memory_mb":16384,"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "docker missing cpu",
+			body: `{"provider":"docker",` + common +
+				`,"default_machine_memory_mb":4096,"max_total_cpu":8,"max_total_memory_mb":16384,` +
 				`"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
 			want: http.StatusBadRequest,
 		},

@@ -118,10 +118,25 @@ type AgentEventCommitted struct {
 
 func (AgentEventCommitted) postCommitIntent() {}
 
+const MaxToolCallUpdateInputBytes = 64 * 1024
+
+func ToolCallUpdateInput(input json.RawMessage) json.RawMessage {
+	if len(input) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil || len(encoded) > MaxToolCallUpdateInputBytes {
+		return nil
+	}
+	return encoded
+}
+
 type ToolCallUpdatedCommitted struct {
 	AgentID           uuid.UUID               `json:"-"`
 	ToolCallID        uuid.UUID               `json:"tool_call_id"`
 	State             string                  `json:"state"`
+	Name              string                  `json:"name,omitempty"`
+	Input             json.RawMessage         `json:"input,omitempty"`
 	InteractionUpdate *AgentInteractionUpdate `json:"interaction_update,omitempty"`
 }
 
@@ -247,6 +262,7 @@ type PostCommitPublisher interface {
 
 type Recorder interface {
 	RecordNotification(intent, result, reason string)
+	RecordPublisherQueue(capacity int, depth func() int)
 }
 
 type AgentEventReference struct {
@@ -319,15 +335,35 @@ func (n *TxNotifications) AddToolCallUpdate(
 	state string,
 	interactionUpdate *AgentInteractionUpdate,
 ) {
-	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
-		return
-	}
-	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
+	n.addToolCallUpdate(ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
 		State:             state,
 		InteractionUpdate: interactionUpdate,
 	})
+}
+
+func (n *TxNotifications) AddReadyCustomToolCallUpdate(
+	agentID, toolCallID uuid.UUID,
+	name string,
+	input json.RawMessage,
+	interactionUpdate *AgentInteractionUpdate,
+) {
+	n.addToolCallUpdate(ToolCallUpdatedCommitted{
+		AgentID:           agentID,
+		ToolCallID:        toolCallID,
+		State:             "ready",
+		Name:              name,
+		Input:             ToolCallUpdateInput(input),
+		InteractionUpdate: interactionUpdate,
+	})
+}
+
+func (n *TxNotifications) addToolCallUpdate(update ToolCallUpdatedCommitted) {
+	if n == nil || update.AgentID == uuid.Nil || update.ToolCallID == uuid.Nil || update.State == "" {
+		return
+	}
+	n.toolCallUpdates = append(n.toolCallUpdates, update)
 }
 
 func (n *TxNotifications) AddWorkerControl(workerProcessID uuid.UUID, control WorkerControl) {

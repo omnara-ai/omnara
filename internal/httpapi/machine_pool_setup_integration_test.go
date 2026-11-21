@@ -1462,6 +1462,59 @@ func TestPublicMachinePoolConnectionCheckReportsFailures(t *testing.T) {
 	}
 }
 
+func TestDockerMachinePoolsAreOffByDefault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(integrationKeyWrapper()),
+		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
+	)
+	handler := newIntegrationHTTPHandler(withDefaultRequestOrigin(
+		mustNewServer(
+			t,
+			store,
+			WithSecretKeyWrapper(integrationKeyWrapper()),
+			WithPublicURL("https://app.omnara.test"),
+			WithMachinePoolManager(&machinepool.Manager{
+				Execution: store.Execution(),
+				Identity:  store.Identity(),
+				Catalog:   machinepool.DefaultCatalog(),
+			}),
+			WithAuthRateLimiter(&singleConnectionCheckLimiter{}),
+		).Handler(),
+		"https://app.omnara.test",
+	), pool, store)
+	project := bootstrapPublicHTTPProject(t, handler, "docker-pools-off")
+	secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []struct{ path, body string }{
+		{"/machine-pools/check-connection", `{"provider":"docker","provider_auth_secret_id":"` + secretID + `"}`},
+		{"/machine-pools", `{"name":"docker","provider":"docker","provider_auth_secret_id":"` + secretID +
+			`","provider_config":{"api_base_url":"https://docker:2376"},` +
+			`"default_machine_provider_options":{"image":"buildpack-deps:24.04-curl"},"default_machine_cpu":1,` +
+			`"default_machine_memory_mb":1024,"max_machine_cpu":1,"max_machine_memory_mb":1024,"max_total_cpu":1,` +
+			`"max_total_memory_mb":1024,"max_total_machines":1}`},
+	} {
+		result := requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.OrgID+request.path,
+			request.body,
+			"",
+			http.StatusBadRequest,
+			authHeaders(project.AdminToken),
+		)
+		if result["error"] != "invalid request: Docker machine pools are turned off on this deployment" {
+			t.Fatalf("%s = %+v, want Docker turned off", request.path, result)
+		}
+	}
+}
+
 type singleConnectionCheckLimiter struct {
 	used bool
 }

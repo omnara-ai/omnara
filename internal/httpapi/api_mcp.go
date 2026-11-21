@@ -19,6 +19,9 @@ func (s *Server) newAPIMCPServer() (*mcp.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
+	if spec.Info != nil {
+		s.apiMCPVersion = spec.Info.Version
+	}
 	return apimcp.NewServer(spec, apimcp.Tools, apimcp.Options{
 		Dispatch:    http.HandlerFunc(s.dispatchAPIRequest),
 		APIBasePath: openAPIBasePath,

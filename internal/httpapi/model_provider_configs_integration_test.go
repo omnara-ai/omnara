@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -81,6 +84,25 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		openRouterConfig["endpoint_path"] != "/chat/completions" ||
 		openRouterConfig["auth_kind"] != "bearer_token" {
 		t.Fatalf("preset did not materialize OpenRouter provider config: %+v", openRouterConfig)
+	}
+	openLakeConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"openlake-secondary","preset":"openlake","credential_secret_id":"`+secretID+`"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	))
+	if openLakeConfig["api_format"] != "openai-chat-completions" ||
+		openLakeConfig["api_variant"] != "default" ||
+		openLakeConfig["base_url"] != "https://api.theopenlake.com/v1" ||
+		openLakeConfig["endpoint_path"] != "/chat/completions" ||
+		openLakeConfig["auth_kind"] != "bearer_token" ||
+		len(testutil.RequireType[map[string]any](t, openLakeConfig["auth_options"])) != 0 ||
+		openLakeConfig["credential_secret_id"] != secretID {
+		t.Fatalf("preset did not materialize OpenLake provider config: %+v", openLakeConfig)
 	}
 	gatewaySecretID := testutil.RequireType[string](t, requestJSONWithHeaders(
 		t,
@@ -995,7 +1017,6 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 			modelstore.ModelProviderConfigRecord,
 			string,
 			map[string]string,
-			bool,
 		) ([]modelprovider.DiscoveredModel, error) {
 			return nil, errors.New("model discovery is disabled in integration tests")
 		}),
@@ -1379,4 +1400,43 @@ func agentConfigSourceBody(source string) string {
 		panic(err)
 	}
 	return string(raw)
+}
+
+func TestModelProviderBaseURLsFollowEndpointAllowlist(t *testing.T) {
+	t.Parallel()
+	pool := openIntegrationDB(t, context.Background())
+	modelsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-a"}]}`))
+	}))
+	defer modelsServer.Close()
+	_, port, err := net.SplitHostPort(modelsServer.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port, "10.0.5.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := bootstrapPublicHTTPProject(t, newIntegrationServerWithStoreOptions(
+		pool, []storage.Option{storage.WithEndpointAllowlist(listed)},
+	), "model-provider-allowlist")
+	handler := mustNewServer(
+		t, project.Store, WithSecretKeyWrapper(integrationKeyWrapper()), WithEndpointAllowlist(listed),
+	).Handler()
+	secret := requestJSONWithHeaders(t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"allowlist-key","material":{"kind":"generic","value":"sk"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	create := func(name, baseURL string, status int) map[string]any {
+		return requestJSONWithHeaders(t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+			`{"name":"`+name+`","api_format":"openai-responses","base_url":"`+baseURL+
+				`","credential_secret_id":"`+testutil.RequireType[string](t, secret["id"])+`"}`,
+			"", status, authHeaders(project.AdminToken))
+	}
+
+	local := create("listed-loopback", modelsServer.URL+"/v1", http.StatusCreated)
+	if catalog := testutil.RequireType[map[string]any](t, local["model_catalog"]); catalog["status"] != "ok" {
+		t.Fatalf("discovery against a listed loopback endpoint: %+v", catalog)
+	}
+	create("listed-network-hostname", "http://models.invalid:8080/v1", http.StatusCreated)
+	create("unlisted-private-ip", "http://10.0.6.21:8080/v1", http.StatusBadRequest)
 }

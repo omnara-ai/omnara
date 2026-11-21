@@ -1,0 +1,42 @@
+groups:
+  - name: omnara-delivery
+    rules:
+      - alert: OmnaraWebhookQueueSampleStale
+        expr: time() - max by (cluster) (omnara_event_webhook_backlog_sample_last_success_timestamp_seconds) > 180 or absent(omnara_event_webhook_backlog_sample_last_success_timestamp_seconds)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Webhook queue sampling is unavailable
+          description: No successful queue sample for over three minutes. Check maintenance health and PostgreSQL before interpreting queue gauges.
+      - alert: OmnaraWebhookDeliveryBacklog
+        expr: max by (cluster) (omnara_event_webhook_oldest_due_lag_seconds and (time() - omnara_event_webhook_backlog_sample_last_success_timestamp_seconds < 180)) > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Due webhook deliveries are waiting to be claimed
+          description: The oldest due delivery has waited over two minutes past its scheduled attempt for two minutes. Check worker slots, organization throttling, and local failures.
+      - alert: OmnaraAgentStreamBufferDrops
+        expr: sum by (cluster, frame) (increase(omnara_agent_stream_buffer_dropped_total{frame="tool_call_update"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Agent SSE subscriber buffers dropped tool updates
+          description: A full application subscriber buffer discarded tool updates. Tool workers must recover ready calls through the API.
+      - alert: OmnaraNotificationPublisherDrops
+        expr: sum by (cluster, intent) (increase(omnara_notifications_total{result="dropped",reason="queue_full"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Post-commit notification publisher queues overflowed
+          description: Check local publisher queue depth, Redis latency, and publish errors. Durable work remains in PostgreSQL; live delivery is degraded.
+
+      - alert: OmnaraWebhookLocalFailures
+        expr: sum by (cluster) (increase(omnara_event_webhook_attempts_total{cause="local"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Webhook delivery attempts failed locally
+          description: Delivery preparation or persistence failed inside Omnara. Inspect attempt logs for database, payload, or key-management failures.

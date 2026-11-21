@@ -225,7 +225,7 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 		"OMNARA_API_RATE_LIMIT_READS_PER_HOUR=0",
 		"OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR=0",
 		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
-		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
+		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\""+e.secretEncryptionKey+"\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_LOG_LEVEL="+serviceE2EEnvDefault("OMNARA_E2E_API_LOG_LEVEL", "error"),
 	)
@@ -250,7 +250,7 @@ func (e *serviceE2EEnvironment) startWorker(
 	t.Helper()
 	workerPort := freePort(t)
 	e.workerURL = "http://127.0.0.1:" + workerPort
-	e.workerListenAddr = "0.0.0.0:" + workerPort
+	e.workerListenAddr = "127.0.0.1:" + workerPort
 	if opts.LogLevel == "" {
 		opts.LogLevel = "error"
 	}
@@ -283,7 +283,7 @@ func (e *serviceE2EEnvironment) startWorker(
 		"OMNARA_REDIS_URL=" + e.redisURL,
 		"OMNARA_PUBLIC_URL=" + workerPublicURL,
 		"OMNARA_MEMORY_DIR=" + filepath.Join(e.root, "memory"),
-		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
+		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"" + e.secretEncryptionKey + "\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_SAFETY_IDENTIFIER_KEY=" + modeltest.SafetyIdentifierKey,
 		"OMNARA_LOG_LEVEL=" + opts.LogLevel,
@@ -343,6 +343,8 @@ func (e *serviceE2EEnvironment) startMaintenance(t *testing.T, ctx context.Conte
 		"OMNARA_DATABASE_URL="+e.databaseURL,
 		"OMNARA_REDIS_URL="+e.redisURL,
 		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
+		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\""+e.secretEncryptionKey+"\"}",
+		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_MAINTENANCE_INTERVAL=10s",
 		"OMNARA_LOG_LEVEL=error",
 	)

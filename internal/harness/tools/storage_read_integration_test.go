@@ -296,7 +296,8 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 		}
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/missing.txt"}`)
-	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) ||
+		err.Error() != storeerr.ErrPathNotFound.Error() {
 		t.Fatalf("missing file read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested"}`)

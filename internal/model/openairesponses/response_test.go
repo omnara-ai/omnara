@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
@@ -103,8 +104,8 @@ func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {
 
 func TestUsageFromResponseDropsIncoherentTokenDetails(t *testing.T) {
 	for _, details := range []responsesTokenDetails{
-		{CachedTokens: 11},
-		{CachedTokens: 6, CacheWriteTokens: 5},
+		{CachedTokens: reportedCount(11)},
+		{CachedTokens: reportedCount(6), CacheWriteTokens: 5},
 	} {
 		usage := usageFromResponse(responsesUsage{
 			InputTokens:        10,
@@ -923,4 +924,8 @@ func TestRespondRejectsNULInSuccessfulResponsesPayload(t *testing.T) {
 	if !ok || providerErr.Code != "malformed_success_response" || !model.IsAmbiguousProviderOutcome(err) {
 		t.Fatalf("NUL response = %+v ok=%v err=%v", providerErr, ok, err)
 	}
+}
+
+func reportedCount(count int) modelenvelope.ReportedCount {
+	return modelenvelope.ReportedCount{Count: count, Reported: true}
 }

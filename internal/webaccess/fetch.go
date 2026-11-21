@@ -32,15 +32,17 @@ type FetcherOptions struct {
 	// transport).
 	AllowLoopback bool
 	UserAgent     string
+	Allowlist     *ssrf.Allowlist
 }
 
-// Fetcher retrieves model-controlled public URLs. Every connection — including
+// Fetcher retrieves model-controlled URLs. Every connection — including
 // each redirect hop — dials through the SSRF guard with the validated IP
-// pinned, so DNS rebinding and redirect tricks cannot reach private addresses.
+// pinned, so DNS rebinding and redirect tricks cannot reach unlisted private addresses.
 type Fetcher struct {
 	client            *http.Client
 	userAgent         string
 	allowInsecureHTTP bool
+	allowlist         *ssrf.Allowlist
 }
 
 type FetchRequest struct {
@@ -66,14 +68,19 @@ func NewFetcher(opts FetcherOptions) *Fetcher {
 		userAgent = "omnara-agent/1.0"
 	}
 	return &Fetcher{
-		client:            newSSRFHTTPClient(opts.AllowLoopback),
+		client:            newSSRFHTTPClient(opts.AllowLoopback, opts.Allowlist),
 		userAgent:         userAgent,
 		allowInsecureHTTP: opts.AllowLoopback,
+		allowlist:         opts.Allowlist,
 	}
 }
 
-func newSSRFHTTPClient(allowLoopback bool) *http.Client {
-	client := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{AllowLoopback: allowLoopback})
+func newSSRFHTTPClient(allowLoopback bool, allowlist *ssrf.Allowlist) *http.Client {
+	opts := outboundhttp.PublicClientOptions{AllowLoopback: allowLoopback, Allowlist: allowlist}
+	if allowLoopback {
+		opts.PlainHTTP = ssrf.PlainHTTPUnrestricted
+	}
+	client := outboundhttp.NewPublicClient(opts)
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= fetchMaxRedirects {
 			return &ProviderError{
@@ -87,7 +94,7 @@ func newSSRFHTTPClient(allowLoopback bool) *http.Client {
 				Message: fmt.Sprintf("redirect to unsupported scheme %q", req.URL.Scheme),
 			}
 		}
-		if !allowLoopback && req.URL.Scheme == "http" {
+		if !allowLoopback && req.URL.Scheme == "http" && !allowsPlainHTTP(req.URL, allowlist) {
 			return &ProviderError{
 				Code:    ErrorCodeFetchInvalidURL,
 				Message: "redirect to insecure http url is not allowed",
@@ -99,7 +106,7 @@ func newSSRFHTTPClient(allowLoopback bool) *http.Client {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, req FetchRequest) (FetchResult, error) {
-	target, err := normalizeFetchURL(req.URL, f.allowInsecureHTTP)
+	target, err := normalizeFetchURL(req.URL, f.allowInsecureHTTP, f.allowlist)
 	if err != nil {
 		return FetchResult{}, err
 	}
@@ -188,7 +195,12 @@ func acceptHeader(format string) string {
 		"text/plain;q=0.8,application/json;q=0.8,*/*;q=0.5"
 }
 
-func normalizeFetchURL(raw string, allowInsecureHTTP bool) (string, error) {
+func allowsPlainHTTP(u *url.URL, allowlist *ssrf.Allowlist) bool {
+	ip := ssrf.ClassifyURLHost(u.Hostname()).IP
+	return ip != nil && allowlist.Contains(ip, ssrf.URLPort(u))
+}
+
+func normalizeFetchURL(raw string, allowInsecureHTTP bool, allowlist *ssrf.Allowlist) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return "", &ProviderError{Code: ErrorCodeFetchInvalidURL, Message: fmt.Sprintf("invalid url: %v", err)}
@@ -196,7 +208,7 @@ func normalizeFetchURL(raw string, allowInsecureHTTP bool) (string, error) {
 	switch parsed.Scheme {
 	case "https":
 	case "http":
-		if !allowInsecureHTTP {
+		if !allowInsecureHTTP && !allowsPlainHTTP(parsed, allowlist) {
 			parsed.Scheme = "https"
 		}
 	default:

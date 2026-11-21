@@ -51,6 +51,65 @@ func (s *Store) GetToolCall(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
+func (s *Store) GetToolCallSummary(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (ToolCallSummary, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
+		return ToolCallSummary{}, errors.New("project, agent, and tool call id are required")
+	}
+	row, err := s.q.GetToolCallSummary(ctx, dbsqlc.GetToolCallSummaryParams{
+		ProjectID: projectID, AgentID: agentID, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallSummary{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ToolCallSummary{}, fmt.Errorf("get tool call summary: %w", err)
+	}
+	return ToolCallSummary{
+		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+		Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
+		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+	}, nil
+}
+
+func (s *Store) GetToolCallStatus(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (ToolCallStatus, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
+		return ToolCallStatus{}, errors.New("project, agent, and tool call id are required")
+	}
+	row, err := s.q.GetToolCallStatus(ctx, dbsqlc.GetToolCallStatusParams{
+		ProjectID: projectID, AgentID: agentID, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallStatus{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ToolCallStatus{}, fmt.Errorf("get tool call status: %w", err)
+	}
+	return ToolCallStatus{Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State)}, nil
+}
+
+func (s *Store) GetCustomToolCallInput(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (CustomToolCallInput, bool, error) {
+	row, err := s.q.GetCustomToolCallInput(
+		ctx,
+		dbsqlc.GetCustomToolCallInputParams{ProjectID: projectID, AgentID: agentID, ID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CustomToolCallInput{}, false, nil
+	}
+	if err != nil {
+		return CustomToolCallInput{}, false, fmt.Errorf("get custom tool call input: %w", err)
+	}
+	return CustomToolCallInput(row), true, nil
+}
+
 func (s *Store) ListToolCalls(
 	ctx context.Context,
 	input ListToolCallsInput,
@@ -61,33 +120,14 @@ func (s *Store) ListToolCalls(
 	if input.Limit <= 0 {
 		return ListToolCallsResult{}, errors.New("limit must be positive")
 	}
-	switch input.State {
-	case "",
-		ToolCallStateAwaitingAuthorization,
-		ToolCallStateAwaitingPermission,
-		ToolCallStateReady,
-		ToolCallStateRunning,
-		ToolCallStateWaiting,
-		ToolCallStateCompleted:
-	default:
-		return ListToolCallsResult{}, fmt.Errorf(
-			"invalid tool call state %q",
-			input.State,
-		)
-	}
-	switch input.Type {
-	case "",
-		toolcatalog.ToolTypeBuiltIn,
-		toolcatalog.ToolTypeCustom,
-		toolcatalog.ToolTypeMCP:
-	default:
-		return ListToolCallsResult{}, fmt.Errorf("invalid tool call type %q", input.Type)
+	if err := validateToolCallFilters(input.State, input.Type); err != nil {
+		return ListToolCallsResult{}, err
 	}
 	params := dbsqlc.ListToolCallsForAgentParams{
 		ProjectID: input.ProjectID,
 		AgentIds:  input.AgentIDs,
 		State:     string(input.State),
-		Type:      input.Type,
+		Type:      string(input.Type),
 		RowLimit:  int64(input.Limit) + 1,
 	}
 	if input.After.Set {
@@ -100,16 +140,78 @@ func (s *Store) ListToolCalls(
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list tool calls: %w", err)
 	}
-	result := ListToolCallsResult{}
-	if len(rows) > input.Limit {
-		result.HasMore = true
-		rows = rows[:input.Limit]
-	}
-	result.ToolCalls = make([]ToolCallRecord, 0, len(rows))
+	calls := make([]ToolCallSummary, 0, len(rows))
 	for _, row := range rows {
-		result.ToolCalls = append(result.ToolCalls, toolCallRecordFromAgentListSQLC(row))
+		calls = append(calls, ToolCallSummary{
+			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
+			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		})
 	}
-	return result, nil
+	return toolCallsPage(calls, input.Limit), nil
+}
+
+func (s *Store) ListUnfinishedProjectToolCalls(
+	ctx context.Context,
+	input ListUnfinishedProjectToolCallsInput,
+) (ListToolCallsResult, error) {
+	if input.ProjectID == uuid.Nil {
+		return ListToolCallsResult{}, errors.New("project is required")
+	}
+	if input.Limit <= 0 {
+		return ListToolCallsResult{}, errors.New("limit must be positive")
+	}
+	if err := validateToolCallFilters(input.State, input.Type); err != nil {
+		return ListToolCallsResult{}, err
+	}
+	if input.State == ToolCallStateCompleted {
+		return ListToolCallsResult{}, errors.New("completed calls are not unfinished work")
+	}
+	params := dbsqlc.ListUnfinishedToolCallsForProjectParams{
+		ProjectID:      input.ProjectID,
+		AgentProfileID: input.AgentProfileID,
+		State:          string(input.State),
+		Type:           string(input.Type),
+		Names:          input.Names,
+		RowLimit:       int64(input.Limit) + 1,
+	}
+	if input.After.Set {
+		createdAt := input.After.CreatedAt
+		id := input.After.ID
+		params.CursorCreatedAt = &createdAt
+		params.CursorID = &id
+	}
+	rows, err := s.q.ListUnfinishedToolCallsForProject(ctx, params)
+	if err != nil {
+		return ListToolCallsResult{}, fmt.Errorf("list unfinished project tool calls: %w", err)
+	}
+	calls := make([]ToolCallSummary, 0, len(rows))
+	for _, row := range rows {
+		calls = append(calls, ToolCallSummary{
+			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
+			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		})
+	}
+	return toolCallsPage(calls, input.Limit), nil
+}
+
+func validateToolCallFilters(state ToolCallState, toolType toolcatalog.Type) error {
+	if state != "" && !state.Valid() {
+		return fmt.Errorf("invalid tool call state %q", state)
+	}
+	if toolType != "" && !toolType.Valid() {
+		return fmt.Errorf("invalid tool call type %q", toolType)
+	}
+	return nil
+}
+
+func toolCallsPage(calls []ToolCallSummary, limit int) ListToolCallsResult {
+	result := ListToolCallsResult{ToolCalls: calls, HasMore: len(calls) > limit}
+	if result.HasMore {
+		result.ToolCalls = calls[:limit]
+	}
+	return result
 }
 
 func (s *Store) NextRunnableToolCall(

@@ -58,6 +58,7 @@ func applyRequestInputMeasurement(
 	}
 
 	prefix, suffix := bundle, bundle
+	prefix.OutputNoProgressRetries = source.OutputNoProgressRetries
 	prefix.InputEventSequence = source.InputEventSequence
 	prefix.Messages = nil
 	prefix.ToolResults = nil
@@ -67,6 +68,9 @@ func applyRequestInputMeasurement(
 	suffix.ToolResults = nil
 	for _, message := range bundle.Messages {
 		if message.Sequence > source.InputEventSequence {
+			if message.Sequence == source.Sequence {
+				message.OutputNoProgressRetries = 0
+			}
 			suffix.Messages = append(suffix.Messages, message)
 		} else {
 			prefix.Messages = append(prefix.Messages, message)

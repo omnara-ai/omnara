@@ -408,8 +408,9 @@ func deriveIntegrationLaunchConfig(
 	if definition.Provider == integrationdefinition.ProviderGitHub {
 		additions.GitCredentials = &agentconfig.GitCredentialsSource{Integration: integration.Name}
 	}
-	for _, operation := range definition.Tools {
-		additions.Tools[toolcatalog.IntegrationToolName(integration.Name, operation)] = agentconfig.AgentConfigToolSource{}
+	for _, tool := range toolcatalog.IntegrationTools(integration.IntegrationKind) {
+		name := toolcatalog.IntegrationToolName(integration.Name, tool.Operation)
+		additions.Tools[name] = agentconfig.AgentConfigToolSource{}
 	}
 	if definition.InteractionHandler != nil {
 		additions.InteractionHandlers = map[string]agentconfig.AgentConfigIntegrationCapabilitySource{integration.Name: {}}

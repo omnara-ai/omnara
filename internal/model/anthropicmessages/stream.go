@@ -497,8 +497,9 @@ func mergeAnthropicUsage(into, delta usage) usage {
 	if delta.CacheCreationInputTokens > into.CacheCreationInputTokens {
 		into.CacheCreationInputTokens = delta.CacheCreationInputTokens
 	}
-	if delta.CacheReadInputTokens > into.CacheReadInputTokens {
-		into.CacheReadInputTokens = delta.CacheReadInputTokens
+	if delta.CacheReadInputTokens.Count > into.CacheReadInputTokens.Count {
+		into.CacheReadInputTokens.Count = delta.CacheReadInputTokens.Count
 	}
+	into.CacheReadInputTokens.Reported = into.CacheReadInputTokens.Reported || delta.CacheReadInputTokens.Reported
 	return into
 }

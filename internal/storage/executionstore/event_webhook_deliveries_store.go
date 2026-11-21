@@ -20,6 +20,9 @@ import (
 const eventWebhookDeliveryWindow = 10 * time.Minute
 
 type EventWebhookEndpoint struct {
+	AgentProfileID  uuid.UUID
+	ParentAgentID   uuid.UUID
+	RootAgentID     uuid.UUID
 	ProjectID       uuid.UUID
 	OrgID           uuid.UUID
 	URL             string
@@ -41,6 +44,9 @@ func (s *Store) GetEventWebhookEndpoint(
 	return EventWebhookEndpoint{
 		ProjectID: row.ProjectID, OrgID: row.OrgID, URL: row.Url,
 		SigningSecretID: storeutil.IDFromPtr(row.SigningSecretID),
+		AgentProfileID:  storeutil.IDFromPtr(row.AgentProfileID),
+		ParentAgentID:   storeutil.IDFromPtr(row.ParentAgentID),
+		RootAgentID:     row.RootAgentID,
 	}, nil
 }
 
@@ -71,6 +77,8 @@ type EventWebhookDelivery struct {
 	ToolCallID        *uuid.UUID
 	ToolState         *string
 	InteractionUpdate *notifications.AgentInteractionUpdate
+	CreatedAt         time.Time
+	NextAttemptAt     time.Time
 	AttemptCount      int32
 	ClaimToken        uuid.UUID
 }
@@ -98,7 +106,8 @@ func (s *Store) ClaimEventWebhookDelivery(
 		ID: row.ID, WebhookID: row.WebhookID, AgentID: row.AgentID, OrgID: row.OrgID,
 		EventSequence: row.EventSequence, ToolCallID: row.ToolCallID, ToolState: row.ToolState,
 		InteractionUpdate: interactionUpdate,
-		AttemptCount:      row.AttemptCount, ClaimToken: *row.ClaimToken,
+		CreatedAt:         row.CreatedAt, NextAttemptAt: row.NextAttemptAt,
+		AttemptCount: row.AttemptCount, ClaimToken: *row.ClaimToken,
 	}, nil
 }
 

@@ -940,11 +940,12 @@ func TestIntegrationInteractionsDatabaseKeepsSnapshotAndLifecycleImmutable(t *te
 	} {
 		_, err := f.store.pool.Exec(
 			f.ctx,
-			`INSERT INTO agent_interactions(agent_id,tool_call_id,interaction_kind,state,request,created_at,destination,presentation_receipt) VALUES($1,$2,'permission','open','{}',statement_timestamp(),$3,$4)`,
+			`INSERT INTO agent_interactions(project_id,agent_id,tool_call_id,interaction_kind,state,request,created_at,destination,presentation_receipt) VALUES($5,$1,$2,'permission','open','{}',statement_timestamp(),$3,$4)`,
 			f.process.AgentID,
 			question.ToolCallID,
 			test.destination,
 			test.receipt,
+			testProjectID,
 		)
 		require.True(t, isPgCheckViolation(err), "insert destination=%d receipt=%v: %v",
 			len(test.destination), test.receipt, err)

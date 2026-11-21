@@ -22,8 +22,10 @@ func TestCompatForVariant(t *testing.T) {
 			sendsStrictFalse: true,
 			reasoningFormat:  reasoningFormatOpenRouter, conversationKeyField: conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
+			reportsOpenRouterLimits:      true,
 			reportsNativeFinishReason:    true,
 			reportsServedProviderAndCost: true, parsesPDFDocuments: true, routesFallbackModels: true,
+			acceptsM4AAndFLACAudio: true,
 		},
 	} {
 		if got := compatFor(model.ProviderRoute{APIVariant: variant}); got != want {

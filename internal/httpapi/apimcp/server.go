@@ -83,6 +83,7 @@ type operation struct {
 	bodyFlattened bool
 	bodyKeys      []string
 	idempotency   bool
+	emptyOutput   bool
 	dispatch      http.Handler
 }
 
@@ -98,7 +99,9 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 		return nil, errors.New("dispatch handler is required")
 	}
 	operations := indexOperations(spec)
-	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: specVersion(spec)}, nil)
+	server := mcp.NewServer(serverImplementation(specVersion(spec)), &mcp.ServerOptions{
+		Instructions: serverInstructions,
+	})
 	operationByTool := make(map[string]string, len(tools))
 	for _, tool := range tools {
 		if _, duplicate := operationByTool[tool.Name]; duplicate {
@@ -112,17 +115,23 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 		if err != nil {
 			return nil, fmt.Errorf("mcp tool %q: %w", tool.Name, err)
 		}
+		outputSchema, emptyOutput, err := outputSchemaFor(spec, source.operation)
+		if err != nil {
+			return nil, fmt.Errorf("mcp tool %q output schema: %w", tool.Name, err)
+		}
+		compiled.emptyOutput = emptyOutput
 		operationByTool[tool.Name] = compiled.operationID
 		description := tool.Description
 		if description == "" {
 			description = operationDescription(source.operation)
 		}
 		mcp.AddTool(server, &mcp.Tool{
-			Name:        tool.Name,
-			Title:       tool.Title,
-			Description: description,
-			InputSchema: inputSchema,
-			Annotations: annotationsFor(tool, compiled.method),
+			Name:         tool.Name,
+			Title:        tool.Title,
+			Description:  description,
+			InputSchema:  inputSchema,
+			OutputSchema: outputSchema,
+			Annotations:  annotationsFor(tool, compiled.method),
 		}, compiled.handle)
 	}
 	if options.Grants != nil {
@@ -512,6 +521,7 @@ func assembleInputSchema(
 		return nil, err
 	}
 	stripDefaults(decoded)
+	stripExtensions(decoded)
 	return decoded, nil
 }
 
@@ -586,7 +596,7 @@ func (o *operation) handle(
 	}
 	recorder := httptest.NewRecorder()
 	o.dispatch.ServeHTTP(recorder, httpRequest)
-	return resultFromResponse(recorder), nil, nil
+	return resultFromResponse(recorder, o.emptyOutput), nil, nil
 }
 
 func internalError() error {
@@ -721,10 +731,11 @@ func scalarString(raw json.RawMessage) (string, error) {
 	}
 }
 
-func resultFromResponse(recorder *httptest.ResponseRecorder) *mcp.CallToolResult {
+func resultFromResponse(recorder *httptest.ResponseRecorder, emptyOutput bool) *mcp.CallToolResult {
 	body := recorder.Body.Bytes()
+	empty := len(bytes.TrimSpace(body)) == 0
 	text := string(body)
-	if len(bytes.TrimSpace(body)) == 0 {
+	if empty {
 		text = http.StatusText(recorder.Code)
 	}
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
@@ -732,8 +743,11 @@ func resultFromResponse(recorder *httptest.ResponseRecorder) *mcp.CallToolResult
 		result.IsError = true
 		return result
 	}
-	if isObjectJSON(body) {
+	switch {
+	case isObjectJSON(body):
 		result.StructuredContent = json.RawMessage(body)
+	case emptyOutput && empty:
+		result.StructuredContent = json.RawMessage(`{}`)
 	}
 	return result
 }

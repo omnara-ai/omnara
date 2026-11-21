@@ -21,7 +21,12 @@ var (
 		"This agent already has %d pending messages. "+
 			"Wait for messages to be processed or cancel a pending message, then try again.",
 		executionpolicy.MaxPendingAgentContentInputs)
-	ErrAgentBacklogFull              = errors.New(AgentBacklogFullMessage)
+	ErrAgentBacklogFull             = errors.New(AgentBacklogFullMessage)
+	AgentScheduledInputsFullMessage = fmt.Sprintf(
+		"This agent already has %d scheduled messages. "+
+			"Wait for one to be delivered or cancel one, then try again.",
+		executionpolicy.MaxScheduledAgentContentInputs)
+	ErrAgentScheduledInputsFull      = errors.New(AgentScheduledInputsFullMessage)
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
@@ -47,6 +52,7 @@ var (
 	ErrFileReadOnly                  = errors.New("file access is read-only")
 	ErrExpectedDigestRequired        = errors.New("expected_digest is required")
 	ErrNotAFile                      = errors.New("path is a directory; list its contents and choose a file")
+	ErrPathNotFound                  = errors.New("no file or directory exists at this path")
 	ErrIdempotencyConflict           = errors.New("idempotency key used for different resource")
 	ErrAuthConnectorImmutable        = errors.New("auth connector kind and issuer are immutable for slug")
 	ErrAuthConnectorIdentityConflict = errors.New("auth connector issuer already exists")
@@ -62,6 +68,7 @@ var (
 		"process action report is blocked by earlier non-terminal action",
 	)
 	ErrStateTransitionConflict      = errors.New("state transition conflict")
+	ErrToolCallCompleted            = fmt.Errorf("tool call already completed: %w", ErrStateTransitionConflict)
 	ErrMachineProviderUnavailable   = errors.New("machine provider unavailable")
 	ErrPermanentEnvironment         = errors.New("permanent environment resolution error")
 	ErrModelGrantUnavailable        = errors.New("model grant unavailable")
@@ -89,6 +96,8 @@ func FileErrorCode(err error) string {
 		return "expected_digest_required"
 	case errors.Is(err, ErrNotAFile):
 		return "not_a_file"
+	case errors.Is(err, ErrPathNotFound):
+		return "path_not_found"
 	case errors.As(err, &conflict):
 		return "file_content_conflict"
 	default:

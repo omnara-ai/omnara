@@ -7,11 +7,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,6 +48,10 @@ func TestDeliveryAttemptLogsOutcomeWithoutURLSecrets(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sender, store, delivery := testSender()
+			delivery.CreatedAt = time.Now().Add(-time.Minute)
+			delivery.NextAttemptAt = time.Now().Add(-time.Second)
+			metricSet := metrics.New()
+			sender.recorder = metrics.NewEventWebhookRecorder(metricSet)
 			store.retryResult = executionstore.EventWebhookDeliveryRetryResult{
 				NextAttemptAt: time.Date(2026, time.September, 21, 12, 0, 0, 123000, time.UTC),
 				GaveUp:        test.outcome == "gave_up",
@@ -60,11 +66,31 @@ func TestDeliveryAttemptLogsOutcomeWithoutURLSecrets(t *testing.T) {
 				return &http.Response{StatusCode: test.status, Body: http.NoBody}, nil
 			})}
 			sender.deliver(t.Context(), delivery)
+			scrape := httptest.NewRecorder()
+			metricSet.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			cause := "none"
+			if test.status == 503 {
+				cause = "recipient"
+			}
+			if test.storeError {
+				cause = "local"
+			}
+			require.Contains(t, scrape.Body.String(),
+				`omnara_event_webhook_attempts_total{cause="`+cause+`",outcome="`+test.outcome+`"} 1`)
+			count := "0"
+			if test.status == 204 {
+				count = "1"
+			}
+			require.Contains(t, scrape.Body.String(), `omnara_event_webhook_delivery_age_seconds_count{attempt="first"} `+count)
 			var record map[string]any
 			lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
 			require.NoError(t, json.Unmarshal(lines[len(lines)-1], &record))
 			require.Equal(t, "event_webhook.delivery_attempt", record["event.name"])
 			require.Equal(t, test.outcome, record["event_webhook.outcome"])
+			require.GreaterOrEqual(t, record["event_webhook.age_seconds"], 60.0)
+			require.Less(t, record["event_webhook.age_seconds"], 65.0)
+			require.GreaterOrEqual(t, record["event_webhook.wait_seconds"], 1.0)
+			require.Less(t, record["event_webhook.wait_seconds"], 5.0)
 			require.Equal(t, test.level, record["level"])
 			require.Equal(t, delivery.ID.String(), record["event_webhook.delivery_id"])
 			require.Equal(t, delivery.OrgID.String(), record["org.id"])

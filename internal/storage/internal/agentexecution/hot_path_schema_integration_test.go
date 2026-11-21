@@ -31,10 +31,10 @@ INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_
 	previous := 0
 	for _, size := range []int{1000, 100000} {
 		_, err = tx.Exec(t.Context(), `
-INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-SELECT $1,$2,'history-'||n,'tool','{}','built_in','awaiting_authorization',now() FROM
+INSERT INTO tool_calls(project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT $5,$1,$2,'history-'||n,'tool','{}','built_in','awaiting_authorization',now() FROM
 generate_series($3::int,$4::int) n
-`, agent, output, previous+1, size)
+`, agent, output, previous+1, size, f.project)
 		require.NoError(t, err)
 		_, err = tx.Exec(t.Context(), `
 INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,tool_call_id,
@@ -81,13 +81,13 @@ EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) DELETE FROM agent_runtime_locks WHERE agen
 		require.NoError(t, release.Rollback(t.Context()))
 	}
 	_, err = tx.Exec(t.Context(), `
-WITH call AS (INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,
+WITH call AS (INSERT INTO tool_calls(project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,
 created_at)
- VALUES($1,$2,'live','tool','{}','built_in','awaiting_authorization',now()) RETURNING id,created_at)
+ VALUES($3,$1,$2,'live','tool','{}','built_in','awaiting_authorization',now()) RETURNING id,created_at)
 INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,tool_call_id,
 created_at)
  SELECT $1,'model_output',$2,100001,'tool_call',id,created_at FROM call
-`, agent, output)
+`, agent, output, f.project)
 	require.NoError(t, err)
 	_, err = tx.Exec(t.Context(), `
 UPDATE tool_calls SET state='ready' WHERE agent_id=$1 AND provider_call_id='live'

@@ -374,6 +374,9 @@ func (s *Store) ListAgentInteractions(
 	ctx context.Context,
 	input ListAgentInteractionsInput,
 ) (ListAgentInteractionsResult, error) {
+	if input.State != "" && !input.State.Valid() {
+		return ListAgentInteractionsResult{}, fmt.Errorf("invalid interaction state %q", input.State)
+	}
 	if input.ProjectID == uuid.Nil || len(input.AgentIDs) == 0 {
 		return ListAgentInteractionsResult{}, errors.New("project and at least one agent are required")
 	}
@@ -396,10 +399,61 @@ func (s *Store) ListAgentInteractions(
 	if err != nil {
 		return ListAgentInteractionsResult{}, fmt.Errorf("list agent interactions: %w", err)
 	}
+	return agentTreeInteractionsPage(rows, input.Limit), nil
+}
+
+type ListOpenProjectInteractionsInput struct {
+	ProjectID       uuid.UUID
+	AgentProfileID  *uuid.UUID
+	InteractionKind AgentInteractionKind
+	Limit           int
+	After           listing.KeysetCursor
+}
+
+func (s *Store) ListOpenProjectInteractions(
+	ctx context.Context,
+	input ListOpenProjectInteractionsInput,
+) (ListAgentInteractionsResult, error) {
+	if input.ProjectID == uuid.Nil {
+		return ListAgentInteractionsResult{}, errors.New("project is required")
+	}
+	if input.Limit <= 0 {
+		return ListAgentInteractionsResult{}, errors.New("limit must be positive")
+	}
+	if input.InteractionKind != "" && !input.InteractionKind.Valid() {
+		return ListAgentInteractionsResult{}, fmt.Errorf("invalid interaction kind %q", input.InteractionKind)
+	}
+	params := dbsqlc.ListOpenAgentInteractionsForProjectParams{
+		ProjectID:       input.ProjectID,
+		AgentProfileID:  input.AgentProfileID,
+		InteractionKind: string(input.InteractionKind),
+		RowLimit:        int64(input.Limit) + 1,
+	}
+	if input.After.Set {
+		createdAt := input.After.CreatedAt
+		id := input.After.ID
+		params.CursorCreatedAt = &createdAt
+		params.CursorID = &id
+	}
+	rows, err := s.q.ListOpenAgentInteractionsForProject(ctx, params)
+	if err != nil {
+		return ListAgentInteractionsResult{}, fmt.Errorf("list open project interactions: %w", err)
+	}
+	converted := make([]dbsqlc.ListAgentInteractionsForAgentsRow, 0, len(rows))
+	for _, row := range rows {
+		converted = append(converted, dbsqlc.ListAgentInteractionsForAgentsRow(row))
+	}
+	return agentTreeInteractionsPage(converted, input.Limit), nil
+}
+
+func agentTreeInteractionsPage(
+	rows []dbsqlc.ListAgentInteractionsForAgentsRow,
+	limit int,
+) ListAgentInteractionsResult {
 	result := ListAgentInteractionsResult{}
-	if len(rows) > input.Limit {
+	if len(rows) > limit {
 		result.HasMore = true
-		rows = rows[:input.Limit]
+		rows = rows[:limit]
 	}
 	result.Interactions = make([]AgentTreeInteraction, 0, len(rows))
 	for _, row := range rows {
@@ -426,7 +480,7 @@ func (s *Store) ListAgentInteractions(
 			SubagentKey: row.SubagentKey,
 		})
 	}
-	return result, nil
+	return result
 }
 
 type SendSubagentMessageInput struct {
@@ -787,18 +841,44 @@ func (s *Store) ListSubagents(
 	return listChildAgentsTx(ctx, s.q, projectID, parentAgentID, true)
 }
 
-func (s *Store) ListAgentDescendantIDs(
+type AgentDescendant struct {
+	ID             uuid.UUID
+	AgentProfileID uuid.UUID
+	ParentAgentID  uuid.UUID
+	RootAgentID    uuid.UUID
+}
+
+func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID uuid.UUID) ([]uuid.UUID, error) {
+	descendants, err := s.ListAgentDescendants(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(descendants))
+	for _, agent := range descendants {
+		ids = append(ids, agent.ID)
+	}
+	return ids, nil
+}
+
+func (s *Store) ListAgentDescendants(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
-) ([]uuid.UUID, error) {
+) ([]AgentDescendant, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
-	rows, err := s.q.ListAgentDescendantIDs(
-		ctx, dbsqlc.ListAgentDescendantIDsParams{ProjectID: projectID, AgentID: &agentID},
+	rows, err := s.q.ListAgentDescendants(
+		ctx, dbsqlc.ListAgentDescendantsParams{ProjectID: projectID, AgentID: &agentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list agent descendants: %w", err)
 	}
-	return rows, nil
+	out := make([]AgentDescendant, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AgentDescendant{
+			ID: row.ID, AgentProfileID: storeutil.IDFromPtr(row.AgentProfileID),
+			ParentAgentID: storeutil.IDFromPtr(row.ParentAgentID), RootAgentID: row.RootAgentID,
+		})
+	}
+	return out, nil
 }

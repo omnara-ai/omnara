@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
@@ -57,14 +60,14 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(result)
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon"), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	path := filepath.Join(t.TempDir(), "file.bin")
 	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
 	args := []string{"__omnara_file_transfer", "download", processID, path}
-	result, err := runFileTransferTestCommand(t, args, &output)
+	result, err := runFileTransferTestCommand(t, args, connection, &output)
 	require.NoError(t, err)
 	if string(result) != `{"digest":"`+digest+`"}`+"\n" || output.Len() != 0 {
 		t.Fatalf("download result = %s, output = %s", result, &output)
@@ -75,7 +78,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	}
 	direction := processcmd.FileTransferDownload
 	fail = true
-	if err = runFileTransfer(context.Background(), direction, processID, path, &output); err == nil {
+	if err = runFileTransfer(context.Background(), direction, processID, path, connection, &output); err == nil {
 		t.Fatal("failed download succeeded")
 	}
 	got, err = os.ReadFile(path)
@@ -87,7 +90,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	for _, invalid := range []string{"", "invalid", digest} {
 		responseDigest = invalid
 		output.Reset()
-		if err = runFileTransfer(context.Background(), direction, processID, path, &output); err == nil {
+		if err = runFileTransfer(context.Background(), direction, processID, path, connection, &output); err == nil {
 			t.Fatalf("invalid download: error=%v output=%q", err, output.String())
 		}
 		var result daemonprotocol.FileTransferResult
@@ -110,7 +113,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if err = os.WriteFile(path, want, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), direction, processID, path, &output); err != nil {
+	if err = runFileTransfer(context.Background(), direction, processID, path, connection, &output); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(content, want) {
@@ -126,13 +129,13 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if err = os.WriteFile(path, make([]byte, daemonprotocol.MaxFileTransferBytes+1), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), direction, processID, path, &output); err == nil {
+	if err = runFileTransfer(context.Background(), direction, processID, path, connection, &output); err == nil {
 		t.Fatal("oversized upload succeeded")
 	}
 	if err = os.WriteFile(path, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), direction, processID, path, &output); err != nil {
+	if err = runFileTransfer(context.Background(), direction, processID, path, connection, &output); err != nil {
 		t.Fatal(err)
 	}
 	if len(content) != 0 {
@@ -162,7 +165,7 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 		_, _ = w.Write(content)
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon"), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	path := filepath.Join(t.TempDir(), "file.bin")
 	if err := os.WriteFile(path, content, 0600); err != nil {
 		t.Fatal(err)
@@ -175,7 +178,7 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 			}
 		}
 		args := []string{"__omnara_file_transfer", direction, processID, path}
-		result, err := runFileTransferTestCommand(t, args, &output)
+		result, err := runFileTransferTestCommand(t, args, connection, &output)
 		require.NoError(t, err)
 		wantUpload := `{"path":"/artifacts/` + artifactID + `","digest":"` + digest + `"}` + "\n"
 		if direction == "upload" && (output.Len() != 0 || string(result) != wantUpload) {
@@ -189,6 +192,55 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 	if err != nil || !bytes.Equal(got, content) {
 		t.Fatalf("download %q: %v", got, err)
 	}
+}
+
+func serveFileTransferContent(content []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Omnara-File-Digest", fmt.Sprintf("sha256:%x", sha256.Sum256(content)))
+		_, _ = w.Write(content)
+	}
+}
+
+func TestFileTransferUsesTheConnectionProxy(t *testing.T) {
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
+	serve := serveFileTransferContent([]byte("provider proxied"))
+	var proxied atomic.Value
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied.Store(r.URL.String())
+		serve(w, r)
+	}))
+	defer proxy.Close()
+	require.NoError(t, runFileTransfer(context.Background(), processcmd.FileTransferDownload, processID,
+		filepath.Join(t.TempDir(), "file.txt"), machinedaemon.FileTransferConnection{
+			APIURL: "http://api.omnara.invalid/api/v1", MachineToken: "token-a", ProxyURL: proxy.URL,
+		}, io.Discard))
+	require.Equal(t, "http://api.omnara.invalid/api/v1/daemon/processes/"+processID+"/file", proxied.Load())
+}
+
+func TestFileTransferTrustsOnlyTheConnectionCertificates(t *testing.T) {
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
+	api := httptest.NewTLSServer(serveFileTransferContent([]byte("provider certificate")))
+	defer api.Close()
+	caDir := t.TempDir()
+	caFile := filepath.Join(caDir, "provider-ca.pem")
+	require.NoError(t, os.WriteFile(caFile,
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}), 0o600))
+	t.Setenv("SSL_CERT_FILE", caFile)
+	t.Setenv("SSL_CERT_DIR", "")
+	download := func(connection machinedaemon.FileTransferConnection) error {
+		_, err := runFileTransferTestCommand(t, []string{
+			"__omnara_file_transfer", "download", processID, filepath.Join(t.TempDir(), "file.txt"),
+		}, connection, &bytes.Buffer{})
+		return err
+	}
+	connection := testFileTransferConnection(api.URL)
+	require.ErrorContains(t, download(connection), "certificate")
+	connection.SSLCertDir = t.TempDir()
+	require.ErrorContains(t, download(connection), "certificate")
+	connection.SSLCertFile, connection.SSLCertDir = caFile, ""
+	require.NoError(t, download(connection))
+	connection.SSLCertFile, connection.SSLCertDir = "", caDir
+	require.NoError(t, download(connection))
 }
 
 func fileTransferTestPublicID(t *testing.T, kind publicid.Kind) string {
@@ -212,13 +264,26 @@ func TestFileTransferCommandHelper(t *testing.T) {
 	t.Fatal("missing helper arguments")
 }
 
-func runFileTransferTestCommand(t *testing.T, args []string, output *bytes.Buffer) ([]byte, error) {
+func testFileTransferConnection(origin string) machinedaemon.FileTransferConnection {
+	return machinedaemon.FileTransferConnection{APIURL: testAPIBaseURL(origin), MachineToken: "token-a"}
+}
+
+func runFileTransferTestCommand(
+	t *testing.T, args []string, connection machinedaemon.FileTransferConnection, output *bytes.Buffer,
+) ([]byte, error) {
 	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = reader.Close(); _ = writer.Close() }()
+	connectionReader, connectionWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connectionReader.Close() }()
+	require.NoError(t, json.NewEncoder(connectionWriter).Encode(connection))
+	require.NoError(t, connectionWriter.Close())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	commandArgs := append([]string{
@@ -226,7 +291,7 @@ func runFileTransferTestCommand(t *testing.T, args []string, output *bytes.Buffe
 	}, args[1:]...)
 	command := exec.CommandContext(ctx, os.Args[0], commandArgs...)
 	command.Env = append(os.Environ(), "OMNARA_FILE_TRANSFER_TEST=1")
-	command.ExtraFiles = []*os.File{writer}
+	command.ExtraFiles = []*os.File{writer, connectionReader}
 	command.Stdout = output
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -301,13 +366,13 @@ func TestFileTransferAPIErrorResult(t *testing.T) {
 					_, _ = io.WriteString(w, tc.body)
 				}))
 				defer server.Close()
-				setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon"), server.URL, "")
+				connection := testFileTransferConnection(server.URL)
 				path := filepath.Join(t.TempDir(), "file.txt")
 				require.NoError(t, os.WriteFile(path, []byte("preserved"), 0600))
 				var stdout bytes.Buffer
 				result, err := runFileTransferTestCommand(t, []string{
 					"__omnara_file_transfer", direction, fileTransferTestPublicID(t, publicid.KindProcess), path,
-				}, &stdout)
+				}, connection, &stdout)
 				require.ErrorContains(t, err, tc.wantError)
 				var exitErr *exec.ExitError
 				require.ErrorAs(t, err, &exitErr)

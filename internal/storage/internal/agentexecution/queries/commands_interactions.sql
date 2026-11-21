@@ -5,8 +5,8 @@ FROM agent_interactions i WHERE i.agent_id=sqlc.arg(agent_id) AND
  (i.id=sqlc.arg(id) OR (i.tool_call_id=sqlc.narg(tool_id) AND i.interaction_kind=sqlc.narg(kind)));
 
 -- name: InsertExecutionInteraction :one
-INSERT INTO agent_interactions(agent_id,tool_call_id,interaction_kind,state,request,destination,created_at)
-VALUES(sqlc.arg(agent_id),sqlc.arg(tool_id),sqlc.arg(kind),'open',sqlc.arg(request)::jsonb,
+INSERT INTO agent_interactions(project_id,agent_id,tool_call_id,interaction_kind,state,request,destination,created_at)
+VALUES(sqlc.arg(project_id),sqlc.arg(agent_id),sqlc.arg(tool_id),sqlc.arg(kind),'open',sqlc.arg(request)::jsonb,
  sqlc.narg(destination)::jsonb,statement_timestamp()) RETURNING id;
 
 -- name: ResolveExecutionInteraction :execrows

@@ -2,17 +2,29 @@ import * as z from 'zod'
 
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
+import type { Client as OmnaraClient, Config } from './generated/client'
 import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
 import type { BodySerializer } from './generated/core/bodySerializer.gen'
+import {
+  captureRequestDestination,
+  normalizeHeaders,
+  requestWithPolicy,
+  validateClientRequestPolicy,
+} from './request-policy'
+import type { RequestPolicyOptions } from './request-policy-options'
 
-export type OmnaraClient = ReturnType<typeof createClient>
+export type {
+  Client as OmnaraClient,
+  Config as OmnaraClientConfig,
+  ClientOptions as OmnaraClientConfigOptions,
+} from './generated/client'
 
-export interface OmnaraClientOptions {
+export interface OmnaraClientOptions extends RequestPolicyOptions {
   baseUrl?: string
   credentials?: RequestCredentials
   auth?: AuthStrategy
-  headers?: Record<string, string>
+  headers?: Config['headers']
   fetch?: typeof fetch
 }
 
@@ -55,6 +67,7 @@ const serializeMultipartBody = ((body) => {
 
 function normalizeRequestOptions<O extends object>(options: O): O {
   const normalized: O & { bodySerializer?: unknown } = { ...options }
+  // Avoid leaking the SDK client into RequestInit: https://github.com/hey-api/hey-api/issues/4177
   Reflect.deleteProperty(normalized, 'client')
   if (normalized.bodySerializer === formDataBodySerializer.bodySerializer) {
     normalized.bodySerializer = serializeMultipartBody
@@ -62,20 +75,30 @@ function normalizeRequestOptions<O extends object>(options: O): O {
   return normalized
 }
 
-// Drop the reserved Request init key until https://github.com/hey-api/hey-api/issues/4177
-// is fixed upstream. Generated operations can bypass createOmnaraClient via the default client.
-function patchGeneratedRequests(client: OmnaraClient): void {
+// Generated HTTP methods close over request(), so route them through our policy entry.
+function configureRequests(client: OmnaraClient): void {
+  client.interceptors.request.use(captureRequestDestination)
+  const { setConfig } = client
+  client.setConfig = (config) => {
+    validateClientRequestPolicy(config)
+    return setConfig({ ...config, headers: normalizeHeaders(config.headers) })
+  }
   const { request } = client
-  client.request = (options) => request(normalizeRequestOptions(options))
+  client.request = (options) =>
+    requestWithPolicy(client.getConfig(), normalizeRequestOptions(options), (overrides) =>
+      request(normalizeRequestOptions({ ...options, ...overrides })),
+    )
   for (const method of httpMethods) {
-    const dispatch = client[method]
-    client[method] = (options) => dispatch(normalizeRequestOptions(options))
+    // SAFETY: every entry is a generated HTTP method; casing preserves that union.
+    const requestMethod = method.toUpperCase() as Uppercase<HttpMethod>
+    client[method] = (options) => client.request({ ...options, method: requestMethod })
     const sseDispatch = client.sse[method]
     client.sse[method] = (options) => sseDispatch(normalizeRequestOptions(options))
   }
 }
 
-patchGeneratedRequests(specDefaultClient)
+specDefaultClient.setConfig({ maxRetries: 0, timeoutMs: 0 })
+configureRequests(specDefaultClient)
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
   const client = createClient(
@@ -83,11 +106,15 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
       throwOnError: true,
     }),
   )
+  configureRequests(client)
   client.setConfig({
     baseUrl: options.baseUrl ?? specDefaultClient.getConfig().baseUrl,
     credentials: options.credentials,
     headers: options.headers,
     fetch: options.fetch,
+    maxRetries: options.maxRetries,
+    timeoutMs: options.timeoutMs,
+    onRequestComplete: options.onRequestComplete,
   })
   const { auth } = options
   if (auth) {
@@ -100,6 +127,5 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     if (!response.ok) throw await ApiError.fromResponse(response)
     return response
   })
-  patchGeneratedRequests(client)
   return client
 }

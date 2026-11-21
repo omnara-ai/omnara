@@ -5,21 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type fakeAPI struct {
-	templatePages [][]template
-	repeatCursor  bool
-	templateErr   error
+	owned         map[string]template
+	ownedErr      error
+	defaults      []template
+	defaultsErr   error
 	templateCalls int
-	teamAliases   map[string]string
-	resolveErr    error
 
 	sandboxes map[string]sandbox
 	creates   []createSandboxRequest
@@ -35,39 +31,20 @@ type fakeAPI struct {
 	deleted       []string
 }
 
-func (f *fakeAPI) ListTemplates(_ context.Context, _ string, cursor string) ([]template, string, error) {
+func (f *fakeAPI) GetTemplate(_ context.Context, ref string) (template, error) {
 	f.templateCalls++
-	if f.templateErr != nil {
-		return nil, "", f.templateErr
+	if f.ownedErr != nil {
+		return template{}, f.ownedErr
 	}
-	page := 0
-	if cursor != "" {
-		page, _ = strconv.Atoi(strings.TrimPrefix(cursor, "page-"))
+	if owned, ok := f.owned[ref]; ok {
+		return owned, nil
 	}
-	next := ""
-	if f.repeatCursor {
-		next = "page-1"
-	} else if page+1 < len(f.templatePages) {
-		next = "page-" + strconv.Itoa(page+1)
-	}
-	return f.templatePages[page], next, nil
+	return template{}, apiError{StatusCode: http.StatusNotFound}
 }
 
-func (f *fakeAPI) ResolveTemplateAlias(_ context.Context, alias string) (string, error) {
-	if f.resolveErr != nil {
-		return "", f.resolveErr
-	}
-	if templateID, ok := f.teamAliases[alias]; ok {
-		return templateID, nil
-	}
-	for _, page := range f.templatePages {
-		for _, current := range page {
-			if current.IsDefault && (slices.Contains(current.Names, alias) || current.TemplateID == alias) {
-				return "", apiError{StatusCode: http.StatusForbidden}
-			}
-		}
-	}
-	return "", apiError{StatusCode: http.StatusNotFound}
+func (f *fakeAPI) DefaultTemplates(context.Context) ([]template, error) {
+	f.templateCalls++
+	return f.defaults, f.defaultsErr
 }
 
 func (f *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest) (sandbox, error) {

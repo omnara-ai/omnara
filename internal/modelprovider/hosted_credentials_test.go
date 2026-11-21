@@ -320,7 +320,7 @@ func validHostedCredentialTemplate() modelstore.DefaultModelProviderTemplate {
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     new(8192),
 		}},
-	})
+	}, nil)
 	if err != nil {
 		panic(err)
 	}

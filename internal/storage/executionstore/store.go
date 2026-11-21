@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -22,6 +23,7 @@ type Config struct {
 	Identity              *identitystore.Store
 	Secrets               *secretstore.Store
 	Artifacts             *artifactstore.Store
+	EndpointAllowlist     *ssrf.Allowlist
 }
 
 type Store struct {
@@ -33,6 +35,7 @@ type Store struct {
 	identity             *identitystore.Store
 	secrets              *secretstore.Store
 	artifacts            *artifactstore.Store
+	endpointAllowlist    *ssrf.Allowlist
 }
 
 func New(pool *pgxpool.Pool, config Config) *Store {
@@ -50,5 +53,6 @@ func New(pool *pgxpool.Pool, config Config) *Store {
 		identity:             config.Identity,
 		secrets:              config.Secrets,
 		artifacts:            config.Artifacts,
+		endpointAllowlist:    config.EndpointAllowlist,
 	}
 }

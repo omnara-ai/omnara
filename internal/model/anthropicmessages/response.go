@@ -176,10 +176,10 @@ type contentBlock struct {
 }
 
 type usage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	InputTokens              int                         `json:"input_tokens"`
+	OutputTokens             int                         `json:"output_tokens"`
+	CacheCreationInputTokens int                         `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     modelenvelope.ReportedCount `json:"cache_read_input_tokens,omitzero"`
 }
 
 func mapStopReason(reason string) modelenvelope.StopReason {
@@ -207,7 +207,7 @@ func usageFromResponse(value usage) modelenvelope.Usage {
 	if value.InputTokens < 0 ||
 		value.OutputTokens < 0 ||
 		value.CacheCreationInputTokens < 0 ||
-		value.CacheReadInputTokens < 0 {
+		value.CacheReadInputTokens.Count < 0 {
 		return modelenvelope.Usage{}
 	}
 	remaining := math.MaxInt - value.InputTokens
@@ -215,15 +215,16 @@ func usageFromResponse(value usage) modelenvelope.Usage {
 		return modelenvelope.Usage{}
 	}
 	remaining -= value.CacheCreationInputTokens
-	if value.CacheReadInputTokens > remaining {
+	if value.CacheReadInputTokens.Count > remaining {
 		return modelenvelope.Usage{}
 	}
-	inputTokens := value.InputTokens + value.CacheCreationInputTokens + value.CacheReadInputTokens
+	inputTokens := value.InputTokens + value.CacheCreationInputTokens + value.CacheReadInputTokens.Count
 	return modelenvelope.Usage{
 		InputTokens:         inputTokens,
 		UncachedInputTokens: value.InputTokens,
 		OutputTokens:        value.OutputTokens,
 		CacheWriteTokens:    value.CacheCreationInputTokens,
-		CacheReadTokens:     value.CacheReadInputTokens,
+		CacheReadTokens:     value.CacheReadInputTokens.Count,
+		CacheReported:       value.CacheReadInputTokens.Reported && inputTokens > 0,
 	}
 }

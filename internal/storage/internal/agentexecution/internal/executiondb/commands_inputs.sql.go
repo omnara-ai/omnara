@@ -33,6 +33,24 @@ func (q *Queries) ActivateExecutionConfig(ctx context.Context, db DBTX, arg Acti
 	return result.RowsAffected(), nil
 }
 
+const cancelScheduledExecutionInput = `-- name: CancelScheduledExecutionInput :execrows
+UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
+WHERE agent_id=$1 AND id=$2 AND state='scheduled' AND input_kind='content'
+`
+
+type CancelScheduledExecutionInputParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) CancelScheduledExecutionInput(ctx context.Context, db DBTX, arg CancelScheduledExecutionInputParams) (int64, error) {
+	result, err := db.Exec(ctx, cancelScheduledExecutionInput, arg.AgentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const changeExecutionInput = `-- name: ChangeExecutionInput :execrows
 UPDATE agent_inputs SET delivery_mode=$1,input_rank=$2,
  state=CASE WHEN $3::boolean THEN 'canceled' ELSE state END,
@@ -79,6 +97,26 @@ type CountPendingExecutionContentParams struct {
 
 func (q *Queries) CountPendingExecutionContent(ctx context.Context, db DBTX, arg CountPendingExecutionContentParams) (int64, error) {
 	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID, arg.Capacity)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countScheduledExecutionContent = `-- name: CountScheduledExecutionContent :one
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=$1 AND state='scheduled'
+    ORDER BY scheduled_for,id LIMIT $2::bigint
+) scheduled
+`
+
+type CountScheduledExecutionContentParams struct {
+	AgentID  uuid.UUID
+	Capacity int64
+}
+
+func (q *Queries) CountScheduledExecutionContent(ctx context.Context, db DBTX, arg CountScheduledExecutionContentParams) (int64, error) {
+	row := db.QueryRow(ctx, countScheduledExecutionContent, arg.AgentID, arg.Capacity)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -309,29 +347,32 @@ func (q *Queries) RebalanceExecutionBacklog(ctx context.Context, db DBTX, arg Re
 
 const receiveExecutionInput = `-- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
- integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
-SELECT $1,a.project_id,a.id,'received',CASE WHEN $2::text='content' THEN coalesce((
+ integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,scheduled_for)
+SELECT $1,a.project_id,a.id,
+ CASE WHEN $2::timestamptz IS NULL THEN 'received' ELSE 'scheduled' END,CASE WHEN $3::text='content' THEN coalesce((
  SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
- AND i.input_kind='content' AND i.delivery_mode=$3
+ AND i.input_kind='content' AND i.delivery_mode=$4
  ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
- $4,$2,$3,$5,$6,
- $7,$8,statement_timestamp(),$9::jsonb
-FROM agents a WHERE a.id=$10 AND a.project_id=$11 AND a.state='active'
+ $5,$3,$4,$6,$7,
+ $8,$9,statement_timestamp(),$10::jsonb,
+ $2::timestamptz
+FROM agents a WHERE a.id=$11 AND a.project_id=$12 AND a.state='active'
 RETURNING id,queued_at
 `
 
 type ReceiveExecutionInputParams struct {
-	ID        uuid.UUID
-	Kind      string
-	Mode      string
-	ActorID   *uuid.UUID
-	TargetID  *uuid.UUID
-	ConfigID  *uuid.UUID
-	Scope     *string
-	Key       *string
-	Metadata  json.RawMessage
-	AgentID   uuid.UUID
-	ProjectID uuid.UUID
+	ID           uuid.UUID
+	ScheduledFor *time.Time
+	Kind         string
+	Mode         string
+	ActorID      *uuid.UUID
+	TargetID     *uuid.UUID
+	ConfigID     *uuid.UUID
+	Scope        *string
+	Key          *string
+	Metadata     json.RawMessage
+	AgentID      uuid.UUID
+	ProjectID    uuid.UUID
 }
 
 type ReceiveExecutionInputRow struct {
@@ -342,6 +383,7 @@ type ReceiveExecutionInputRow struct {
 func (q *Queries) ReceiveExecutionInput(ctx context.Context, db DBTX, arg ReceiveExecutionInputParams) (ReceiveExecutionInputRow, error) {
 	row := db.QueryRow(ctx, receiveExecutionInput,
 		arg.ID,
+		arg.ScheduledFor,
 		arg.Kind,
 		arg.Mode,
 		arg.ActorID,
@@ -355,6 +397,33 @@ func (q *Queries) ReceiveExecutionInput(ctx context.Context, db DBTX, arg Receiv
 	)
 	var i ReceiveExecutionInputRow
 	err := row.Scan(&i.ID, &i.QueuedAt)
+	return i, err
+}
+
+const releaseScheduledExecutionInput = `-- name: ReleaseScheduledExecutionInput :one
+UPDATE agent_inputs i SET state='received',input_rank=coalesce((
+ SELECT last.input_rank+1024 FROM agent_inputs last WHERE last.agent_id=i.agent_id AND last.state='received'
+ AND last.input_kind='content' AND last.delivery_mode=i.delivery_mode
+ ORDER BY last.input_rank DESC,last.queued_at DESC,last.id DESC LIMIT 1),1024)
+WHERE i.agent_id=$1 AND i.id=$2 AND i.state='scheduled' AND i.input_kind='content'
+ AND i.scheduled_for<=statement_timestamp()
+RETURNING i.delivery_mode,statement_timestamp()::timestamptz AS released_at
+`
+
+type ReleaseScheduledExecutionInputParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+type ReleaseScheduledExecutionInputRow struct {
+	DeliveryMode string
+	ReleasedAt   time.Time
+}
+
+func (q *Queries) ReleaseScheduledExecutionInput(ctx context.Context, db DBTX, arg ReleaseScheduledExecutionInputParams) (ReleaseScheduledExecutionInputRow, error) {
+	row := db.QueryRow(ctx, releaseScheduledExecutionInput, arg.AgentID, arg.ID)
+	var i ReleaseScheduledExecutionInputRow
+	err := row.Scan(&i.DeliveryMode, &i.ReleasedAt)
 	return i, err
 }
 

@@ -12,6 +12,8 @@ import (
 	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -61,7 +63,10 @@ func TestEventWebhookRoutes(t *testing.T) {
 			requestJSONWithHeaders(t, f.handler, method, other.ProjectPath+"/event-webhooks/"+id,
 				crossProjectBody, "", http.StatusNotFound, authHeaders(f.project.AdminToken))
 		}
-		for _, invalid := range []string{`{}`, `{"url":null}`, `{"event_types":null}`, `{"event_types":[]}`} {
+		for _, invalid := range []string{
+			`{}`, `{"url":null}`, `{"event_types":null}`, `{"event_types":[]}`,
+			`{"scope":null}`, `{"scope":{"type":"agent"}}`,
+		} {
 			requestJSONWithHeaders(t, f.handler, http.MethodPatch, endpoint+"/"+id, invalid,
 				"", http.StatusBadRequest, authHeaders(token))
 		}
@@ -98,7 +103,7 @@ func TestEventWebhookRoutes(t *testing.T) {
 		requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 			endpoint+"/"+testutil.RequireType[string](t, second["id"]), "", "", http.StatusNoContent, authHeaders(token))
 		requestJSONWithHeaders(t, f.handler, http.MethodPatch,
-			endpoint+"/"+id, body, "", http.StatusBadRequest,
+			endpoint+"/"+id, body, "", http.StatusOK,
 			authHeaders(token))
 		requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 			endpoint+"/"+id, "", "", http.StatusNoContent, authHeaders(token))
@@ -127,7 +132,7 @@ func TestEventWebhookRoutes(t *testing.T) {
 			"", http.StatusBadRequest, authHeaders(f.project.AdminToken))
 	}
 	for _, query := range []string{
-		"", "?scope_type=org", "?scope_type=agent", "?scope_type=project&agent_id=" + agentID,
+		"?agent_id=" + agentID, "?scope_type=org", "?scope_type=agent", "?scope_type=project&agent_id=" + agentID,
 		"?scope_type=agent&agent_id=invalid", "?scope_type=profile&agent_profile_id=invalid",
 	} {
 		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "",
@@ -271,4 +276,24 @@ func TestProfileEventWebhookReceivesLaunchEvents(t *testing.T) {
 		`SELECT array_agg(webhook_id) FROM event_webhook_deliveries WHERE agent_id=$1`, id).Scan(&webhookIDs))
 	require.Equal(t, []uuid.UUID{mustPublicHTTPID(t, publicid.KindEventWebhook,
 		testutil.RequireType[string](t, webhook["id"]))}, webhookIDs)
+}
+
+func TestEventWebhookURLsFollowEndpointAllowlist(t *testing.T) {
+	t.Parallel()
+	listed, err := ssrf.ParseAllowlist([]string{"10.0.5.0/24"})
+	require.NoError(t, err)
+	handler := newIntegrationServerWithStoreOptions(
+		openIntegrationDB(t, t.Context()), []storage.Option{storage.WithEndpointAllowlist(listed)},
+		WithEndpointAllowlist(listed),
+	)
+	project := bootstrapPublicHTTPProject(t, handler, "webhook-allowlist")
+	for url, status := range map[string]int{
+		"http://10.0.5.21:8080/events": http.StatusCreated,
+		"http://10.0.6.21:8080/events": http.StatusBadRequest,
+	} {
+		body := integrationHTTPJSON(t, map[string]any{"scope": map[string]any{"type": "project"},
+			"url": url, "event_types": []string{"tool_call_update"}})
+		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/event-webhooks", body,
+			"", status, authHeaders(project.AdminToken))
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 func parseEventWebhookScope(input openapi.EventWebhookScope) (executionstore.EventWebhookScope, error) {
@@ -119,6 +120,9 @@ func eventWebhookResponseFromRecord(record executionstore.EventWebhookRecord) (o
 		Url: record.Settings.URL, EventTypes: make([]openapi.EventWebhookEventType, len(record.Settings.EventTypes)),
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
+	if record.ScopeName != "" {
+		result.ScopeName = &record.ScopeName
+	}
 	for i, eventType := range record.Settings.EventTypes {
 		result.EventTypes[i] = openapi.EventWebhookEventType(eventType)
 	}
@@ -176,23 +180,61 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 	if err != nil {
 		return nil, err
 	}
-	scope, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(request.Params.ScopeType),
-		request.Params.AgentProfileId, request.Params.AgentId)
+	limit, err := parseOpenAPIPageLimit(request.Params.Limit)
 	if err != nil {
-		return nil, err
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	records, err := s.server.store.Execution().ListEventWebhooks(ctx, projectScope.project.ID, scope)
+	var scope *executionstore.EventWebhookScope
+	if request.Params.ScopeType != nil {
+		selection, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(*request.Params.ScopeType),
+			request.Params.AgentProfileId, request.Params.AgentId)
+		if err != nil {
+			return nil, err
+		}
+		scope = &selection
+	} else if request.Params.AgentProfileId != nil || request.Params.AgentId != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent or profile ID requires scope_type")
+	}
+	sort := "created_at"
+	options, err := parseResourceListQuery(resourceListQueryInput{
+		Cursor: request.Params.Cursor, Sort: &sort, AllowedSorts: sortSet(sort),
+		ListKind: "event_webhooks", Scope: projectScope.project.ID.String(),
+		IDKind: publicid.KindEventWebhook, Extra: scope,
+	})
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	var after listing.KeysetCursor
+	if options.After.Set {
+		createdAt, err := listing.ParseTimestampKey(options.After.Key)
+		if err != nil || createdAt.IsZero() || options.After.IsNull {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, errMalformedCursor.Error())
+		}
+		after = listing.KeysetCursor{Set: true, CreatedAt: createdAt, ID: options.After.ID}
+	}
+	page, err := s.server.store.Execution().ListEventWebhooks(ctx, executionstore.ListEventWebhooksInput{
+		ProjectID: projectScope.project.ID, Scope: scope, Limit: limit, After: after,
+	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response := openapi.ListEventWebhooksResponse{Data: make([]openapi.EventWebhook, 0, len(records))}
-	for _, record := range records {
+	response := openapi.ListEventWebhooksResponse{Data: make([]openapi.EventWebhook, 0, len(page.Webhooks))}
+	var last executionstore.EventWebhookRecord
+	for _, record := range page.Webhooks {
 		webhook, err := eventWebhookResponseFromRecord(record)
 		if err != nil {
 			return nil, err
 		}
 		response.Data = append(response.Data, webhook)
+		last = record
 	}
+	next, err := encodeResourceListNextCursor(page.HasMore,
+		listing.Cursor{Set: last.ID != uuid.Nil, Key: listing.TimestampKey(last.CreatedAt), ID: last.ID},
+		options, "event_webhooks", projectScope.project.ID.String(), publicid.KindEventWebhook, scope)
+	if err != nil {
+		return nil, err
+	}
+	response.NextCursor = nullableFromPtr(next)
 	return openapi.ListEventWebhooks200JSONResponse(response), nil
 }
 
@@ -236,6 +278,13 @@ func (s strictOpenAPIServer) UpdateEventWebhook(
 	}
 	input := executionstore.UpdateEventWebhookInput{
 		ProjectID: projectScope.project.ID, WebhookID: id, URL: request.Body.Url,
+	}
+	if request.Body.Scope != nil {
+		scope, err := parseEventWebhookScope(*request.Body.Scope)
+		if err != nil {
+			return nil, err
+		}
+		input.Scope = &scope
 	}
 	if request.Body.EventTypes != nil {
 		input.EventTypes = eventWebhookEventTypes(*request.Body.EventTypes)

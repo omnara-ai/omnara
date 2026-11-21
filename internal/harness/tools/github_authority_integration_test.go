@@ -36,6 +36,7 @@ func githubToolTestCalls() []model.ToolCall {
 			Input: json.RawMessage(`{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`),
 		},
 		{ID: "reply", Name: "int__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
+		{ID: "resolve-thread", Name: "int__chat__resolve_thread", Input: json.RawMessage(`{"review_thread_id":"PRRT_1"}`)},
 	}
 }
 

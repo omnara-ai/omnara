@@ -112,6 +112,8 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 			u, err := BeginTestUnit(ctx, cell)
 			require.NoError(t, err)
 			defer func() { _ = u.Rollback(ctx) }()
+			_, err = u.DB().Exec(ctx, `INSERT INTO unit_probe(phase) VALUES ('write')`)
+			require.NoError(t, err)
 			unitTestAgent(t, u, uuid.New(), uuid.New())
 			u.Notifications().AddDaemonWork(uuid.New())
 			switch scenario {

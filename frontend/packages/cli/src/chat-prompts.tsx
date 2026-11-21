@@ -103,9 +103,11 @@ function SelectList({
 
 export function InteractionPrompt({
   interaction,
+  agentID,
   onAnswer,
 }: {
   interaction: AgentInteraction
+  agentID: string
   onAnswer: (answers: InteractionAnswer[]) => void
 }) {
   const approval = interaction.interaction_kind === 'permission'
@@ -133,10 +135,11 @@ export function InteractionPrompt({
         <Label name={approval ? 'approval' : 'question'} color={approval ? 'yellow' : 'cyan'} />{' '}
         {form.title}
       </Text>
-      {interaction.agent_name != null && (
+      {interaction.agent_id !== agentID && (
         <Text>
           {'  '}
-          <Text dimColor>from subagent</Text> {interaction.agent_name}
+          <Text dimColor>from subagent</Text>{' '}
+          {(interaction.agent_name ?? '') || interaction.agent_id}
         </Text>
       )}
       {(form.context ?? []).map((item) => (

@@ -669,6 +669,48 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if archived != 0 {
 		t.Fatalf("archived %d subagents before the idle window elapsed, want 0", archived)
 	}
+	scheduledFor := time.Now().Add(time.Hour)
+	scheduled, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:          testProjectID,
+		AgentID:            leaf.Agent.ID,
+		Actor:              mustOmnaraActorParams(t, user.ID),
+		ContentBlocks:      json.RawMessage(`[{"type":"text","text":"later"}]`),
+		DeliveryMode:       executionstore.DeliveryModeQueued,
+		SourceScheduledFor: &scheduledFor,
+	})
+	if err != nil {
+		t.Fatalf("schedule leaf input: %v", err)
+	}
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents while leaf has a scheduled input: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d subagents while a grandchild had a scheduled input, want 0", archived)
+	}
+	if err := store.Execution().CancelQueuedBacklogInput(ctx, executionstore.CancelQueuedBacklogInputInput{
+		ProjectID: testProjectID, AgentID: leaf.Agent.ID, InputID: scheduled.ID,
+	}); err != nil {
+		t.Fatalf("cancel scheduled leaf input: %v", err)
+	}
+	trigger, err := store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
+		ProjectID: testProjectID, Name: "subagent-idle-schedule",
+		Target:         executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetAgent, ID: middle.Agent.ID},
+		CronExpression: "0 12 * * *", Timezone: "UTC", MessageTemplate: "Midday check.", Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("create cron trigger: %v", err)
+	}
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents while one has an enabled schedule: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d subagents while one had an enabled schedule, want 0", archived)
+	}
+	if err := store.Execution().DeleteCronTrigger(ctx, testProjectID, trigger.ID); err != nil {
+		t.Fatalf("delete cron trigger: %v", err)
+	}
 	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents: %v", err)

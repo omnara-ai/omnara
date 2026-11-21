@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -311,7 +312,7 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 		{
 			testPublicID(t, publicid.KindAgentInteraction, parentInteraction),
 			testPublicID(t, publicid.KindAgent, parent.ID),
-			"", "",
+			parent.Name, "",
 		},
 		{
 			testPublicID(t, publicid.KindAgentInteraction, childInteraction),
@@ -324,7 +325,7 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 			"grandchild", "helper",
 		},
 	}
-	assertRows := func(rows []map[string]any, listedAgentID string, want []expected) {
+	assertRows := func(rows []map[string]any, want []expected) {
 		t.Helper()
 		if len(rows) != len(want) {
 			t.Fatalf("paged %d interactions, want %d: %+v", len(rows), len(want), rows)
@@ -334,9 +335,6 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 				t.Fatalf("interaction %d = %+v, want %+v", i, row, want[i])
 			}
 			wantName, wantKey := want[i].agentName, want[i].subagentKey
-			if want[i].agentID == listedAgentID {
-				wantName, wantKey = "", ""
-			}
 			agentName, _ := row["agent_name"].(string)
 			subagentKey, _ := row["subagent_key"].(string)
 			if agentName != wantName || subagentKey != wantKey {
@@ -347,22 +345,196 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 	parentPath := project.ProjectPath + "/agents/" + want[0].agentID + "/interactions?state=open"
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 1),
-		want[0].agentID,
 		want,
 	)
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 2),
-		want[0].agentID,
 		want,
 	)
 	assertRows(
-		pageThroughAgentInteractionRows(t, handler, parentPath, project.AdminToken, 1), want[0].agentID, want[:1],
+		pageThroughAgentInteractionRows(t, handler, parentPath, project.AdminToken, 1), want[:1],
 	)
 	childPath := project.ProjectPath + "/agents/" + want[1].agentID + "/interactions?state=open"
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, childPath+"&include_subagents=true", project.AdminToken, 1),
-		want[1].agentID,
 		want[1:],
+	)
+}
+
+func TestListProjectInteractionsAndToolCalls(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := newIntegrationStore(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "project-pending")
+	other := bootstrapPublicHTTPProject(t, handler, "project-pending-other")
+	user := createHTTPInteractionUser(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, "project-pending")
+	otherUser := createHTTPInteractionUser(t, ctx, pool, store, other.OrgUUID, other.ProjectUUID, "project-pending-other")
+	question := json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`)
+	command := json.RawMessage(
+		`{"tool_name":"run_command","command_resolution":{"command":"printf proposed",` +
+			`"shell_selector":"default","wait_ms":600}}`,
+	)
+	launch := func(name string) executionstore.LaunchAgentResult {
+		return createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, name)
+	}
+
+	parentLaunch := launch("pending-parent")
+	parent := parentLaunch.Agent
+	questionID := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, parent, "question", "", question,
+	)
+	caller := launch("pending-caller").Agent
+	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
+	if err != nil {
+		t.Fatalf("subagent actor params: %v", err)
+	}
+	childName := "pending-child"
+	childLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      project.ProjectUUID,
+		ProfileID:      caller.AgentProfileID,
+		LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: parent.ID},
+		Name:           &childName,
+		MessageActor:   actor,
+		IdempotencyKey: "spawn-pending-child",
+		Subagent: &executionstore.SubagentLaunch{
+			ParentAgentID: parent.ID, Key: "worker", MaxDepth: agentconfig.MaxSubagentDepth,
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent from caller profile: %v", err)
+	}
+	child := childLaunch.Agent
+	permissionID := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, child, "permission", "", command,
+	)
+	resolved := launch("pending-resolved").Agent
+	resolvedID := createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, resolved, "question", "", question,
+	)
+	requestJSONWithHeaders(
+		t, handler, http.MethodPost,
+		project.ProjectPath+"/agents/"+testPublicID(t, publicid.KindAgent, resolved.ID)+
+			"/interactions/"+testPublicID(t, publicid.KindAgentInteraction, resolvedID)+"/resolve",
+		httpQuestionResolutionRequest(0), "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	readyCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
+	done := launch("pending-done").Agent
+	doneCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, done)
+	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+		ProjectID:     project.ProjectUUID,
+		AgentID:       done.ID,
+		ID:            doneCallID,
+		Outcome:       executionstore.ToolResultOutcomeSucceeded,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
+	}); err != nil {
+		t.Fatalf("complete custom tool call: %v", err)
+	}
+	archived := launch("pending-archived").Agent
+	createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, archived, "question", "", question,
+	)
+	archive := `UPDATE agents SET state='archived',archived_at=now() WHERE id=$1`
+	if _, err := pool.Exec(ctx, archive, archived.ID); err != nil {
+		t.Fatalf("archive agent: %v", err)
+	}
+	otherAsker := createHTTPRuntimeAgent(t, ctx, store, other.OrgUUID, other.ProjectUUID, otherUser.ID, "other-asker")
+	createHTTPInteractionForAgent(
+		t, ctx, store, other.OrgUUID, other.ProjectUUID, otherUser.ID, otherAsker.Agent, "question", "", question,
+	)
+	otherCaller := createHTTPRuntimeAgent(t, ctx, store, other.OrgUUID, other.ProjectUUID, otherUser.ID, "other-caller")
+	createHTTPCustomToolCallForAgent(t, ctx, store, other.OrgUUID, other.ProjectUUID, otherUser.ID, otherCaller.Agent)
+
+	want := []struct {
+		id, agentID string
+		agentName   any
+		subagentKey any
+	}{
+		{
+			testPublicID(t, publicid.KindAgentInteraction, questionID),
+			testPublicID(t, publicid.KindAgent, parent.ID),
+			parent.Name, nil,
+		},
+		{
+			testPublicID(t, publicid.KindAgentInteraction, permissionID),
+			testPublicID(t, publicid.KindAgent, child.ID),
+			"pending-child", "worker",
+		},
+	}
+	rows := pageThroughAgentInteractionRows(t, handler, project.ProjectPath+"/interactions?", project.AdminToken, 1)
+	if len(rows) != len(want) {
+		t.Fatalf("project interactions = %+v, want %+v", rows, want)
+	}
+	for i, row := range rows {
+		if row["id"] != want[i].id || row["agent_id"] != want[i].agentID ||
+			row["agent_name"] != want[i].agentName || row["subagent_key"] != want[i].subagentKey {
+			t.Fatalf("project interaction %d = %+v, want %+v", i, row, want[i])
+		}
+	}
+	rowIDs := func(rows []map[string]any) []string {
+		ids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, testutil.RequireType[string](t, row["id"]))
+		}
+		return ids
+	}
+	listedIDs := func(path string) []string {
+		t.Helper()
+		listed := requestJSONWithHeaders(
+			t, handler, http.MethodGet, path, "", "", http.StatusOK, authHeaders(project.AdminToken),
+		)
+		rows := make([]map[string]any, 0)
+		for _, row := range testutil.RequireType[[]any](t, listed["data"]) {
+			rows = append(rows, testutil.RequireType[map[string]any](t, row))
+		}
+		return rowIDs(rows)
+	}
+	parentProfile := "agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, parent.AgentProfileID)
+	callerProfile := "agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, caller.AgentProfileID)
+	for query, wantIDs := range map[string][]string{
+		"interaction_kind=permission": {want[1].id},
+		parentProfile:                 {want[0].id},
+		callerProfile:                 {want[1].id},
+	} {
+		if got := listedIDs(project.ProjectPath + "/interactions?" + query); !slices.Equal(got, wantIDs) {
+			t.Fatalf("project interactions ?%s = %v, want %v", query, got, wantIDs)
+		}
+	}
+
+	interactionCall := func(agentID, interactionID uuid.UUID) string {
+		t.Helper()
+		interaction, found, err := store.Execution().GetAgentInteraction(ctx, project.ProjectUUID, agentID, interactionID)
+		if err != nil || !found {
+			t.Fatalf("load interaction %s: found=%v err=%v", interactionID, found, err)
+		}
+		return testPublicID(t, publicid.KindToolCall, interaction.ToolCallID)
+	}
+	readyCallPublicID := testPublicID(t, publicid.KindToolCall, readyCallID)
+	wantCalls := []string{
+		interactionCall(parent.ID, questionID), interactionCall(child.ID, permissionID), readyCallPublicID,
+	}
+	for query, wantIDs := range map[string][]string{
+		"":                                     wantCalls,
+		"type=custom":                          {readyCallPublicID},
+		"state=ready&type=custom":              {readyCallPublicID},
+		"names=ask_question&names=run_command": wantCalls[:2],
+		parentProfile:                          wantCalls[:1],
+		callerProfile:                          wantCalls[1:],
+	} {
+		if got := listedIDs(project.ProjectPath + "/tool-calls?" + query); !slices.Equal(got, wantIDs) {
+			t.Fatalf("project tool calls ?%s = %v, want %v", query, got, wantIDs)
+		}
+	}
+	paged := rowIDs(
+		pageThroughAgentInteractionRows(t, handler, project.ProjectPath+"/tool-calls?", project.AdminToken, 1),
+	)
+	if !slices.Equal(paged, wantCalls) {
+		t.Fatalf("paged project tool calls = %v, want %v", paged, wantCalls)
+	}
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, project.ProjectPath+"/tool-calls?state=completed",
+		"", "", http.StatusBadRequest, authHeaders(project.AdminToken),
 	)
 }
 
@@ -1964,6 +2136,7 @@ func copyHTTPInteractionForTest(
 	var id uuid.UUID
 	if err := pool.QueryRow(ctx, `
 	INSERT INTO agent_interactions(
+	  project_id,
 	  agent_id,
   tool_call_id,
   interaction_kind,
@@ -1971,7 +2144,8 @@ func copyHTTPInteractionForTest(
   request,
   created_at
 )
-	SELECT agent_id,
+	SELECT project_id,
+       agent_id,
        tool_call_id,
        $4,
        'open',

@@ -39,6 +39,7 @@ type Bundle struct {
 	ContextCheckpoint         *CheckpointRef           `json:"context_checkpoint,omitempty"`
 	ResolvedMedia             map[string]ResolvedMedia `json:"resolved_media,omitempty"`
 	RenderedMedia             []RenderedMedia          `json:"-"`
+	OutputNoProgressRetries   int                      `json:"output_no_progress_retries,omitempty"`
 }
 
 type MediaProjector interface {
@@ -87,6 +88,7 @@ const (
 	InputModalityText  = "text"
 	InputModalityImage = "image"
 	InputModalityFile  = "file"
+	InputModalityAudio = "audio"
 )
 
 func (m RenderedMedia) InputModality() string {
@@ -98,6 +100,8 @@ func (m RenderedMedia) InputModality() string {
 			return ""
 		}
 		return InputModalityFile
+	case AttachmentKindAudio:
+		return InputModalityAudio
 	}
 	return ""
 }
@@ -117,6 +121,7 @@ type Message struct {
 	ProviderReplay            json.RawMessage                      `json:"-"`
 	ProviderReplaySource      modelenvelope.ProviderReplayIdentity `json:"-"`
 	StopReason                modelenvelope.StopReason             `json:"-"`
+	OutputNoProgressRetries   int                                  `json:"-"`
 }
 
 type ToolSpec struct {

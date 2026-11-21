@@ -209,6 +209,37 @@ func (s *Store) ReadProjectAvailableSecretPayload(
 	}, nil
 }
 
+func (s *Store) currentMCPURLTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID, secretID uuid.UUID,
+) (string, error) {
+	if s.secretKeyWrapper == nil {
+		return "", errors.New("secret key wrapper is required")
+	}
+	row, err := qtx.GetCurrentSecretPayload(ctx, dbsqlc.GetCurrentSecretPayloadParams{OrgID: orgID, ID: secretID})
+	if err != nil {
+		return "", fmt.Errorf("get current secret payload: %w", err)
+	}
+	version := secretVersionFromCurrentPayloadSQLC(row)
+	payload, err := secrets.DecryptPayload(
+		ctx,
+		s.secretKeyWrapper,
+		encryptedPayloadFromSecretVersion(version),
+		secrets.AssociatedData{
+			OrgID:         version.OrgID.String(),
+			SecretID:      version.SecretID.String(),
+			VersionID:     version.ID.String(),
+			VersionNumber: version.VersionNumber,
+			Kind:          secrets.Kind(row.Kind),
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("decrypt secret payload: %w", err)
+	}
+	return payload[secrets.KeyMCPURL], nil
+}
+
 func (s *Store) ReadOrgOwnedSecretPayload(
 	ctx context.Context,
 	input ReadOrgOwnedSecretPayloadInput,

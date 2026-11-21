@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
 )
@@ -67,14 +69,15 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		`"profile_id":"`+id.String()+`"`, `"profile_id":"`+public(publicid.KindAgentProfile)+`"`,
 		`"integration_id":"`+id.String()+`"`, `"integration_id":"`+public(publicid.KindIntegration)+`"`,
 	).Replace(source)
-	decode := func(raw []byte) any {
+	decode := func(t *testing.T, raw []byte) any {
+		t.Helper()
 		var value any
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.UseNumber()
 		require.NoError(t, decoder.Decode(&value))
 		return value
 	}
-	require.Equal(t, decode([]byte(expected)), decode(actual))
+	require.Equal(t, decode(t, []byte(expected)), decode(t, actual))
 	require.Equal(t, publicid.ID(public(publicid.KindConfiguredModel)), projected.Model.ConfiguredModelId)
 	spec, err := openapi.GetSpec()
 	require.NoError(t, err)
@@ -82,18 +85,19 @@ func TestPublicCompiledDefinition(t *testing.T) {
 	require.NoError(t, json.Unmarshal(actual, &value))
 	require.NoError(t, spec.Components.Schemas["CompiledAgentConfig"].Value.VisitJSON(value))
 
-	t.Run("detail without source", func(t *testing.T) {
-		t.Parallel()
-		detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{}, raw)
-		require.NoError(t, err)
-		body, err := json.Marshal(detail)
-		require.NoError(t, err)
-		var fields map[string]json.RawMessage
-		require.NoError(t, json.Unmarshal(body, &fields))
-		require.NotContains(t, fields, "source")
-		require.NotContains(t, fields, "source_format")
-		require.JSONEq(t, string(actual), string(fields["compiled_definition"]))
-	})
+	exact, err := jsoncanonical.Canonical(raw)
+	require.NoError(t, err)
+	detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{
+		EffectiveDefinitionHash: agentconfig.DefinitionHash(exact),
+	}, raw)
+	require.NoError(t, err)
+	body, err := json.Marshal(detail)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &fields))
+	require.NotContains(t, fields, "source")
+	require.NotContains(t, fields, "source_format")
+	require.True(t, jsoncanonical.Equal(actual, fields["compiled_definition"]))
 }
 
 func TestCompiledConfigEnums(t *testing.T) {

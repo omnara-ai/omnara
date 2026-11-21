@@ -31,8 +31,11 @@ const (
 	preSendErrorCodeResolveModelFailed        = "resolve_model_failed"
 	preSendErrorCodeBuildModelContextFailed   = "build_model_context_failed"
 	preSendErrorCodeLoadReplayPolicyFailed    = "load_provider_replay_policy_failed"
+	preSendErrorCodeLoadRetryHistoryFailed    = "load_model_retry_history_failed"
 	preSendErrorCodePrepareModelRequestFailed = "prepare_model_request_failed"
 )
+
+const minimumAffordableOutputTokens = 8_192
 
 type modelStep struct {
 	State               modelStepState
@@ -234,6 +237,21 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
+	if claim.Context.AttemptNumber > 1 {
+		noProgressFailures, countErr := e.Store.Execution().CountModelCallRetriesWithErrorCode(
+			ctx, input.ProjectID, input.AgentID, claim.Context.ID, modelretry.OutputNoProgressErrorCode,
+		)
+		if countErr != nil {
+			return e.recordNormalPreSendFailure(
+				ctx, input, claim, resolved, countErr,
+				modelretry.PreSendFailure{
+					Code:    preSendErrorCodeLoadRetryHistoryFailed,
+					Message: "Omnara could not load the earlier attempts of this model call.",
+				},
+			)
+		}
+		bundle.OutputNoProgressRetries = noProgressFailures
+	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	bundle.SafetyIdentifier = e.safetyIdentifier(input.OrgID)
 	prepared, err := model.PrepareForSend(
@@ -279,7 +297,23 @@ func (e AgentExecutor) executeModelStep(
 			defer streamSink.Close()
 		}
 	}
-	response, err := client.Respond(ctx, request)
+	callCtx := model.WithCallScope(ctx, model.CallScope{
+		Purpose:            model.CallPurposeAgentTurn,
+		ModelCallContextID: claim.Context.ID.String(),
+		Attempt:            claim.Context.AttemptNumber,
+	})
+	response, err := client.Respond(callCtx, request)
+	if providerErr, ok := model.ClassifyError(err); ok && providerErr.AffordableOutputTokens != nil &&
+		*providerErr.AffordableOutputTokens >= minimumAffordableOutputTokens {
+		retryPolicy := policy
+		retryPolicy.MaxOutputTokens = *providerErr.AffordableOutputTokens
+		if retry, retryErr := model.PrepareForSend(ctx, client, model.PrepareForSendInput{
+			Context: bundle, Policy: retryPolicy, ErrorSource: modelErrorSourceForClient(client),
+		}); retryErr == nil {
+			prepared, request.ProviderRequest = retry, retry.Body
+			response, err = client.Respond(callCtx, request)
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
@@ -339,7 +373,7 @@ func (e AgentExecutor) finishModelResponse(
 	if cause == nil && reason == model.StopReasonMaxTokens && len(calls) == 0 &&
 		strings.TrimSpace(step.Envelope.Text()) == "" {
 		cause = model.ProviderError{
-			Kind: model.ErrorKindTransient, Source: errorSource, Code: "model_output_no_progress",
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: modelretry.OutputNoProgressErrorCode,
 			Message: "The model exhausted its output allowance without producing text or a tool call.",
 		}
 	}

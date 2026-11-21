@@ -724,7 +724,7 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 		PromptTokens:     1000,
 		CompletionTokens: 60,
 		PromptTokensDetails: chatTokenDetails{
-			CachedTokens:     100,
+			CachedTokens:     reportedCount(100),
 			CacheWriteTokens: 800,
 		},
 	})
@@ -751,7 +751,7 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 	if got := usageFromResponse(chatUsage{
 		PromptTokens: 10,
 		PromptTokensDetails: chatTokenDetails{
-			CachedTokens:     2,
+			CachedTokens:     reportedCount(2),
 			CacheWriteTokens: 9,
 		},
 	}); got != (model.Usage{InputTokens: 10, UncachedInputTokens: 10}) {
@@ -828,12 +828,21 @@ func TestUsageFromResponseReadsProviderCacheSpellings(t *testing.T) {
 }
 
 func TestUsageFromResponseIgnoresMalformedCacheTelemetry(t *testing.T) {
-	var usage chatUsage
-	body := `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":"unknown","cached_tokens":{"n":1}}`
-	if err := json.Unmarshal([]byte(body), &usage); err != nil {
-		t.Fatalf("decode usage: %v", err)
+	for _, body := range []string{
+		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":"unknown","cached_tokens":{"n":1}}`,
+		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":-3}`,
+		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":null,"cached_tokens":null}`,
+	} {
+		var usage chatUsage
+		if err := json.Unmarshal([]byte(body), &usage); err != nil {
+			t.Fatalf("decode usage: %v", err)
+		}
+		if got := usageFromResponse(usage); got.InputTokens != 283 || got.CacheReadTokens != 0 || got.CacheReported {
+			t.Fatalf("usage = %+v, want 283 input with cache usage unmeasured", got)
+		}
 	}
-	if got := usageFromResponse(usage); got.InputTokens != 283 || got.CacheReadTokens != 0 {
-		t.Fatalf("usage = %+v, want 283 input with no cache read", got)
-	}
+}
+
+func reportedCount(count int) modelenvelope.ReportedCount {
+	return modelenvelope.ReportedCount{Count: count, Reported: true}
 }

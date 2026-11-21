@@ -11,24 +11,29 @@ type AttachmentMediaType = InlineMediaContentBlock['media_type']
 export interface SelectedAgentAttachment {
   id: string
   file: File
-  kind: 'image' | 'document'
+  kind: AttachmentKind
   mediaType: AttachmentMediaType
   data: string
 }
+
+type AttachmentKind = 'image' | 'audio' | 'document'
 
 const mediaByExtension = new Map<string, AttachmentMediaType>([
   ['csv', 'text/csv'],
   ['doc', 'application/msword'],
   ['dot', 'application/msword'],
   ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['flac', 'audio/flac'],
   ['gif', 'image/gif'],
   ['iif', 'text/x-iif'],
   ['iwork', 'application/vnd.apple.iwork'],
   ['jpeg', 'image/jpeg'],
   ['jpg', 'image/jpeg'],
   ['key', 'application/vnd.apple.keynote'],
+  ['m4a', 'audio/mp4'],
   ['markdown', 'text/markdown'],
   ['md', 'text/markdown'],
+  ['mp3', 'audio/mpeg'],
   ['odt', 'application/vnd.oasis.opendocument.text'],
   ['pages', 'application/vnd.apple.pages'],
   ['pdf', 'application/pdf'],
@@ -42,6 +47,7 @@ const mediaByExtension = new Map<string, AttachmentMediaType>([
   ['rtf', 'application/rtf'],
   ['tsv', 'text/tab-separated-values'],
   ['txt', 'text/plain'],
+  ['wav', 'audio/wav'],
   ['webp', 'image/webp'],
   ['wiz', 'application/vnd.ms-powerpoint'],
   ['xla', 'application/vnd.ms-excel'],
@@ -56,6 +62,13 @@ const mediaByExtension = new Map<string, AttachmentMediaType>([
 
 const mediaTypeAliases = new Map<string, AttachmentMediaType>([
   ['application/x-iif', 'text/x-iif'],
+  ['audio/m4a', 'audio/mp4'],
+  ['audio/mp3', 'audio/mpeg'],
+  ['audio/vnd.wave', 'audio/wav'],
+  ['audio/wave', 'audio/wav'],
+  ['audio/x-flac', 'audio/flac'],
+  ['audio/x-m4a', 'audio/mp4'],
+  ['audio/x-wav', 'audio/wav'],
   ['image/jpg', 'image/jpeg'],
   ['text/rtf', 'application/rtf'],
   ['text/tsv', 'text/tab-separated-values'],
@@ -76,10 +89,12 @@ function allowsModality(model: AgentConfigModel, modality: string): boolean {
 
 function supportsAttachment(
   model: AgentConfigModel,
-  kind: 'image' | 'document',
+  kind: AttachmentKind,
   mediaType: AttachmentMediaType,
 ): boolean {
   if (kind === 'image') return allowsModality(model, 'image')
+  // Models that can't hear audio still receive the stored file's artifact ID.
+  if (kind === 'audio') return true
   if (mediaType.startsWith('text/')) return allowsModality(model, 'text')
   if (model.api_format === 'openai-chat-completions' && mediaType === 'application/pdf') {
     return model.api_variant === 'openrouter' || allowsModality(model, 'file')
@@ -113,14 +128,18 @@ export async function selectAgentAttachment(
     [...mediaByExtension.values()].find((candidate) => candidate === normalizedType)
   if (mediaType == null) {
     if (decodeUTF8Text(await readBytes()) === null) {
-      throw new Error(`${file.name} is not a supported image, document, or UTF-8 text file.`)
+      throw new Error(`${file.name} is not a supported image, audio, document, or UTF-8 text file.`)
     }
     mediaType = 'text/plain'
   } else if (mediaType.startsWith('text/') && decodeUTF8Text(await readBytes()) === null) {
     throw new Error(`${file.name} is not valid UTF-8 text.`)
   }
 
-  const kind = mediaType.startsWith('image/') ? 'image' : 'document'
+  const kind: AttachmentKind = mediaType.startsWith('image/')
+    ? 'image'
+    : mediaType.startsWith('audio/')
+      ? 'audio'
+      : 'document'
   if (!supportsAttachment(model, kind, mediaType)) {
     throw new Error(`${file.name} is not supported by this agent's model.`)
   }

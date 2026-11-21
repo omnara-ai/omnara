@@ -9,8 +9,28 @@ export {
 export type { AuthStrategy } from './auth'
 export { bearerToken } from './auth'
 export { cliLoginTokenHost, cliLoginTokenName, isCliLoginToken } from './cli-login-token'
-export type { OmnaraClient, OmnaraClientOptions } from './client'
+export type {
+  OmnaraClient,
+  OmnaraClientConfig,
+  OmnaraClientConfigOptions,
+  OmnaraClientOptions,
+} from './client'
 export { createOmnaraClient } from './client'
+export { CustomToolDeliveryError } from './custom-tool-request'
+export { createCustomToolWorker } from './custom-tool-worker'
+export type {
+  CreateCustomToolWorkerOptions,
+  CustomToolCall,
+  CustomToolCallRef,
+  CustomToolCheckOptions,
+  CustomToolCheckResult,
+  CustomToolHandler,
+  CustomToolHandlerResult,
+  CustomToolObservation,
+  CustomToolOperationOptions,
+  CustomToolOutcome,
+  CustomToolWorker,
+} from './custom-tool-worker-types'
 export {
   DeviceAuthError,
   type DeviceAuthFailureCode,
@@ -23,6 +43,7 @@ export {
   type StartDeviceAuthOptions,
 } from './device'
 export { ApiError, type ApiErrorCode } from './errors'
+export { verifyEventWebhook } from './event-webhook'
 export * as sdk from './generated/sdk.gen'
 export type * from './generated/types.gen'
 export * as schemas from './generated/zod.gen'
@@ -36,3 +57,4 @@ export {
   profileIntegrationProfileUpdate,
   profileIntegrationSetup,
 } from './profile-integration'
+export type { RequestObservation, RequestPolicyOptions } from './request-policy-options'

@@ -45,7 +45,7 @@ instruction: |
   You are an engineering assistant. Use your machine to run commands.
 model:
   provider_config: omnara-openrouter
-  name: anthropic/claude-fable-5.1
+  name: anthropic/claude-fable-5.2
 machine_sources:
   - machine_pool_name: default-pool
 ```
@@ -315,10 +315,16 @@ company's models and are fine with it holding your agents' history.
 Each of these is an `agent.yaml` plus a `SKILL.md` in [`examples/`](examples),
 and you can deploy any of them with one prompt to your coding agent.
 
+- [In-app guide](examples/in-app-guide) shows your users how to do things in
+  your web app, with a cursor on the page they are on.
 - [Slack coding agent](examples/slack-coding-agent) fixes issues you mention in
   Slack, Discord, or a GitHub pull request and opens a PR.
 - [PR review agent](examples/pr-review-agent) reviews your GitHub pull requests
   against a checkout of the repository and leaves inline findings.
+- [PR video agent](examples/pr-video-agent) records a short video of a pull
+  request's change working in your app and posts it on the pull request.
+- [Dependency roll-up agent](examples/dependency-rollup-agent) rolls your
+  Dependabot pull requests into one pull request a day that passes CI.
 - [SRE agent](examples/sre-agent) investigates production problems such as a
   5xx spike.
 - [Browser agent](examples/browser-agent) works in a real browser on

@@ -2,6 +2,7 @@ import { useCreateSecret } from '@omnara/react'
 import type { Secret, SecretOwnerInput } from '@omnara/sdk'
 import { useId, useState } from 'react'
 
+import { CopyButton } from '@/components/overview/CodeBlock'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,7 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  RequiredFieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { resourceNameValid } from '@/lib/resource-name'
@@ -21,12 +28,16 @@ export function NewSecretDialog({
   orgId,
   projectId,
   defaultName = '',
+  valueError,
+  generateValue,
   onClose,
   onCreated,
 }: {
   orgId: string
   projectId?: string
   defaultName?: string
+  valueError?: (value: string) => string | undefined
+  generateValue?: () => string
   onClose: () => void
   onCreated: (secret: Secret) => void
 }) {
@@ -35,7 +46,9 @@ export function NewSecretDialog({
   const [name, setName] = useState(defaultName)
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
-  const valid = resourceNameValid(name) && value !== ''
+  const [generated, setGenerated] = useState(false)
+  const valueMessage = value === '' ? undefined : valueError?.(value)
+  const valid = resourceNameValid(name) && value !== '' && valueMessage === undefined
   const owner: SecretOwnerInput =
     projectId === undefined ? { kind: 'org' } : { kind: 'project', project_id: projectId }
 
@@ -91,16 +104,42 @@ export function NewSecretDialog({
               <ResourceNameFieldError value={name} />
             </Field>
             <Field>
-              <RequiredFieldLabel htmlFor={`${idPrefix}-value`}>Value</RequiredFieldLabel>
-              <Input
-                id={`${idPrefix}-value`}
-                type="password"
-                value={value}
-                autoComplete="new-password"
-                onChange={(event) => {
-                  setValue(event.target.value)
-                }}
-              />
+              <div className="flex items-center justify-between">
+                <RequiredFieldLabel htmlFor={`${idPrefix}-value`}>Value</RequiredFieldLabel>
+                {generateValue && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="type-control-small h-auto p-0"
+                    disabled={createSecret.isPending}
+                    onClick={() => {
+                      setValue(generateValue())
+                      setGenerated(true)
+                    }}
+                  >
+                    Generate
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id={`${idPrefix}-value`}
+                  type={generated ? 'text' : 'password'}
+                  className={generated ? 'font-mono' : undefined}
+                  value={value}
+                  disabled={createSecret.isPending}
+                  autoComplete="new-password"
+                  onChange={(event) => {
+                    setValue(event.target.value)
+                  }}
+                />
+                {generated && <CopyButton key={value} text={value} label="secret" />}
+              </div>
+              {valueMessage && <FieldError>{valueMessage}</FieldError>}
+              {generated && (
+                <FieldDescription>Shown once. Copy it before creating the secret.</FieldDescription>
+              )}
             </Field>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>

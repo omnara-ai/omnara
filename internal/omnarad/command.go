@@ -2,6 +2,7 @@ package omnarad
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,12 @@ type daemonCommand struct {
 		ProcessID string `arg:"positional,required"`
 		Operation string `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_git_credential,hidden"`
+	GitHubCLI *struct {
+		Endpoint   string   `arg:"positional,required"`
+		ProcessID  string   `arg:"positional,required"`
+		WrapperDir string   `arg:"positional,required"`
+		Args       []string `arg:"positional"`
+	} `arg:"subcommand:__omnara_gh,hidden"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
@@ -231,6 +238,14 @@ func Run(
 			return 1
 		}
 		return 0
+	case command.GitHubCLI != nil:
+		err := machinedaemon.RunGitHubCLI(ctx, command.GitHubCLI.Endpoint, command.GitHubCLI.ProcessID,
+			command.GitHubCLI.WrapperDir, command.GitHubCLI.Args)
+		_, _ = fmt.Fprintln(stderr, err)
+		if errors.Is(err, machinedaemon.ErrGitHubCLINotFound) {
+			return 127
+		}
+		return 1
 	case command.ProcessRunner != nil:
 		if err := machinedaemon.RunCommandSupervisorFromBootstrap(
 			ctx,
@@ -248,9 +263,22 @@ func Run(
 			_, _ = fmt.Fprintln(stderr, "file transfer requires a result pipe")
 			return 1
 		}
+		var connection machinedaemon.FileTransferConnection
+		connectionFile := os.NewFile(4, "file-transfer-connection")
+		err := json.NewDecoder(connectionFile).Decode(&connection)
+		_ = connectionFile.Close()
+		if err == nil {
+			err = errors.Join(
+				os.Setenv("SSL_CERT_FILE", connection.SSLCertFile), os.Setenv("SSL_CERT_DIR", connection.SSLCertDir),
+			)
+		}
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "file transfer requires its connection:", err)
+			return 1
+		}
 		if err := runFileTransfer(
 			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
-			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
+			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, connection, result,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

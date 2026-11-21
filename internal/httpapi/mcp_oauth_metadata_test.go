@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"strings"
@@ -70,7 +71,6 @@ func TestMCPUpstreamFailureMapsErrorOrigins(t *testing.T) {
 }
 
 func TestMCPOAuthSecretMetadataMergesExistingAndProvided(t *testing.T) {
-	mcpURL := "https://mcp.example.com/mcp"
 	cases := []struct {
 		name     string
 		existing json.RawMessage
@@ -79,38 +79,28 @@ func TestMCPOAuthSecretMetadataMergesExistingAndProvided(t *testing.T) {
 	}{
 		{
 			name: "no existing no provided",
-			want: resourcemeta.Metadata{secrets.KeyMCPURL: mcpURL},
+			want: resourcemeta.Metadata{},
 		},
 		{
 			name:     "existing kept when provided is unset",
 			existing: json.RawMessage(`{"team":"support","mcp_url":"https://old.example.com"}`),
-			want: resourcemeta.Metadata{
-				"team":            "support",
-				secrets.KeyMCPURL: mcpURL,
-			},
+			want:     resourcemeta.Metadata{"team": "support"},
 		},
 		{
 			name:     "provided overlays existing per key",
 			existing: json.RawMessage(`{"team":"support","region":"us-east-1"}`),
 			provided: resourcemeta.Metadata{"team": "infra"},
-			want: resourcemeta.Metadata{
-				"team":            "infra",
-				"region":          "us-east-1",
-				secrets.KeyMCPURL: mcpURL,
-			},
+			want:     resourcemeta.Metadata{"team": "infra", "region": "us-east-1"},
 		},
 		{
 			name:     "oversized existing value is dropped",
 			existing: json.RawMessage(`{"big":"` + strings.Repeat("v", resourcemeta.MaxValueLength+1) + `","ok":"kept"}`),
-			want: resourcemeta.Metadata{
-				"ok":              "kept",
-				secrets.KeyMCPURL: mcpURL,
-			},
+			want:     resourcemeta.Metadata{"ok": "kept"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := mcpOAuthSecretMetadata(tc.existing, tc.provided, mcpURL)
+			got, err := mcpOAuthSecretMetadata(tc.existing, tc.provided)
 			if err != nil {
 				t.Fatalf("merge metadata: %v", err)
 			}
@@ -124,42 +114,24 @@ func TestMCPOAuthSecretMetadataMergesExistingAndProvided(t *testing.T) {
 	}
 }
 
-func TestMCPOAuthSecretMetadataTrimsExistingAtCapacity(t *testing.T) {
-	mcpURL := "https://mcp.example.com/mcp"
-	existing := resourcemeta.Metadata{}
-	for i := range resourcemeta.MaxEntries {
-		existing[fmt.Sprintf("key-%02d", i)] = "value"
+func TestMCPOAuthSecretMetadataKeepsLabelsAtCapacity(t *testing.T) {
+	labels := resourcemeta.Metadata{}
+	for i := range resourcemeta.MaxEntries - 1 {
+		labels[fmt.Sprintf("tag-%02d", i)] = "value"
 	}
+	existing := resourcemeta.Metadata{secrets.KeyMCPURL: "https://old.example.com/mcp"}
+	maps.Copy(existing, labels)
 	raw, err := existing.JSON()
 	if err != nil {
 		t.Fatalf("encode existing metadata: %v", err)
 	}
-	provided := resourcemeta.Metadata{"provided": "wins"}
-	got, err := mcpOAuthSecretMetadata(raw, provided, mcpURL)
+	got, err := mcpOAuthSecretMetadata(raw, resourcemeta.Metadata{"provided": "wins"})
 	if err != nil {
 		t.Fatalf("merge metadata: %v", err)
 	}
-	if err := got.Validate(); err != nil {
-		t.Fatalf("merged metadata invalid: %v", err)
-	}
-	if len(got) != resourcemeta.MaxEntries {
-		t.Fatalf("merged metadata has %d entries, want %d", len(got), resourcemeta.MaxEntries)
-	}
-	if got[secrets.KeyMCPURL] != mcpURL || got["provided"] != "wins" {
-		t.Fatalf("merged metadata = %v", got)
-	}
-	for i := range resourcemeta.MaxEntries - 2 {
-		key := fmt.Sprintf("key-%02d", i)
-		if got[key] != "value" {
-			t.Fatalf("merged metadata dropped %s: %v", key, got)
-		}
-	}
-	for _, key := range []string{
-		fmt.Sprintf("key-%02d", resourcemeta.MaxEntries-2),
-		fmt.Sprintf("key-%02d", resourcemeta.MaxEntries-1),
-	} {
-		if _, ok := got[key]; ok {
-			t.Fatalf("merged metadata kept %s past capacity: %v", key, got)
-		}
+	want := resourcemeta.Metadata{"provided": "wins"}
+	maps.Copy(want, labels)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merge metadata = %v, want %v", got, want)
 	}
 }

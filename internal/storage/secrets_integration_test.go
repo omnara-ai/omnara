@@ -815,6 +815,82 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	assertSecretRowsDeleted(t, ctx, store, orgSecret.ID)
 }
 
+func TestOAuthRefreshRotationMirrorsMaterialMCPURL(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "OAuth mirror admin", authz.OrgRoleAdmin)
+	material := oauthSecretMaterialForTest("access", "refresh", secrets.FixedOAuthAccessTokenLifetime(time.Hour))
+	material.MCPURL = "https://mcp.example/one"
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          testOrgID,
+		OwnerKind:      secretstore.SecretOwnerProject,
+		OwnerProjectID: testProjectID,
+		Name:           "oauth-mirror",
+		Material:       material,
+		Actor:          userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create oauth secret: %v", err)
+	}
+	rotateMetadata := func(mcpURL string) map[string]string {
+		t.Helper()
+		lease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
+			ctx,
+			secretstore.AcquireProjectOAuthRefreshLeaseInput{
+				OrgID: testOrgID, ProjectID: testProjectID, SecretID: secret.ID, TTL: 30 * time.Second,
+			},
+		)
+		if err != nil || !acquired {
+			t.Fatalf("acquire oauth refresh lease acquired=%v err=%v", acquired, err)
+		}
+		material.MCPURL = mcpURL
+		rotated, err := store.Secrets().RotateProjectAvailableOAuthSecret(
+			ctx,
+			secretstore.RotateProjectAvailableOAuthSecretInput{
+				ProjectID: testProjectID, Lease: lease, Material: material,
+			},
+		)
+		if err != nil {
+			t.Fatalf("rotate oauth secret: %v", err)
+		}
+		if err := store.Secrets().ReleaseProjectOAuthRefreshLease(ctx, lease); err != nil {
+			t.Fatalf("release oauth refresh lease: %v", err)
+		}
+		metadata := map[string]string{}
+		if err := json.Unmarshal(rotated.Metadata, &metadata); err != nil {
+			t.Fatalf("decode rotated metadata: %v", err)
+		}
+		return metadata
+	}
+
+	if diff := cmp.Diff(map[string]string{"mcp_url": "https://mcp.example/two"}, rotateMetadata(
+		"https://mcp.example/two",
+	)); diff != "" {
+		t.Fatalf("rotated metadata mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(map[string]string{}, rotateMetadata("https://user:secret@mcp.example/mcp")); diff != "" {
+		t.Fatalf("credential URL published on rotation (-want +got):\n%s", diff)
+	}
+	legacy := map[string]string{}
+	for i := range resourcemeta.MaxEntries + 1 {
+		legacy[fmt.Sprintf("label-%02d", i)] = "v"
+	}
+	legacyJSON, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE secrets SET metadata = $3 WHERE org_id = $1 AND id = $2`,
+		testOrgID, secret.ID, legacyJSON); err != nil {
+		t.Fatalf("store metadata from before the current limits: %v", err)
+	}
+	if diff := cmp.Diff(legacy, rotateMetadata("https://mcp.example/three")); diff != "" {
+		t.Fatalf("legacy metadata changed on rotation (-want +got):\n%s", diff)
+	}
+}
+
 func TestOAuthAccessTokenLifetimeAgesUntilSecretVersionPersistence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

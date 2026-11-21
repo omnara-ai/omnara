@@ -1,0 +1,19 @@
+---
+title: Dependency roll-up agent
+description: Rolls your Dependabot pull requests into one pull request a day that passes CI
+icon: "layer-group"
+---
+
+Every day it rolls your repository's open Dependabot pull requests into one pull request that passes CI. It reads the release notes, fixes the code an upgrade breaks, and patches high and critical security advisories. The description opens with the upgrades it left out and why. On its next run it follows review comments from people with write access to the repository, and it never merges.
+
+It's the same agent every day, so it remembers what it decided before, and it works as a GitHub App through [Git credentials](/integrations/github#git-credentials), so there is no token to store. Omnara runs it on its own repository: see [omnara-ai/omnara#833](https://github.com/omnara-ai/omnara/pull/833).
+
+## Deploy
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It asks which repository to keep current and when to run, walks you through registering the GitHub App, starts the agent, and schedules it.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/dependency-rollup-agent/SKILL.md and follow it to deploy the dependency roll-up agent.
+```
+
+To see how it works or adapt it, browse [`examples/dependency-rollup-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/dependency-rollup-agent) on GitHub.

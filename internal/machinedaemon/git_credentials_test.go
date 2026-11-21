@@ -231,6 +231,64 @@ func testGitCredentialsRunningShellRestart(t *testing.T, mode processcmd.IOMode)
 	fixture.waitClosed(t, 5*time.Second)
 }
 
+func TestGitHubCLIWrapperAuthenticatesGH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the gh wrapper is POSIX-only")
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	for _, mode := range []string{"fetches", "explicit-token", "empty-token", "missing"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				assert.NoError(t, json.NewEncoder(w).Encode(daemonprotocol.GitCredentials{
+					Token: "installation-token", ExpiresAt: time.Now().Add(time.Hour),
+				}))
+			}))
+			defer upstream.Close()
+			processID, err := publicid.Encode(publicid.KindProcess, uuid.New())
+			require.NoError(t, err)
+			tools := t.TempDir()
+			if mode != "missing" {
+				require.NoError(t, os.Symlink(executable, filepath.Join(tools, "gh")))
+			}
+			env := map[string]string{"PATH": tools}
+			switch mode {
+			case "explicit-token":
+				env["GH_TOKEN"] = "agent-token"
+			case "empty-token":
+				env["GH_TOKEN"] = ""
+			}
+			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx,
+				Config{APIURL: upstream.URL, MachineToken: "machine-token"}, ProcessAssignment{
+					ID: processID, GitCredentials: true, TimeoutSeconds: 25, Env: env,
+					Process: Process{
+						ExecutionSpec: processcmd.ForShell("gh pr create --title 'two words' --help; echo exit=$?",
+							processcmd.ShellSH, processcmd.IOModePipe),
+						Cwd: t.TempDir(),
+					},
+				})
+			stop, err := fixture.client.startGitCredentialServer(ctx)
+			require.NoError(t, err)
+			defer stop()
+			fixture.acceptAndStart(t, ctx)
+			want, wantCalls := "args=pr|create|--title|two words|--help|token=installation-token\nexit=3", int32(1)
+			switch mode {
+			case "explicit-token":
+				want, wantCalls = "args=pr|create|--title|two words|--help|token=agent-token\nexit=3", 0
+			case "missing":
+				want, wantCalls = "gh: command not found\nexit=127", 0
+			}
+			fixture.waitForOutput(t, ctx, want)
+			fixture.waitClosed(t, 5*time.Second)
+			require.Equal(t, wantCalls, calls.Load())
+		})
+	}
+}
+
 func TestGitCredentialPreparationHonorsMachineOptOut(t *testing.T) {
 	client := New(Config{GitCredentialsDisabled: true}, nil, nil)
 	process := Process{ExecutionSpec: processcmd.ForShell("git clone", processcmd.ShellSH, processcmd.IOModePipe)}

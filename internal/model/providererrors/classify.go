@@ -3,6 +3,7 @@ package providererrors
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -81,7 +82,14 @@ func Classify(httpStatus, providerStatus int, message string, codes ...string) m
 			return model.ErrorKindBillingAccount
 		}
 		return model.ErrorKindRateLimit
+	case http.StatusBadRequest:
+		if hasBillingMarker(lower) {
+			return model.ErrorKindBillingAccount
+		}
 	case http.StatusForbidden:
+		if hasBillingMarker(lower) {
+			return model.ErrorKindBillingAccount
+		}
 		if hasModerationMarker(lower) {
 			return model.ErrorKindInvalidRequest
 		}
@@ -122,7 +130,8 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 		return model.ErrorKindPayloadTooLarge, false
 	case "insufficient_quota", "billing_hard_limit_reached", "billing_error", "payment_required",
 		"credit_balance_exhausted", "organization_spend_limit_exceeded",
-		"project_spend_limit_exceeded", "organization_usage_limit_exceeded":
+		"project_spend_limit_exceeded", "organization_usage_limit_exceeded", "enforced_spend_limit_reached",
+		"openrouter_key_limit", "openrouter_workspace_budget", "openrouter_guardrail_budget":
 		return model.ErrorKindBillingAccount, false
 	case "authentication", "authentication_error", "invalid_api_key":
 		return model.ErrorKindAuth, false
@@ -130,7 +139,7 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 		return model.ErrorKindAuth, true
 	case "rate_limit_exceeded", "rate_limit_error":
 		return model.ErrorKindRateLimit, false
-	case "timeout", "timeout_error", "network_error":
+	case "timeout", "timeout_error", "network_error", "openrouter_in_flight_budget":
 		return model.ErrorKindTransient, false
 	case "moderation", "content_filter", "content_policy", "content_policy_violation", "safety_policy", "refusal",
 		"max_tokens_exceeded", "token_limit_exceeded", "string_too_long", "not_found", "not_found_error",
@@ -145,6 +154,20 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 	default:
 		return model.ErrorKindUnknown, false
 	}
+}
+
+var openRouterAffordableOutputTokensPattern = regexp.MustCompile(`can only afford (\d+)`)
+
+func OpenRouterAffordableOutputTokens(message string) *int {
+	match := openRouterAffordableOutputTokensPattern.FindStringSubmatch(message)
+	if match == nil {
+		return nil
+	}
+	tokens, err := strconv.Atoi(match[1])
+	if err != nil {
+		return nil
+	}
+	return &tokens
 }
 
 func StructuredEvidenceCanBeRefined(values ...string) bool {
@@ -220,7 +243,11 @@ func hasBillingMarker(message string) bool {
 		strings.Contains(message, "insufficient quota") ||
 		strings.Contains(message, "billing_hard_limit") ||
 		strings.Contains(message, "billing hard limit") ||
-		strings.Contains(message, "please check your plan and billing details")
+		strings.Contains(message, "please check your plan and billing details") ||
+		strings.Contains(message, "credit balance is too low") ||
+		strings.Contains(message, "api usage limits") ||
+		strings.Contains(message, "key limit exceeded") ||
+		strings.Contains(message, "budget limit exceeded")
 }
 
 func hasModerationMarker(message string) bool {

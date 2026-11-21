@@ -4,6 +4,7 @@ import type { ComponentType } from 'react'
 import { NavExternalLink, type NavItem, NavSection } from '@/components/app-shell/NavSection'
 import {
   currentSection,
+  hasOrganizationPath,
   organizationPaths,
   projectPaths,
   type ScopedSection,
@@ -19,6 +20,7 @@ import {
   Fingerprint,
   House,
   KeyRound,
+  SendHorizontal,
   Server,
   Sparkles,
   Users,
@@ -52,7 +54,7 @@ export function SidebarNav() {
       emphasized,
       ...(projectId
         ? { to: projectPaths[id], params: { projectId } }
-        : { to: organizationPaths[id] }),
+        : { to: hasOrganizationPath(id) ? organizationPaths[id] : '/' }),
       isActive: section === id,
     }
   }
@@ -91,8 +93,7 @@ export function SidebarNav() {
           items={[
             {
               id: 'back',
-              // Back to the organization's version of this page, so the section stays put.
-              to: section ? organizationPaths[section] : '/',
+              to: section && hasOrganizationPath(section) ? organizationPaths[section] : '/',
               label: 'Back to organization',
               icon: ArrowLeft,
               isActive: false,
@@ -106,6 +107,7 @@ export function SidebarNav() {
           overview,
           scoped('agents', 'Agents', Bot, true),
           scoped('integrations', 'Integrations', BoltIcon, true),
+          ...(projectId ? [scoped('webhooks', 'Webhooks', SendHorizontal)] : []),
           scoped('usage', 'Usage', ChartBar, true),
         ]}
       >

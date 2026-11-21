@@ -38,6 +38,35 @@ LEFT JOIN LATERAL (
     AND block.owner_tool_call_result_id = result.id
 ) result_blocks ON true;
 
+-- name: GetToolCallSummary :one
+SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
+  call.name, call.input, call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+FROM tool_calls call
+JOIN agent_events source_event ON source_event.agent_id = call.agent_id
+  AND source_event.model_output_id = call.model_output_id
+  AND source_event.event_kind = 'model_output'
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.id = sqlc.arg(id);
+
+-- name: GetToolCallStatus :one
+SELECT type, state
+FROM tool_calls
+WHERE project_id = sqlc.arg(project_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND id = sqlc.arg(id);
+
+-- name: GetCustomToolCallInput :one
+SELECT tool_call.name, tool_call.input
+FROM tool_calls tool_call
+WHERE tool_call.project_id = sqlc.arg(project_id)
+  AND tool_call.agent_id = sqlc.arg(agent_id)
+  AND tool_call.id = sqlc.arg(id)
+  AND tool_call.type = 'custom';
+
 -- name: GetToolCallByProviderCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -80,13 +109,10 @@ LEFT JOIN LATERAL (
 ) result_blocks ON true;
 
 -- name: ListToolCallsForAgent :many
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
@@ -104,6 +130,39 @@ WHERE call.project_id = sqlc.arg(project_id)
   )
 ORDER BY call.created_at ASC, call.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: ListUnfinishedToolCallsForProject :many
+WITH page AS (
+  SELECT tool_call.agent_id, tool_call.id
+  FROM tool_calls tool_call
+  WHERE tool_call.project_id = sqlc.arg(project_id)
+    AND tool_call.state <> 'completed'
+    AND (sqlc.arg(state)::text = '' OR tool_call.state = sqlc.arg(state))
+    AND (sqlc.arg(type)::text = '' OR tool_call.type = sqlc.arg(type))
+    AND (sqlc.narg(names)::text[] IS NULL OR tool_call.name = ANY(sqlc.narg(names)::text[]))
+    AND (
+      SELECT agent.state = 'active'
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+      FROM agents agent
+      WHERE agent.id = tool_call.agent_id
+    )
+    -- Keep the cursor indexable when PostgreSQL uses a generic prepared plan.
+    AND (tool_call.created_at, tool_call.id) > (
+      coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+      coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    )
+  ORDER BY tool_call.created_at ASC, tool_call.id ASC
+  LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  ''::text AS outcome,
+  call.created_at, NULL::timestamptz AS completed_at
+FROM page
+JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
+  AND call.id = page.id
+ORDER BY call.created_at ASC, call.id ASC;
 
 -- name: NextRunnableToolCallForModelOutput :one
 SELECT call.id, call.project_id, call.agent_id,

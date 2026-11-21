@@ -322,7 +322,10 @@ func validateLiveAgentConfigChangeTx(
 	projectID, currentConfigID uuid.UUID,
 	next CreateAgentConfigInput,
 ) (agentconfig.RuntimeContract, agentconfig.RuntimeContract, error) {
-	next = withDefaultAgentConfigCompilation(next)
+	next, err := withDefaultAgentConfigCompilation(next)
+	if err != nil {
+		return agentconfig.RuntimeContract{}, agentconfig.RuntimeContract{}, err
+	}
 	nextContract, err := agentconfig.RuntimeContractFromCompiled(
 		next.CompiledDefinition,
 		next.EffectiveDefinitionHash,

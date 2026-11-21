@@ -44,6 +44,18 @@ export const machinePoolProviders = Object.entries(machinePoolProviderDefinition
   .map(([value, definition]) => ({ value, label: definition.label }))
   .sort((a, b) => a.label.localeCompare(b.label))
 
+export function machinePoolCreatableProviders(dockerPoolsEnabled: boolean) {
+  return machinePoolProviders.filter((option) => dockerPoolsEnabled || option.value !== 'docker')
+}
+
+function scopedProviderConfig(
+  values: MachinePoolFormValues,
+  saved?: MachinePool['provider_config'],
+) {
+  const scope = machinePoolProviderDefinitions[values.provider].scope
+  return scope ? { ...saved, [scope.key]: values.providerScope.trim() } : undefined
+}
+
 export function machinePoolProviderLabel(provider: string) {
   return machinePoolProviders.find((option) => option.value === provider)?.label ?? provider
 }
@@ -178,6 +190,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
@@ -185,8 +198,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
       return {
         ...common,
         provider: values.provider,
-        provider_config:
-          values.provider === 'modal' ? { app: values.providerScope.trim() } : undefined,
+        provider_config: scopedProviderConfig(values),
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         default_machine_provider_options: {
@@ -209,7 +221,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
         },
-        provider_config: { workspace: values.providerScope.trim() },
+        provider_config: scopedProviderConfig(values),
         max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
@@ -346,16 +358,14 @@ export function machinePoolUpdateRequest(
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
     case 'unikraft':
       return {
         ...common,
-        provider_config:
-          values.provider === 'modal'
-            ? { ...pool.provider_config, app: values.providerScope.trim() }
-            : undefined,
+        provider_config: scopedProviderConfig(values, pool.provider_config),
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -378,7 +388,7 @@ export function machinePoolUpdateRequest(
       return {
         ...common,
         default_machine_memory_mb: memoryMb,
-        provider_config: { ...pool.provider_config, workspace: values.providerScope.trim() },
+        provider_config: scopedProviderConfig(values, pool.provider_config),
         max_total_memory_mb:
           optionalMemoryMbPreservingOriginal(values.maxTotalMemoryGb, pool.max_total_memory_mb) ??
           memoryMb * maxMachines,
@@ -442,6 +452,7 @@ function clusterMachinePoolUpdateRequest(
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':

@@ -19,8 +19,12 @@ func DeriveIntegrationConfig(
 	base executionstore.AgentConfigRecord,
 	capabilities agentconfig.IntegrationCapabilitiesSource,
 ) (Body, error) {
+	verified, err := agentconfig.VerifiedDefinition(base.CompiledDefinition, base.EffectiveDefinitionHash)
+	if err != nil {
+		return Body{}, err
+	}
 	var compiled agentconfig.Compiled
-	if err := json.Unmarshal(base.CompiledDefinition, &compiled); err != nil {
+	if err := json.Unmarshal(verified, &compiled); err != nil {
 		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
 	}
 	derived, err := agentconfig.DeriveWithIntegrationCapabilities(

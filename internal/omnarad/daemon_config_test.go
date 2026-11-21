@@ -689,6 +689,16 @@ func TestRunGitCredentialHelperCommand(t *testing.T) {
 	require.Contains(t, stderr.String(), "unsupported Git credential operation")
 }
 
+func TestRunGitHubCLICommandForwardsFlagsAndReportsMissingGH(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var stdout, stderr strings.Builder
+	args := []string{"__omnara_gh", "unused", "unused", "unused", "--", "pr", "create", "--title", "x", "--help"}
+	code := Run(t.Context(), args, nil, &stdout, &stderr, discardLogger())
+	require.Equal(t, 127, code)
+	require.Empty(t, stdout.String())
+	require.Equal(t, "gh: command not found\n", stderr.String())
+}
+
 func TestRunVersionHelpAndUsage(t *testing.T) {
 	var stdout strings.Builder
 	var stderr strings.Builder

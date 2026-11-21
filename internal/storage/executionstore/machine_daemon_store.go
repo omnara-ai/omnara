@@ -743,7 +743,7 @@ func (s *Store) CreateProjectMachineGrant(
 			},
 		)
 		if replayErr == nil {
-			grant := projectMachineGrantFromIdempotency(replay)
+			grant := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(replay))
 			if grant.MachineID != input.MachineID ||
 				grant.SourceKind != ProjectMachineGrantSourceKindExplicit ||
 				grant.ProjectMachinePoolGrantID != uuid.Nil ||
@@ -794,7 +794,7 @@ func upsertExplicitProjectMachineGrantTx(
 	if err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}
-	grant := projectMachineGrantFromUpsert(row)
+	grant := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row))
 	grant.Created = true
 	return grant, nil
 }
@@ -975,7 +975,7 @@ func (s *Store) ListActiveProjectMachineGrantsForMachine(
 	}
 	out := make([]ProjectMachineGrantRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, projectMachineGrantFromActiveMachine(row))
+		out = append(out, projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row)))
 	}
 	return out, nil
 }
@@ -1002,7 +1002,7 @@ func (s *Store) GetProjectMachineGrant(
 	if err != nil {
 		return ProjectMachineGrantRecord{}, fmt.Errorf("get project machine grant: %w", err)
 	}
-	return projectMachineGrantFromGet(row), nil
+	return projectMachineGrantFromSQLC(row), nil
 }
 
 func (s *Store) DeleteProjectMachineGrant(
@@ -1077,7 +1077,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 	if err != nil {
 		return ProjectMachineGrantRecord{}, fmt.Errorf("delete project machine grant: %w", err)
 	}
-	record := projectMachineGrantFromDelete(row)
+	record := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row))
 	if err := unit.Commit(ctx, "delete project machine grant"); err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}

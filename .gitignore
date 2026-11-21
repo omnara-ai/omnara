@@ -1,6 +1,7 @@
 .env
 node_modules/
 examples/**/pnpm-lock.yaml
+!examples/custom-tool-webhook/pnpm-lock.yaml
 examples/**/package-lock.json
 examples/**/deno.lock
 .DS_Store

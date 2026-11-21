@@ -48,6 +48,9 @@ jobs:
 
       - run: make verify-static
 
+      - name: Validate delivery alert rules
+        run: make prometheus-check
+
       - name: Protect released migrations and check API compatibility
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
@@ -87,6 +90,28 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep gcc libc6-dev
 
       - run: make ${{ matrix.target }}
+
+  container-images:
+    name: Container Image (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        target: [web, api, maintenance, migrations]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - run: docker build --target ${{ matrix.target }} --tag omnara-${{ matrix.target }}:ci .
+
+      - name: Verify Compose web and gateway
+        if: matrix.target == 'web'
+        run: |
+          docker compose --profile app up --build --no-deps --detach web gateway
+          curl --fail --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 --retry-max-time 60 http://localhost:8000/ > /dev/null
+
+      - name: Stop Compose web services
+        if: always() && matrix.target == 'web'
+        run: docker compose --profile app down
 
   worker-image:
     name: Worker Image Tests
@@ -214,6 +239,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
           make install-chroot-sandbox
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        if: matrix.target == 'test-integration-httpapi'
+        with:
+          node-version-file: .node-version
+
+      - run: corepack enable
+        if: matrix.target == 'test-integration-httpapi'
 
       - uses: ./.github/actions/setup-test-db
 

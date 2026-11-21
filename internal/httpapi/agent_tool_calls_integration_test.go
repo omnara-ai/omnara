@@ -461,6 +461,13 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			t.Fatalf("tool call %s = %+v, want ready", providerCallID, readyByProviderID[providerCallID])
 		}
 	}
+	readyCall := requestJSONWithHeaders(
+		t, handler, http.MethodGet, toolCallsPath+"/"+publicToolCallIDs[0],
+		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	if !reflect.DeepEqual(readyCall, readyByProviderID["call_lookup_customer"]) {
+		t.Fatalf("ready GET = %+v, list = %+v", readyCall, readyByProviderID["call_lookup_customer"])
+	}
 	if _, err := store.Execution().CompleteToolCall(
 		ctx,
 		executionstore.CompleteToolCallInput{
@@ -623,7 +630,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			toolResult,
 		)
 	}
-	requestJSONWithHeaders(
+	duplicate := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -633,6 +640,9 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
+	if duplicate["code"] != "tool_call_already_completed" {
+		t.Fatalf("duplicate result = %+v, want tool_call_already_completed", duplicate)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -641,6 +651,34 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		`{"outcome":"failed","content_blocks":[{"type":"text","text":"Customer not found."}]}`,
 		"",
 		http.StatusConflict,
+		authHeaders(project.AdminToken),
+	)
+	fetched := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		toolCallsPath+"/"+toolCallID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if !reflect.DeepEqual(fetched, completedCall) {
+		t.Fatalf("completed GET = %+v, submitted call = %+v", fetched, completedCall)
+	}
+	for _, key := range []string{"content_blocks", "result_content_parts"} {
+		if _, exists := fetched[key]; exists {
+			t.Fatalf("GET tool call contains result content %q: %+v", key, fetched)
+		}
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		toolCallsPath+"/"+testPublicID(t, publicid.KindToolCall, uuid.New()),
+		"",
+		"",
+		http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
 

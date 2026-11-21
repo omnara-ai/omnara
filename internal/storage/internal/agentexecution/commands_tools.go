@@ -84,9 +84,20 @@ func (h *Handle) AuthorizeTool(ctx context.Context, ref ToolRef) (bool, error) {
 		if err = h.transitionTool(ctx, m, row, "ready", uuid.Nil, ref.RuntimeLockID); err != nil {
 			return false, err
 		}
-		h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "ready", nil)
+		h.readyToolUpdate(row, nil)
 		return true, nil
 	})
+}
+
+func (h *Handle) readyToolUpdate(
+	row executiondb.ReadExecutionToolRow,
+	interaction *notifications.AgentInteractionUpdate,
+) {
+	if row.Type == "custom" {
+		h.unit.Notifications().AddReadyCustomToolCallUpdate(h.route.AgentID, row.ID, row.Name, row.Input, interaction)
+		return
+	}
+	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "ready", interaction)
 }
 
 func (h *Handle) RunTool(ctx context.Context, ref ToolRef) (bool, error) {
@@ -209,6 +220,9 @@ func (h *Handle) CompleteCustomTool(
 		row, err := h.tool(ctx, id)
 		if err != nil {
 			return CompletedTool{}, err
+		}
+		if row.Type == "custom" && row.State == "completed" {
+			return CompletedTool{}, storeerr.ErrToolCallCompleted
 		}
 		if row.Type != "custom" || row.State != "ready" || (outcome != "succeeded" && outcome != "failed") {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict

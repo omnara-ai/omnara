@@ -138,11 +138,11 @@ BEGIN
     INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,provider_replay,created_at)
     VALUES (turn.output1_id, turn.agent_id, turn.context1_id, 'tool_use',
       CASE WHEN turn.k % 2 = 0 THEN jsonb_build_object('turn', turn.k) END, now());
-    INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-    VALUES (turn.call_a_id, turn.agent_id, turn.output1_id, 'call_a_' || turn.k, 'read_file',
+    INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+    VALUES (turn.call_a_id, turn.project_id, turn.agent_id, turn.output1_id, 'call_a_' || turn.k, 'read_file',
         jsonb_build_object('k', turn.k), 'built_in', 'awaiting_authorization', now()),
-      (turn.call_b_id, turn.agent_id, turn.output1_id, 'call_b_' || turn.k, 'list_files', '{}', 'built_in',
-        'awaiting_authorization', now());
+      (turn.call_b_id, turn.project_id, turn.agent_id, turn.output1_id, 'call_b_' || turn.k, 'list_files', '{}',
+        'built_in', 'awaiting_authorization', now());
     INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,tool_call_id,
       exclude_from_model_context,created_at)
     VALUES (turn.agent_id, 'model_output', turn.output1_id, 0, 'reasoning', 'thinking ' || turn.k, NULL, false, now()),
@@ -655,10 +655,10 @@ FROM model_call_contexts WHERE agent_id = $1 AND id = $2`,
 	_, err = tx.Exec(ctx, `INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at)
 VALUES ($1, $2, $3, 'tool_use', now())`, outputID, lt.agentID, contextID)
 	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,
-  created_at)
-VALUES ($1, $2, $3, 'git_call', 'run_command', '{}', 'built_in', 'awaiting_authorization', now())`,
-		callID, lt.agentID, outputID)
+	_, err = tx.Exec(ctx, `INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,
+  type,state,created_at)
+VALUES ($1, $4, $2, $3, 'git_call', 'run_command', '{}', 'built_in', 'awaiting_authorization', now())`,
+		callID, lt.agentID, outputID, testProjectID)
 	require.NoError(t, err)
 	return createGrantedShellProcess(t, ctx, tx, lt, machineID, bindingID, callID), outputID
 }

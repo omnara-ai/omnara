@@ -118,7 +118,11 @@ function buttonApi(providers: (request: RecordedRequest) => Response) {
 }
 
 async function render(api: FakeApi) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  const client = createOmnaraClient({
+    baseUrl: 'https://omnara.test/api/v1',
+    fetch: api.fetch,
+    maxRetries: 0,
+  })
   await act(async () => {
     root.render(
       <OmnaraClientProvider client={client}>

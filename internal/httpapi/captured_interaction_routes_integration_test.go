@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -954,8 +955,10 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 					integrationHTTPJSON(t, resolved["resolution"]))
 				require.Equal(t, captured, resolved["destination"])
 				require.Equal(t, receipt, resolved["presentation_receipt"])
-				require.Equal(t, resolved, read(apiHeaders))
-				require.Equal(t, resolved, read(browserHeaders))
+				expectedListed := maps.Clone(resolved)
+				expectedListed["agent_name"] = "Captured"
+				require.Equal(t, expectedListed, read(apiHeaders))
+				require.Equal(t, expectedListed, read(browserHeaders))
 				assertInteractionResponseAgentInput(t, t.Context(), f.pool, f.project.ProjectUUID, f.record.AgentID, f.record.ID)
 				assertInteractionResponseLedgerEvent(t, t.Context(), f.pool, f.project.ProjectUUID, f.record.AgentID, f.record.ID)
 			})

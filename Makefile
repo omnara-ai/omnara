@@ -72,9 +72,9 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e test-worker-image install-chroot-sandbox \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad build-sandbox web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
+	web-install web-generate web-generate-check build-sdk build-web build-api build-api-from-dist build-omnarad build-sandbox web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
-	test-live-api-format-switching test-live-sandbox-providers test-live \
+	test-live-api-format-switching test-live-sandbox-providers test-live-machine-providers test-live \
 	docs-openapi docs-openapi-check
 
 help:
@@ -91,6 +91,13 @@ test: sqlc-check sql-rules sqlc-vet unit test-integration
 verify: verify-go web-check ## Run the fast repository gate
 
 verify-go: verify-static unit race-unit
+
+.PHONY: prometheus-check
+prometheus-check: ## Validate and test event-delivery alert rules (requires Docker)
+	docker run --rm --entrypoint /bin/promtool \
+		-v "$(CURDIR)/observability/prometheus:/rules:ro" \
+		prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 \
+		test rules /rules/delivery.test.yml
 
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
@@ -288,7 +295,7 @@ unit:
 coverage:
 	$(GO) test -covermode=atomic -coverprofile=coverage.out ./...
 
-test-integration: clean-integration-dbs ## Run database-backed integration tests
+test-integration: $(if $(filter ./internal/httpapi,$(INTEGRATION_PACKAGES)),build-sdk) clean-integration-dbs ## Run database-backed integration tests
 	@run_id="$$(perl -MTime::HiRes=time -e 'printf "%x\n", int(time() * 1000000000)')"; \
 	status=0; cleanup_status=0; \
 	$(TEST_INFRA_ENV) OMNARA_TEST_DATABASE_RUN_ID="$$run_id" $(GO) test -count=1 -p $${INTEGRATION_TEST_P:-4} -parallel $${INTEGRATION_TEST_PARALLEL:-4} -tags=integration $(INTEGRATION_PACKAGES) || status=$$?; \
@@ -386,6 +393,9 @@ web-generate-check:
 	fi
 	git diff --exit-code -- frontend/packages/sdk/src/generated
 
+build-sdk:
+	cd frontend && pnpm install --frozen-lockfile && pnpm --filter @omnara/sdk build
+
 build-web:
 	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api && pnpm run typecheck && pnpm run build
 
@@ -420,6 +430,7 @@ web-static-check:
 	cd frontend && pnpm install --frozen-lockfile
 	$(MAKE) web-generate-check
 	cd frontend && pnpm run test && pnpm run typecheck && pnpm run lint && pnpm run format:check
+	cd examples/custom-tool-webhook && pnpm install --frozen-lockfile && pnpm test && pnpm run typecheck
 
 web-build-check:
 	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api && pnpm run build
@@ -490,7 +501,7 @@ test-live-openai-responses:
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Responses tests}"; \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_responses$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/openai_responses' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIResponses(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIResponses(ModelTurn|Attachments|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint$$'
 
 test-live-openai-chat-completions:
@@ -499,7 +510,7 @@ test-live-openai-chat-completions:
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_chat$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/openai_chat' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenAIChatCompletionsText$$' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletions(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletions(ModelTurn|Attachments|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint$$'
 
 test-live-openrouter:
@@ -509,7 +520,7 @@ test-live-openrouter:
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openrouter_.*$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/openrouter_' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|Attachments|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
 
 test-live-anthropic:
@@ -518,7 +529,7 @@ test-live-anthropic:
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/anthropic$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/anthropic' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveAnthropicReasoningEffort$$' && \
-	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|Attachments|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveAnthropicCompactionCreatesCheckpoint$$'
 
 test-live-api-format-switching:
@@ -537,6 +548,7 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/boxd \
 		./internal/machinepool/providers/createos \
 		./internal/machinepool/providers/daytona \
+		./internal/machinepool/providers/docker \
 		./internal/machinepool/providers/e2b \
 		./internal/machinepool/providers/freestyle \
 		./internal/machinepool/providers/modal \
@@ -544,9 +556,13 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/superserve \
 		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Novita|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|Docker|E2B|Freestyle|Modal|Novita|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
 
-test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
+test-live-machine-providers:
+	@$(LOAD_DOTENV); \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveMachineProviders$$'
+
+test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers test-live-machine-providers
 
 # Black-box API suite against a deployed control plane.
 # The -timeout must stay comfortably above the suite's worst-case waits (~9m of

@@ -45,9 +45,9 @@ instruction: |
 
   # Checking out the code
 
-  Git on your machine is already authenticated for github.com over HTTPS;
-  the GitHub CLI is not, so use the tools above for anything about the pull
-  request. If /workspace/repo doesn't exist, clone the base repository there
+  Git and the GitHub CLI on your machine are already authenticated for
+  github.com, but use the tools above for anything about the pull request.
+  If /workspace/repo doesn't exist, clone the base repository there
   (`git clone https://github.com/<owner>/<name>.git /workspace/repo`, with
   `base.repo.full_name` from `read`). Then fetch the pull request's head with
   `git fetch origin pull/<number>/head` and check out `FETCH_HEAD`. A diff

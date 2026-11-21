@@ -1,5 +1,6 @@
 import { AgentEventStreamError, ApiError } from '@omnara/sdk'
-import { QueryClient } from '@tanstack/react-query'
+import { listCronTriggersQueryKey } from '@omnara/sdk/tanstack'
+import { QueryClient, type QueryKey } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -101,7 +102,16 @@ describe('AgentChatSession input lifecycle', () => {
 
     stream.push({
       event: 'tool_call_update',
-      data: { tool_call_id: 'tcl_123', state: 'ready' },
+      data: {
+        org_id: 'org',
+        project_id: 'project',
+        agent_id: 'agent',
+        agent_profile_id: null,
+        parent_agent_id: null,
+        root_agent_id: 'agent',
+        tool_call_id: 'tcl_123',
+        state: 'ready',
+      },
     })
     stream.push({ event: 'agent_input', data: userInputEvent() })
 
@@ -110,6 +120,59 @@ describe('AgentChatSession input lifecycle', () => {
       (state) => state.messages.at(-1)?.id === 'input-event',
     )
     expect(snapshot.error).toBeUndefined()
+    session.disconnect()
+  })
+
+  it('refreshes the backlog and schedules when a scheduling tool completes', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const toolFinished = (toolCallID: string) => (state: ReturnType<typeof read>) =>
+      state.messages.some((message) =>
+        message.parts.some(
+          (part) =>
+            part.type === 'dynamic-tool' &&
+            part.toolCallId === toolCallID &&
+            part.state === 'output-available',
+        ),
+      )
+    const session = startSession([userInputEvent()], sessionClient, queryClient)
+    const stream = await connection(0)
+    stream.push({
+      event: 'model_output',
+      data: event({
+        sequence: 12,
+        content_blocks: [
+          { ...toolCallBlock('call_schedule'), name: 'create_scheduled_message' },
+          toolCallBlock('call_shell'),
+        ],
+      }),
+    })
+    const refreshed = (queryKey: QueryKey) =>
+      invalidate.mock.calls.some(
+        ([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(queryKey),
+      )
+    const backlogKey = agentInputBacklogQueryKey(sessionClient, scope)
+    const schedulesKey = listCronTriggersQueryKey({
+      path: { orgID: scope.orgID, projectID: scope.projectID },
+      client: sessionClient,
+    })
+
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({ sequence: 13, tool_call_id: 'call_shell' }),
+    })
+    await waitForSnapshot(session, toolFinished('call_shell'))
+    expect(refreshed(backlogKey)).toBe(false)
+    expect(refreshed(schedulesKey)).toBe(false)
+
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({ sequence: 14, tool_call_id: 'call_schedule' }),
+    })
+    await waitForSnapshot(session, toolFinished('call_schedule'))
+    expect(refreshed(backlogKey)).toBe(true)
+    expect(refreshed(schedulesKey)).toBe(true)
     session.disconnect()
   })
 

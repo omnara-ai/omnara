@@ -27,11 +27,11 @@ export interface RouterContext {
 
 async function ensureMe(
   queryClient: QueryClient,
-  omnaraClient: OmnaraClient,
+  client: OmnaraClient,
   returnTo: string,
 ): Promise<CurrentUser> {
   try {
-    return await queryClient.ensureQueryData(getCurrentUserOptions({ client: omnaraClient }))
+    return await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
@@ -42,7 +42,7 @@ async function ensureMe(
 }
 
 export async function redirectSignedInStaleCallback({
-  context: { queryClient, omnaraClient },
+  context: { queryClient, omnaraClient: client },
   location,
 }: {
   context: RouterContext
@@ -51,7 +51,7 @@ export async function redirectSignedInStaleCallback({
   const authError = new URL(location.href, window.location.origin).searchParams.get('auth_error')
   if (authError !== 'invalid_state') return
   try {
-    await queryClient.ensureQueryData(getCurrentUserOptions({ client: omnaraClient }))
+    await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
   } catch {
     return
   }
@@ -348,6 +348,12 @@ const memoryStoreRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/MemoryStorePage'), 'MemoryStorePage'),
 })
 
+const projectWebhooksRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/webhooks',
+  component: lazyRouteComponent(() => import('@/routes/ProjectWebhooksPage')),
+})
+
 const projectUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/usage',
@@ -377,11 +383,6 @@ const agentProfileConfigurationRoute = createRoute({
 const agentProfileSchedulesRoute = createRoute({
   getParentRoute: () => agentProfileRoute,
   path: '/schedules',
-})
-
-const agentProfileWebhooksRoute = createRoute({
-  getParentRoute: () => agentProfileRoute,
-  path: '/webhooks',
 })
 
 const agentProfileAgentsRoute = createRoute({
@@ -545,11 +546,11 @@ const routeTree = rootRoute.addChildren([
       projectMemoryRoute,
       memoryStoreRoute,
       projectUsageRoute,
+      projectWebhooksRoute,
       agentProfileRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
         agentProfileSchedulesRoute,
-        agentProfileWebhooksRoute,
         agentProfileAgentsRoute,
         agentProfileUsageRoute,
       ]),

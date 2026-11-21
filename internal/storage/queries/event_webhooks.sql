@@ -23,7 +23,8 @@ GROUP BY id, org_id
 ORDER BY id;
 
 -- name: GetEventWebhookEndpoint :one
-SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id
+SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id,
+       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id
 FROM event_webhooks webhook
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = sqlc.arg(agent_id)
@@ -39,30 +40,43 @@ RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, 
           created_at, updated_at, deleted_at;
 
 -- name: GetEventWebhook :one
-SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id, webhook.url, webhook.event_types, webhook.signing_secret_id,
-          webhook.created_at, webhook.updated_at, webhook.deleted_at FROM event_webhooks webhook
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.id = webhook.project_id AND project.deleted_at IS NULL
 WHERE webhook.project_id = $1 AND webhook.id = $2 AND webhook.deleted_at IS NULL;
 
--- name: GetEventWebhookForUpdate :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-       created_at, updated_at, deleted_at
-FROM event_webhooks
-WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
-FOR UPDATE;
-
 -- name: ListEventWebhooks :many
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-          created_at, updated_at, deleted_at FROM event_webhooks
-WHERE project_id = sqlc.arg(project_id)
-  AND agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
-  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
-  AND deleted_at IS NULL
-ORDER BY created_at, id;
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
+WHERE webhook.project_id = sqlc.arg(project_id)
+  AND (NOT sqlc.arg(filter_scope)::boolean OR (
+    webhook.agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
+    AND webhook.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
+  ))
+  AND webhook.deleted_at IS NULL
+  AND (webhook.created_at, webhook.id) > (
+    coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+    coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  )
+ORDER BY webhook.created_at, webhook.id
+LIMIT sqlc.arg(row_limit);
+
+-- name: CountProjectEventWebhooks :one
+SELECT count(*) FROM event_webhooks
+WHERE project_id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateEventWebhook :one
-UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5, updated_at = statement_timestamp()
+UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5,
+    agent_profile_id = $6, agent_id = $7, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
           created_at, updated_at, deleted_at;
@@ -106,7 +120,8 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.webhook_id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token;
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token, delivery.created_at,
+    delivery.next_attempt_at;
 
 -- name: CompleteEventWebhookDelivery :exec
 DELETE FROM event_webhook_deliveries WHERE id = $1 AND claim_token = $2;
@@ -132,3 +147,25 @@ WITH candidates AS (
 DELETE FROM event_webhook_deliveries delivery
 USING candidates
 WHERE delivery.id = candidates.id;
+
+-- name: SampleEventWebhookBacklog :one
+WITH queue AS (
+    SELECT created_at, next_attempt_at,
+        CASE
+            WHEN claim_expires_at > statement_timestamp() THEN 'in_flight'
+            WHEN created_at <= statement_timestamp()
+                - sqlc.arg(delivery_window_seconds)::double precision * interval '1 second' THEN 'expired'
+            WHEN next_attempt_at <= statement_timestamp() THEN 'due'
+            ELSE 'delayed'
+        END AS state
+    FROM event_webhook_deliveries
+)
+SELECT count(*) FILTER (WHERE state = 'due') AS due_count,
+       count(*) FILTER (WHERE state = 'delayed') AS delayed_count,
+       count(*) FILTER (WHERE state = 'in_flight') AS in_flight_count,
+       count(*) FILTER (WHERE state = 'expired') AS expired_count,
+       coalesce(max(extract(epoch FROM statement_timestamp() - created_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_age_seconds,
+       coalesce(max(extract(epoch FROM statement_timestamp() - next_attempt_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_lag_seconds
+FROM queue;

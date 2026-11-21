@@ -80,9 +80,10 @@ func TestSanitizedRunnerEnvDoesNotPropagateDaemonCredentials(t *testing.T) {
 		"OMNARA_MACHINE_TOKEN=secret",
 		"OMNARA_API_URL=https://app.omnara.com",
 		"UNRELATED_SECRET=value",
+		"HTTPS_PROXY=http://localhost:49152",
 	}, "/runner/bin:/usr/bin")
 	got := strings.Join(env, "\n")
-	for _, blocked := range []string{"OMNARA_MACHINE_TOKEN", "OMNARA_API_URL", "UNRELATED_SECRET"} {
+	for _, blocked := range []string{"OMNARA_MACHINE_TOKEN", "OMNARA_API_URL", "UNRELATED_SECRET", "HTTPS_PROXY"} {
 		if strings.Contains(got, blocked) {
 			t.Fatalf("sanitized env leaked %s in %q", blocked, got)
 		}

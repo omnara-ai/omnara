@@ -82,14 +82,15 @@ func (q *Queries) CreateExecutionOutput(ctx context.Context, db DBTX, arg Create
 }
 
 const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :exec
-INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-SELECT $1,$2,o.id,$3,$4,$5::jsonb,
- $6,'awaiting_authorization',o.created_at FROM model_outputs o
- WHERE o.agent_id=$2 AND o.id=$7
+INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT $1,$2,$3,o.id,$4,$5,$6::jsonb,
+ $7,'awaiting_authorization',o.created_at FROM model_outputs o
+ WHERE o.agent_id=$3 AND o.id=$8
 `
 
 type CreateExecutionToolProposalParams struct {
 	ID             uuid.UUID
+	ProjectID      uuid.UUID
 	AgentID        uuid.UUID
 	ProviderCallID string
 	Name           string
@@ -101,6 +102,7 @@ type CreateExecutionToolProposalParams struct {
 func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg CreateExecutionToolProposalParams) error {
 	_, err := db.Exec(ctx, createExecutionToolProposal,
 		arg.ID,
+		arg.ProjectID,
 		arg.AgentID,
 		arg.ProviderCallID,
 		arg.Name,

@@ -269,6 +269,8 @@ function TextPreview({
             mode="static"
             disallowedElements={['img']}
             className="min-h-64 overflow-auto text-sm"
+            codeBlockMaxHeight={0}
+            tableMaxHeight={0}
           >
             {value}
           </Streamdown>

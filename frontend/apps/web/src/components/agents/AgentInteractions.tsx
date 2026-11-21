@@ -41,15 +41,6 @@ function keyedContextItems(interaction: AgentInteraction) {
   })
 }
 
-function subagentSourceLabel(interaction: AgentInteraction): string | null {
-  if (interaction.agent_name == null) return null
-  return `From subagent ${interaction.agent_name}`
-}
-
-/**
- * A permission request answered in one click. Options render as buttons, the first
- * (Allow) as the primary action; an option that accepts text (Deny) can carry a reason.
- */
 function PermissionActions({
   interaction,
   resolve,
@@ -142,11 +133,13 @@ function PermissionActions({
 
 function InteractionFormCard({
   interaction,
+  agentID,
   resolve,
   pending,
   canOperate,
 }: {
   interaction: AgentInteraction
+  agentID: string
   resolve: Resolve
   pending: boolean
   canOperate: boolean
@@ -155,17 +148,14 @@ function InteractionFormCard({
   const [responses, setResponses] = useState<Record<number, string>>({})
   const isPermission = interaction.interaction_kind === 'permission'
   const questions = interaction.request.questions
-  let complete = true
-  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
-    if ((selections[questionIndex]?.length ?? 0) === 0) {
-      complete = false
-      break
-    }
-  }
+  const complete = questions.every((_, index) => (selections[index]?.length ?? 0) > 0)
   const directPermission = isPermission && questions.length === 1 && questions[0]?.multiple !== true
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
-  const subagentLabel = subagentSourceLabel(interaction)
+  const subagentLabel =
+    interaction.agent_id === agentID
+      ? null
+      : `From subagent ${(interaction.agent_name ?? '') || interaction.agent_id}`
 
   function submit() {
     const answers: InteractionAnswer[] = []
@@ -378,6 +368,7 @@ export function AgentInteractions({
         <InteractionFormCard
           key={interaction.id}
           interaction={interaction}
+          agentID={agentID}
           resolve={onResolve}
           pending={pending}
           canOperate={canOperate}

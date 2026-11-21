@@ -7,6 +7,7 @@ import { type SyntheticEvent, useState } from 'react'
 import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { SubmitCheckFeedback } from '@/components/agents/SubmitCheckFeedback'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
@@ -49,6 +50,7 @@ export function AgentConfigPanel({
           agentId={agent.id}
           configId={snapshot.id}
           source={source}
+          sourceFormat={snapshot.source_format}
           compiledDefinition={snapshot.compiled_definition}
           canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
@@ -116,6 +118,7 @@ function AgentConfigPanelEditor({
   agentId,
   configId,
   source,
+  sourceFormat,
   compiledDefinition,
   canManage,
   preferredMode,
@@ -129,6 +132,7 @@ function AgentConfigPanelEditor({
   agentId: string
   configId: string
   source: string
+  sourceFormat?: AgentConfig['source_format']
   compiledDefinition: AgentConfig['compiled_definition']
   canManage: boolean
   preferredMode: AgentConfigMode
@@ -142,6 +146,7 @@ function AgentConfigPanelEditor({
     orgId,
     projectId,
     source,
+    sourceFormat: sourceFormat ?? 'yaml',
     canManage,
     preferredMode,
     onModeChange,
@@ -152,10 +157,11 @@ function AgentConfigPanelEditor({
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(noConfigError)
+    if (!editor.saveCheck.check()) return
     try {
       await updateConfig.mutateAsync({
         source: editor.yaml,
-        source_format: 'yaml',
+        source_format: editor.sourceFormat,
         expected_current_config_id: configId,
       })
       onClose()
@@ -192,37 +198,48 @@ function AgentConfigPanelEditor({
         />
         {editor.mode.mode === 'yaml' && <AgentCompiledConfig definition={compiledDefinition} />}
       </FieldGroup>
-      <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-full sm:w-auto"
-          onClick={() => {
-            if (editor.dirty && !window.confirm(discardConfigEditsPrompt)) return
-            onClose()
-          }}
-        >
-          Cancel editing
-        </Button>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-          {error.message && (
-            <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
-          )}
-          {canManage && editor.dirty && !updateConfig.isPending && (
-            <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onDiscard}>
-              Discard changes
-            </Button>
-          )}
-          {canManage && (
-            <Button
-              type="submit"
-              disabled={updateConfig.isPending || !editor.dirty || editor.saveBlocked}
-              loading={updateConfig.isPending}
-              className="w-full sm:w-auto"
-            >
-              Save config
-            </Button>
-          )}
+      <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3">
+        <SubmitCheckFeedback
+          problems={editor.saveCheck.problems}
+          unchanged={editor.saveCheck.unchanged}
+        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full sm:w-auto"
+            onClick={() => {
+              if (editor.dirty && !window.confirm(discardConfigEditsPrompt)) return
+              onClose()
+            }}
+          >
+            Cancel editing
+          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+            {error.message && (
+              <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
+            )}
+            {canManage && editor.dirty && !updateConfig.isPending && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full sm:w-auto"
+                onClick={onDiscard}
+              >
+                Discard changes
+              </Button>
+            )}
+            {canManage && (
+              <Button
+                type="submit"
+                disabled={updateConfig.isPending}
+                loading={updateConfig.isPending}
+                className="w-full sm:w-auto"
+              >
+                Save config
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </form>

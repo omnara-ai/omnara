@@ -150,10 +150,10 @@ error to the code behind it and cite the exact lines. Ask which repository
 ## 5. Pick the model (and machine pool)
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Use `openai/gpt-6-astra` on `omnara-openrouter` if it's
-   granted (the instruction was tested with it), otherwise the strongest
-   reasoning model on the list. The choice gives `MODEL_PROVIDER_CONFIG` and
-   `MODEL_NAME`.
+   and `model.name`. Use `openai/gpt-6.2-astra` on `omnara-openrouter` if it's
+   granted (the instruction was tested with `openai/gpt-6-astra`), otherwise
+   the strongest reasoning model on the list. The choice gives
+   `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 2. Only if the agent reads the code (step 4):
    `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
    candidate `MACHINE_POOL`. Use `default-pool` if it's granted: its

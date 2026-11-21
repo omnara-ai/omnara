@@ -501,6 +501,7 @@ func (s *chatStreamChoiceState) applyToolDelta(
 	acc *chatStreamAccumulator,
 	delta chatStreamToolCallDelta,
 ) {
+	route.MarkToken(ctx, delta.Function.Name+delta.Function.Arguments)
 	tool := s.tool(delta.Index)
 	if delta.ID != "" {
 		tool.id = delta.ID
