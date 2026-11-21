@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -90,7 +92,7 @@ func newTestSender(t *testing.T, store *fakeStore, handler http.HandlerFunc) *Se
 	allowlist, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port})
 	require.NoError(t, err)
 	store.destination.Endpoint = server.URL + "/v1/traces"
-	return New(store, slog.New(slog.DiscardHandler), nil, allowlist)
+	return New(store, slog.New(slog.DiscardHandler), nil, nil, allowlist)
 }
 
 func testDelivery(turnID uuid.UUID) executionstore.OtelExportDelivery {
@@ -350,4 +352,59 @@ func TestSenderLogsGaveUpWhenRetryExceedsWindow(t *testing.T) {
 	require.Equal(t, "WARN", record["level"])
 	require.Equal(t, turn.TurnID.String(), record["turn.id"])
 	require.NotEmpty(t, record["otel_export.retry_at"])
+}
+
+func TestSenderRunReportsSlotsAndCapacity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		turn := testTurn()
+		store := &claimingStore{
+			fakeStore: fakeStore{destination: protobufDestination, turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn}},
+			pending:   make(chan executionstore.OtelExportDelivery, 2),
+		}
+		store.destination.Endpoint = "https://otel.example.com/v1/traces"
+		set := metrics.New()
+		sender := &Sender{
+			store: store, log: slog.New(slog.DiscardHandler), recorder: metrics.NewOtelExportRecorder(set),
+			client: &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
+				<-request.Context().Done()
+				return nil, request.Context().Err()
+			})},
+		}
+		store.pending <- testDelivery(turn.TurnID)
+		store.pending <- testDelivery(turn.TurnID)
+		scrape := func() string {
+			response := httptest.NewRecorder()
+			set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			return response.Body.String()
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); sender.Run(ctx) }()
+		synctest.Wait()
+		require.Contains(t, scrape(), "omnara_otel_export_slots_used 2")
+		require.Contains(t, scrape(), "omnara_otel_export_capacity "+strconv.Itoa(MaxInFlight))
+		cancel()
+		<-done
+		require.Contains(t, scrape(), "omnara_otel_export_slots_used 0")
+		require.Contains(t, scrape(), "omnara_otel_export_capacity 0")
+	})
+}
+
+type roundTripper func(*http.Request) (*http.Response, error)
+
+func (f roundTripper) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+// claimingStore hands out queued deliveries, unlike fakeStore's empty queue.
+type claimingStore struct {
+	fakeStore
+	pending chan executionstore.OtelExportDelivery
+}
+
+func (s *claimingStore) ClaimOtelExportDelivery(context.Context, int) (executionstore.OtelExportDelivery, error) {
+	select {
+	case delivery := <-s.pending:
+		return delivery, nil
+	default:
+		return executionstore.OtelExportDelivery{}, storeerr.ErrNotFound
+	}
 }

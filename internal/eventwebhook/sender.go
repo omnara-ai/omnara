@@ -15,10 +15,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/deliveryrunner"
 	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -83,42 +83,18 @@ func New(
 
 func (s *Sender) Run(ctx context.Context) {
 	defer s.client.CloseIdleConnections()
-	s.recorder.RecordCapacity(s.maxInFlight)
-	defer s.recorder.RecordCapacity(0)
-	inFlight := 0
-	completed := make(chan struct{}, s.maxInFlight)
-	var deliveries sync.WaitGroup
-	defer deliveries.Wait()
-	for ctx.Err() == nil {
-		if inFlight < s.maxInFlight {
+	deliveryrunner.Run(ctx, deliveryrunner.Config[executionstore.EventWebhookDelivery]{
+		MaxInFlight: s.maxInFlight, IdleInterval: idleInterval, Recorder: s.recorder,
+		Claim: func(ctx context.Context) (executionstore.EventWebhookDelivery, error) {
 			claimCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-			delivery, err := s.store.ClaimEventWebhookDelivery(claimCtx, s.perOrgLimit)
-			cancel()
-			if err == nil {
-				inFlight++
-				finished := s.recorder.StartDelivery()
-				deliveries.Go(func() {
-					s.deliver(ctx, delivery)
-					finished()
-					completed <- struct{}{}
-				})
-				continue
-			}
-			if !errors.Is(err, storeerr.ErrNotFound) && ctx.Err() == nil {
-				logent.EventWebhookStoreFailed(logpkg.WithLogger(ctx, s.log), "claim", err)
-			}
-		}
-		var idle <-chan time.Time
-		if inFlight < s.maxInFlight {
-			idle = time.After(idleInterval)
-		}
-		select {
-		case <-ctx.Done():
-		case <-completed:
-			inFlight--
-		case <-idle:
-		}
-	}
+			defer cancel()
+			return s.store.ClaimEventWebhookDelivery(claimCtx, s.perOrgLimit)
+		},
+		Deliver: s.deliver,
+		ClaimFailed: func(ctx context.Context, err error) {
+			logent.EventWebhookStoreFailed(logpkg.WithLogger(ctx, s.log), "claim", err)
+		},
+	})
 }
 
 func (s *Sender) deliver(ctx context.Context, delivery executionstore.EventWebhookDelivery) {

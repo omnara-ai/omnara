@@ -383,7 +383,8 @@ func main() {
 		eventWebhooks.Run(ctx)
 	}()
 
-	otelExports := otelexport.New(store.Execution(), log, httpRecorder, cfg.EndpointAllowlist)
+	otelExports := otelexport.New(
+		store.Execution(), log, metrics.NewOtelExportRecorder(metricSet), httpRecorder, cfg.EndpointAllowlist)
 	otelExportDone := make(chan struct{})
 	go func() {
 		defer close(otelExportDone)

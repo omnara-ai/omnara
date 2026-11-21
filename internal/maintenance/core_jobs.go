@@ -63,6 +63,7 @@ func deleteExpiredWebhookDeliveries(
 func deleteExpiredOtelExportDeliveries(
 	log *slog.Logger,
 	deleteExpired func(context.Context, int32) ([]executionstore.OtelExportDelivery, error),
+	recorder *metrics.OtelExportExpiryRecorder,
 ) func(context.Context) maintenanceResult {
 	return deleteExpiredDeliveries(log, "otel export deliveries", func(ctx context.Context, limit int32) (int64, error) {
 		expired, err := deleteExpired(ctx, limit)
@@ -74,7 +75,7 @@ func deleteExpiredOtelExportDeliveries(
 			logent.OtelExportDeliveryExpired(logCtx, delivery)
 		}
 		return int64(len(expired)), nil
-	}, nil)
+	}, recorder.RecordExpired)
 }
 
 // deleteExpiredDeliveries cleans one batch of an outbound delivery queue;
