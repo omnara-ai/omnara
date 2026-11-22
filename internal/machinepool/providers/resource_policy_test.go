@@ -9,8 +9,8 @@ import (
 
 func TestProviderMachinePoolResourceContracts(t *testing.T) {
 	for _, provider := range []string{
-		"agent37", "arker", "blaxel", "boxd", "createos", "daytona", "docker", "e2b", "freestyle", "modal", "superserve",
-		"tenki", "unikraft",
+		"agent37", "arker", "blaxel", "boxd", "createos", "daytona", "docker", "e2b", "freestyle", "modal", "revyl",
+		"superserve", "tenki", "unikraft",
 	} {
 		t.Run(provider+" valid", func(t *testing.T) {
 			policy := validProviderResourcePolicyForTest(provider)
@@ -227,6 +227,8 @@ func validProviderResourcePolicyForTest(
 		policy.DefaultProvisioning.MemoryMB = new(1024)
 		policy.ResourceLimits.MaxTotalCPU = nil
 		policy.ResourceLimits.MaxMachineCPU = nil
+	case "revyl":
+		policy.ResourceLimits = executionstore.MachineResourceLimits{}
 	}
 	return policy
 }
@@ -270,6 +272,19 @@ func resourcePolicyForTest(provider string) MachineResourcePolicy {
 				PoolDefault:  MachineResourceRequired,
 				Limits:       MachineResourceRequired,
 				Provisioning: MachineResourceConfigured,
+			},
+		}
+	case "revyl":
+		return MachineResourcePolicy{
+			CPU: MachineResourceContract{
+				PoolDefault:  MachineResourceUnsupported,
+				Limits:       MachineResourceUnsupported,
+				Provisioning: MachineResourceUnmodeled,
+			},
+			MemoryMB: MachineResourceContract{
+				PoolDefault:  MachineResourceUnsupported,
+				Limits:       MachineResourceUnsupported,
+				Provisioning: MachineResourceUnmodeled,
 			},
 		}
 	default:

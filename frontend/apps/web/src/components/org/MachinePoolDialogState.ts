@@ -226,6 +226,15 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+    case 'revyl':
+      return {
+        ...common,
+        provider: 'revyl',
+        default_machine_provider_options: {
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
+          ...startupScript,
+        },
+      }
     case 'boxd':
     case 'createos':
     case 'daytona':
@@ -401,6 +410,8 @@ export function machinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'revyl':
+      return common
     case 'boxd':
     case 'createos':
     case 'daytona':
@@ -477,6 +488,8 @@ function clusterMachinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'revyl':
+      return common
     case 'boxd':
     case 'createos':
     case 'daytona':
