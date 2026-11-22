@@ -94,10 +94,10 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, classifyCreateError(err)
 	}
-	if err := validateOwnedComputer(target, id); err != nil {
-		return providers.ProvisionMachineResult{}, err
-	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: id.String()}
+	if err := validateOwnedComputer(target, id); err != nil {
+		return result, err
+	}
 	if err := p.waitUntilActive(ctx, target); err != nil {
 		return result, err
 	}

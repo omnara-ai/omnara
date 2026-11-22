@@ -163,11 +163,16 @@ func TestProvisionMachineRejectsReservedEnvBeforeCreating(t *testing.T) {
 	}
 }
 
-func TestProvisionMachineRejectsForeignComputer(t *testing.T) {
+func TestProvisionMachineRejectsForeignComputerButKeepsItsOwnID(t *testing.T) {
 	api := &fakeAPI{createResult: computer{ID: uuid.New(), OS: computerOSMacOS, State: computerStateActive}}
 
-	if _, err := provision(t, api); err == nil {
+	result, err := provision(t, api)
+
+	if err == nil {
 		t.Fatal("ProvisionMachine adopted a computer with another id")
+	}
+	if want := testComputerID(t).String(); result.ProviderResourceID != want {
+		t.Fatalf("provider resource id = %q, want %q so the computer can still be deleted", result.ProviderResourceID, want)
 	}
 }
 
