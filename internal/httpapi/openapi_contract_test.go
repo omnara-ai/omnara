@@ -1175,6 +1175,21 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "revyl",
+			body: `{"provider":"revyl",` + common + `}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "revyl rejects cpu",
+			body: `{"provider":"revyl",` + common + `,"max_total_cpu":4}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "revyl rejects memory",
+			body: `{"provider":"revyl",` + common + `,"default_machine_memory_mb":1024}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "unknown provider",
 			body: `{"provider":"unknown",` + common + `}`,
 			want: http.StatusBadRequest,

@@ -4176,7 +4176,7 @@ export type Artifact = {
 };
 
 /**
- * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
+ * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields, and Revyl pools reject CPU and memory fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     provider: 'agent37' | 'arker' | 'docker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
@@ -4197,6 +4197,8 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     default_machine_memory_mb: number;
     max_total_memory_mb: number;
     max_machine_memory_mb: number;
+} | {
+    provider: 'revyl';
 });
 
 export type CheckMachinePoolConnectionRequest = {

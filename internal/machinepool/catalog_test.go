@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/e2b"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/revyl"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/superserve"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
@@ -26,8 +27,8 @@ import (
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 13 {
-		t.Fatalf("default catalog providers = %d, want 13", len(catalog.definitions))
+	if len(catalog.definitions) != 14 {
+		t.Fatalf("default catalog providers = %d, want 14", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
@@ -43,6 +44,7 @@ func TestDefaultCatalogProviders(t *testing.T) {
 		{name: "e2b", definition: e2b.Definition{}},
 		{name: "freestyle", definition: freestyle.Definition{}},
 		{name: "modal", definition: modal.Definition{}},
+		{name: "revyl", definition: revyl.Definition{}},
 		{name: "superserve", definition: superserve.Definition{}},
 		{name: "tenki", definition: tenki.Definition{}},
 		{name: "unikraft", definition: unikraft.Definition{}},
@@ -140,7 +142,8 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 		{"agent37", true, true}, {"arker", true, true}, {"blaxel", false, true}, {"boxd", false, false},
 		{"createos", false, false}, {"daytona", false, false}, {"docker", true, true}, {"e2b", false, false},
 		{"freestyle", true, true},
-		{"modal", true, true}, {"superserve", false, false}, {"tenki", true, true}, {"unikraft", true, true},
+		{"modal", true, true}, {"revyl", false, false}, {"superserve", false, false}, {"tenki", true, true},
+		{"unikraft", true, true},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)

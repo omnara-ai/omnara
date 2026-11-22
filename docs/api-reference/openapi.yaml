@@ -16034,7 +16034,7 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateMachinePoolRequest:
-      description: Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
+      description: Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields, and Revyl pools reject CPU and memory fields.
       x-go-type: CreateMachinePoolRequestBase
       allOf:
         - $ref: '#/components/schemas/CreateMachinePoolRequestBase'
@@ -16102,6 +16102,22 @@ components:
                   - required: [max_total_cpu]
                   - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
+            - type: object
+              required: [provider]
+              properties:
+                provider:
+                  type: string
+                  enum: [revyl]
+              not:
+                anyOf:
+                  - required: [default_machine_cpu]
+                  - required: [max_total_cpu]
+                  - required: [min_machine_cpu]
+                  - required: [max_machine_cpu]
+                  - required: [default_machine_memory_mb]
+                  - required: [max_total_memory_mb]
+                  - required: [min_machine_memory_mb]
+                  - required: [max_machine_memory_mb]
     CheckMachinePoolConnectionRequest:
       type: object
       additionalProperties: false

@@ -27,6 +27,7 @@ const (
 	E2B        = "e2b"
 	Freestyle  = "freestyle"
 	Modal      = "modal"
+	Revyl      = "revyl"
 	Superserve = "superserve"
 	Tenki      = "tenki"
 	Unikraft   = "unikraft"

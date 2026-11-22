@@ -1,0 +1,54 @@
+---
+title: Revyl
+description: macOS machines with Xcode and the iOS Simulator for agents that build and test Apple apps
+icon: "/logo/providers/revyl.svg"
+---
+
+[Revyl](https://revyl.ai) runs cloud Mac computers for building and testing mobile apps. Connect your Revyl organization with a custom pool, and each machine is a fresh macOS virtual machine on Apple silicon.
+
+## Why Revyl
+
+- **macOS machines.** Revyl is the only Omnara provider with macOS, so agents can run `xcodebuild`, `xcrun simctl`, `swift`, and the rest of Apple's toolchain.
+- **Xcode and the iOS Simulator preinstalled.** Every machine starts from Revyl's Mac image with Xcode, iOS simulator runtimes, Homebrew, Chrome, and Safari already set up, so there's nothing to install before a build.
+- **Test what the agent built.** The same Revyl organization can run the app on simulators and real devices and test it end to end.
+- **Clean machines.** Each machine starts from a fresh copy of the image, and Revyl deletes it when it stops.
+
+## Set up a Revyl pool
+
+<Steps>
+  <Step title="Create an API key">
+    In Revyl, open **Settings → API Keys** and create an API key. Store it as an org-owned [secret](/organization/secrets) in Omnara. Mac computers must be enabled for the organization; if they aren't, pool machines fail with `computer_not_enabled` and you can contact [support@revyl.ai](mailto:support@revyl.ai).
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Revyl**. Enter the credential, an optional lifetime, and capacity limits. Revyl sets each machine's size, so there are no CPU or memory fields.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "revyl-macos",
+  "provider": "revyl",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "lifetime": "2h"
+  },
+  "max_total_machines": 2
+}
+```
+
+- `lifetime` is how long each machine may run, as a duration from `1m` to `24h`. It defaults to `2h`. Revyl stops the machine at the end of its lifetime and can't restart it, so pick one longer than your agents' longest task.
+- CPU and memory fields aren't accepted, because Revyl sets the machine size.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts. In `provider_config`, `api_base_url` defaults to `https://backend.revyl.ai`.
+
+## Limits
+
+- Machines can't sleep when idle; a machine runs, and bills, until it's released or its lifetime ends.
+- An organization can run at most 2 Revyl computers with a lifetime over two hours at once. Each machine also uses one of the organization's Revyl device slots.
+- When every Mac is busy, a new machine waits up to about two minutes for one to free up before it fails.
+- See [Revyl computers](https://docs.revyl.ai/computers) for pricing and the full list of preinstalled tools.

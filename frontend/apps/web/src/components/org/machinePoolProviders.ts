@@ -316,6 +316,20 @@ const agent37: MachinePoolProviderDefinition = {
   },
 }
 
+const revyl: MachinePoolProviderDefinition = {
+  label: 'Revyl',
+  resource: {
+    key: 'lifetime',
+    label: 'Lifetime',
+    placeholder: '2h',
+    optional: true,
+    description:
+      'How long each macOS machine may run, from 1m to 24h. Leave empty for 2h. An organization can run 2 Revyl computers longer than 2h at once.',
+    descriptionHref: 'https://docs.revyl.ai/computers',
+  },
+  resources: { cpu: 'unsupported', memoryMb: 'unsupported' },
+}
+
 const docker: MachinePoolProviderDefinition = {
   label: 'Docker',
   resource: {
@@ -356,6 +370,7 @@ export const machinePoolProviderDefinitions = {
   e2b,
   superserve,
   agent37,
+  revyl,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
