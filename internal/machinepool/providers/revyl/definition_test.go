@@ -43,7 +43,12 @@ func TestParseProviderOptions(t *testing.T) {
 		want    providerOptions
 		wantErr string
 	}{
-		{name: "empty", options: nil},
+		{name: "empty defaults to two hours", options: nil, want: providerOptions{Lifetime: 2 * time.Hour}},
+		{
+			name:    "startup script only defaults to two hours",
+			options: map[string]json.RawMessage{"startup_script": json.RawMessage(`"brew install swiftlint"`)},
+			want:    providerOptions{Lifetime: 2 * time.Hour, StartupScript: "brew install swiftlint"},
+		},
 		{
 			name: "lifetime and startup script",
 			options: map[string]json.RawMessage{

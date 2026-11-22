@@ -211,7 +211,17 @@ func TestInspectMachine(t *testing.T) {
 		},
 		{
 			name:    "released",
-			current: computer{ID: id, OS: computerOSMacOS, State: computerStateStopped, Release: releaseConfirmed},
+			current: computer{ID: id, OS: computerOSMacOS, State: computerStateStopped, Release: "confirmed"},
+			found:   true,
+		},
+		{
+			name:    "stopped before release is confirmed",
+			current: computer{ID: id, OS: computerOSMacOS, State: computerStateStopped, Release: "pending"},
+			found:   true,
+		},
+		{
+			name:    "failed",
+			current: computer{ID: id, OS: computerOSMacOS, State: computerStateFailed},
 			found:   true,
 		},
 		{name: "missing"},

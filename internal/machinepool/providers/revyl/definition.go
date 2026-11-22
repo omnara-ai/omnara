@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	apiBaseURL  = "https://backend.revyl.ai"
-	minLifetime = time.Minute
-	maxLifetime = 24 * time.Hour
+	apiBaseURL      = "https://backend.revyl.ai"
+	minLifetime     = time.Minute
+	defaultLifetime = 2 * time.Hour
+	maxLifetime     = 24 * time.Hour
 )
 
 type providerConfig struct {
@@ -166,11 +167,11 @@ func providerOptionsFromProvisioning(
 }
 
 func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOptions, error) {
+	options := providerOptions{Lifetime: defaultLifetime}
 	if len(rawOptions) == 0 {
-		return providerOptions{}, nil
+		return options, nil
 	}
 	var lifetime string
-	var options providerOptions
 	if err := providers.DecodeStringOptions(
 		rawOptions,
 		"revyl provider_options",

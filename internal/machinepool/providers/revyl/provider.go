@@ -30,8 +30,6 @@ const (
 	computerStateStopped   computerState = "stopped"
 	computerStateFailed    computerState = "failed"
 	computerStateOwnerLost computerState = "owner_lost"
-
-	releaseConfirmed = "confirmed"
 )
 
 var (
@@ -222,7 +220,7 @@ func (p *provider) InspectMachine(
 	if err := validateOwnedComputer(target, id); err != nil {
 		return "", false, err
 	}
-	if computerReleased(target) {
+	if computerEnded(target) {
 		return "", false, nil
 	}
 	return id.String(), true, nil
@@ -280,12 +278,10 @@ func validateOwnedComputer(target computer, id uuid.UUID) error {
 	return nil
 }
 
-func computerReleased(target computer) bool {
+func computerEnded(target computer) bool {
 	switch target.State {
 	case computerStateStopped, computerStateFailed, computerStateOwnerLost:
-		return target.Release == releaseConfirmed
-	case computerStateStarting, computerStateActive, computerStateClosing:
-		return false
+		return true
 	default:
 		return false
 	}
