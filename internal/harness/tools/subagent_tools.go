@@ -443,14 +443,7 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent id: %w", err)
 	}
-	content, err := structuredToolResultContent(map[string]any{
-		"agent_id":  targetPublicID,
-		"name":      target.Name,
-		"delivered": true,
-		"message": "Message delivered. The subagent reads it after its current model call and tool batch " +
-			"finish; any open question or permission request is canceled. The reply arrives later as a " +
-			"message from it.",
-	})
+	content, err := structuredToolResultContent(agentMessageDeliveredResult(targetPublicID, target.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -483,17 +476,7 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent id: %w", err)
 	}
-	result := map[string]any{
-		"agent_id": targetPublicID,
-		"name":     target.Name,
-		"archived": input.Archive,
-	}
-	if input.Archive {
-		result["state"] = executionstore.SubagentStateArchived
-	} else {
-		result["message"] = "Current work canceled. The subagent keeps its context; send_agent_message resumes it."
-	}
-	content, err := structuredToolResultContent(result)
+	content, err := structuredToolResultContent(agentStoppedResult(targetPublicID, target.Name, input.Archive))
 	if err != nil {
 		return nil, err
 	}
@@ -546,4 +529,25 @@ func listAgents(ctx context.Context, call transactionalToolContext) (transaction
 		return nil, err
 	}
 	return completeInTransaction(content), nil
+}
+
+func agentMessageDeliveredResult(agentID, name string) map[string]any {
+	return map[string]any{
+		"agent_id":  agentID,
+		"name":      name,
+		"delivered": true,
+		"message": "Message delivered. The subagent reads it after its current model call and tool batch " +
+			"finish; any open question or permission request is canceled. The reply arrives later as a " +
+			"message from it.",
+	}
+}
+
+func agentStoppedResult(agentID, name string, archive bool) map[string]any {
+	result := map[string]any{"agent_id": agentID, "name": name, "archived": archive}
+	if archive {
+		result["state"] = executionstore.SubagentStateArchived
+	} else {
+		result["message"] = "Current work canceled. The subagent keeps its context; send_agent_message resumes it."
+	}
+	return result
 }

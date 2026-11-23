@@ -252,13 +252,7 @@ func getCurrentTime(ctx context.Context, call transactionalToolContext) (transac
 	if err != nil {
 		return nil, err
 	}
-	now = now.UTC()
-	content, err := structuredToolResultContent(map[string]any{
-		"current_time": now.Format(time.RFC3339),
-		"unix_seconds": now.Unix(),
-		"weekday":      now.Weekday().String(),
-		"timezone":     "UTC",
-	})
+	content, err := structuredToolResultContent(currentTimeResult(now))
 	if err != nil {
 		return nil, err
 	}
@@ -319,12 +313,7 @@ func createScheduledMessage(_ context.Context, call transactionalToolContext) (t
 			if err != nil {
 				return executionstore.ToolCallCompletionInput{}, err
 			}
-			content, err := structuredToolResultContent(map[string]any{
-				"id":            summary.ID,
-				"scheduled_for": summary.ScheduledFor,
-				"created_at":    summary.CreatedAt,
-				"scheduled":     true,
-			})
+			content, err := structuredToolResultContent(scheduledMessageResult(summary))
 			if err != nil {
 				return executionstore.ToolCallCompletionInput{}, err
 			}
@@ -373,16 +362,9 @@ func createSchedule(input resolvedScheduledMessageRequest) transactionalPhaseRes
 			CronExpression: input.cron, Timezone: input.timezone, MessageTemplate: scheduleMessageTemplate(input),
 		},
 		func(schedule executionstore.AgentSchedule) (executionstore.ToolCallCompletionInput, error) {
-			id, err := publicid.Encode(publicid.KindCronTrigger, schedule.ID)
+			result, err := scheduleResult(schedule)
 			if err != nil {
-				return executionstore.ToolCallCompletionInput{}, fmt.Errorf("encode schedule id: %w", err)
-			}
-			result := map[string]any{
-				"id": id, "cron": schedule.CronExpression, "timezone": schedule.Timezone,
-				"scheduled": true, "recurring": true,
-			}
-			if schedule.NextFireAfter != nil {
-				result["next_run_at"] = formatScheduledMessageTime(*schedule.NextFireAfter)
+				return executionstore.ToolCallCompletionInput{}, err
 			}
 			content, err := structuredToolResultContent(result)
 			if err != nil {
@@ -394,4 +376,38 @@ func createSchedule(input resolvedScheduledMessageRequest) transactionalPhaseRes
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failScheduledMessageTransaction("create_scheduled_message_failed", err)
 	})
+}
+
+func currentTimeResult(now time.Time) map[string]any {
+	now = now.UTC()
+	return map[string]any{
+		"current_time": now.Format(time.RFC3339),
+		"unix_seconds": now.Unix(),
+		"weekday":      now.Weekday().String(),
+		"timezone":     "UTC",
+	}
+}
+
+func scheduledMessageResult(summary scheduledMessageSummary) map[string]any {
+	return map[string]any{
+		"id":            summary.ID,
+		"scheduled_for": summary.ScheduledFor,
+		"created_at":    summary.CreatedAt,
+		"scheduled":     true,
+	}
+}
+
+func scheduleResult(schedule executionstore.AgentSchedule) (map[string]any, error) {
+	id, err := publicid.Encode(publicid.KindCronTrigger, schedule.ID)
+	if err != nil {
+		return nil, fmt.Errorf("encode schedule id: %w", err)
+	}
+	result := map[string]any{
+		"id": id, "cron": schedule.CronExpression, "timezone": schedule.Timezone,
+		"scheduled": true, "recurring": true,
+	}
+	if schedule.NextFireAfter != nil {
+		result["next_run_at"] = formatScheduledMessageTime(*schedule.NextFireAfter)
+	}
+	return result, nil
 }

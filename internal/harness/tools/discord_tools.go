@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 type discordReadInput struct {
@@ -92,14 +93,12 @@ func runDiscordTool(
 	if err != nil {
 		return discordToolFailure(err)
 	}
-	content, err := structuredToolResultContent(
-		map[string]any{
-			"integration": access.Integration.Name,
-			"channel_id":  message.ChannelID,
-			"message_id":  message.ID,
-			"thread_id":   address.ThreadID,
-		},
-	)
+	content, err := structuredToolResultContent(tooloutput.DiscordMessage{
+		Integration: access.Integration.Name,
+		ChannelID:   message.ChannelID,
+		MessageID:   message.ID,
+		ThreadID:    address.ThreadID,
+	})
 	if err != nil {
 		return nil, err
 	}

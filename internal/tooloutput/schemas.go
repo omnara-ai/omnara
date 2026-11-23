@@ -1,4 +1,5 @@
-package programoutput
+// Package tooloutput defines the result types and output JSON Schemas of Omnara-owned tools.
+package tooloutput
 
 import (
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	schemacheck "github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
@@ -104,41 +106,66 @@ type GitHubPendingReview struct {
 }
 
 var (
-	StorageReadSchema = sync.OnceValues(func() (json.RawMessage, error) {
-		return json.RawMessage(storageReadSchema), nil
-	})
-	StorageListSchema   = sync.OnceValues(reflectOutputSchema[listing.FilePage])
-	StorageSearchSchema = sync.OnceValues(reflectOutputSchema[StorageSearch])
-	WebSearchSchema     = sync.OnceValues(reflectOutputSchema[WebSearch])
-	WebFetchSchema      = sync.OnceValues(reflectOutputSchema[WebFetch])
-	SlackReadSchema     = sync.OnceValues(reflectOutputSchema[slack.MessagePage])
-	GitHubReadSchema    = sync.OnceValues(githubReadOutputSchema)
-	DiscordReadSchema   = sync.OnceValues(reflectOutputSchema[discord.MessagePage])
+	StorageReadSchema   = outputSchema(literalSchema(storageReadSchema))
+	StorageListSchema   = outputSchema(reflectOutputSchema[listing.FilePage])
+	StorageSearchSchema = outputSchema(reflectOutputSchema[StorageSearch])
+	WebSearchSchema     = outputSchema(reflectOutputSchema[WebSearch])
+	WebFetchSchema      = outputSchema(reflectOutputSchema[WebFetch])
+	SlackReadSchema     = outputSchema(reflectOutputSchema[slack.MessagePage])
+	GitHubReadSchema    = outputSchema(githubReadOutputSchema)
+	DiscordReadSchema   = outputSchema(reflectOutputSchema[discord.MessagePage])
 )
 
 func githubReadOutputSchema() (json.RawMessage, error) {
-	sections := []struct {
-		section string
-		schema  func() (*jsonschema.Schema, error)
-	}{
-		{"pull_request", reflectSchema[github.PullRequest]},
-		{"discussion_comments", reflectSchema[github.DiscussionCommentsPage]},
-		{"review_comments", reflectSchema[github.ReviewCommentsPage]},
-		{"reviews", reflectSchema[github.ReviewsPage]},
-		{"review", reflectSchema[github.Review]},
-		{"pending_review", reflectSchema[GitHubPendingReview]},
-		{"review_threads", reflectSchema[github.ReviewThreadsPage]},
-		{"files", reflectSchema[github.FilesPage]},
-		{"diff", reflectSchema[github.Diff]},
-	}
-	schema := &jsonschema.Schema{Description: "The shape depends on the section read; each alternative is titled " +
-		"with its section."}
-	for _, section := range sections {
-		alternative, err := section.schema()
+	return anyOfSchema("The shape depends on the section read; each alternative is titled with its section.",
+		titled("section=pull_request", reflectSchema[github.PullRequest]),
+		titled("section=discussion_comments", reflectSchema[github.DiscussionCommentsPage]),
+		titled("section=review_comments", reflectSchema[github.ReviewCommentsPage]),
+		titled("section=reviews", reflectSchema[github.ReviewsPage]),
+		titled("section=review", reflectSchema[github.Review]),
+		titled("section=pending_review", reflectSchema[GitHubPendingReview]),
+		titled("section=review_threads", reflectSchema[github.ReviewThreadsPage]),
+		titled("section=files", reflectSchema[github.FilesPage]),
+		titled("section=diff", reflectSchema[github.Diff]),
+	)
+}
+
+// outputSchema builds a tool output schema once and checks that it is a valid JSON Schema.
+func outputSchema(build func() (json.RawMessage, error)) func() (json.RawMessage, error) {
+	return sync.OnceValues(func() (json.RawMessage, error) {
+		schema, err := build()
 		if err != nil {
-			return nil, fmt.Errorf("github %s read output schema: %w", section.section, err)
+			return nil, err
 		}
-		alternative.Title = "section=" + section.section
+		if err := schemacheck.ValidateSchema(schema); err != nil {
+			return nil, err
+		}
+		return schema, nil
+	})
+}
+
+func literalSchema(schema string) func() (json.RawMessage, error) {
+	return func() (json.RawMessage, error) { return json.RawMessage(schema), nil }
+}
+
+func titled(title string, build func() (*jsonschema.Schema, error)) func() (*jsonschema.Schema, error) {
+	return func() (*jsonschema.Schema, error) {
+		schema, err := build()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", title, err)
+		}
+		schema.Title = title
+		return schema, nil
+	}
+}
+
+func anyOfSchema(description string, alternatives ...func() (*jsonschema.Schema, error)) (json.RawMessage, error) {
+	schema := &jsonschema.Schema{Description: description}
+	for _, build := range alternatives {
+		alternative, err := build()
+		if err != nil {
+			return nil, err
+		}
 		schema.AnyOf = append(schema.AnyOf, alternative)
 	}
 	return json.Marshal(schema)

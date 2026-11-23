@@ -19,9 +19,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 	"github.com/stretchr/testify/require"
 )
@@ -176,13 +176,13 @@ func TestProgramOutputSchemasAcceptReflectedResults(t *testing.T) {
 	}{
 		{builtInSpec(t, toolcatalog.ToolNameStorageList), []any{listing.FilePage{}}},
 		{builtInSpec(t, toolcatalog.ToolNameStorageSearch), []any{searchResult{}}},
-		{builtInSpec(t, toolcatalog.ToolNameWebSearch), []any{programoutput.WebSearch{}}},
-		{builtInSpec(t, toolcatalog.ToolNameWebFetch), []any{programoutput.WebFetch{}}},
+		{builtInSpec(t, toolcatalog.ToolNameWebSearch), []any{tooloutput.WebSearch{}}},
+		{builtInSpec(t, toolcatalog.ToolNameWebFetch), []any{tooloutput.WebFetch{}}},
 		{integrationReadSpec(t, integrationdefinition.SlackThread), []any{slack.MessagePage{}}},
 		{integrationReadSpec(t, integrationdefinition.DiscordThread), []any{discord.MessagePage{}}},
 		{integrationReadSpec(t, integrationdefinition.GitHubPR), []any{
 			github.PullRequest{}, github.DiscussionCommentsPage{}, github.ReviewCommentsPage{},
-			github.ReviewsPage{}, github.Review{}, programoutput.GitHubPendingReview{}, github.ReviewThreadsPage{},
+			github.ReviewsPage{}, github.Review{}, tooloutput.GitHubPendingReview{}, github.ReviewThreadsPage{},
 			github.FilesPage{}, github.Diff{},
 		}},
 	}

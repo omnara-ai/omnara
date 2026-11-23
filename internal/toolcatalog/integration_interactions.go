@@ -1,5 +1,7 @@
 package toolcatalog
 
+import "github.com/omnara-ai/omnara/internal/tooloutput"
+
 const (
 	ToolNameListInteractionHandlers = "list_interaction_handlers"
 	ToolNameSetInteractionHandler   = "set_interaction_handler"
@@ -21,7 +23,7 @@ func interactionHandlerTools() ([]Entry, error) {
 			"Pass next_offset as offset to continue listing. Null selection means dashboard only.", nil, map[string]any{
 			"offset": map[string]any{"type": "integer", "minimum": 0},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": InteractionHandlersMaxLimit},
-		})
+		}, tooloutput.ListInteractionHandlersSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +41,7 @@ func interactionHandlerTools() ([]Entry, error) {
 			},
 			"auto_select": map[string]any{"type": "boolean"},
 			"args":        map[string]any{"type": "object", "additionalProperties": true},
-		})
+		}, tooloutput.SetInteractionHandlerSchema)
 	if err != nil {
 		return nil, err
 	}

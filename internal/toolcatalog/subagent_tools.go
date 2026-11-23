@@ -1,5 +1,7 @@
 package toolcatalog
 
+import "github.com/omnara-ai/omnara/internal/tooloutput"
+
 const (
 	spawnAgentToolDescription = "Launch a subagent for a complex, multi-step task or for independent work you want " +
 		"to run in parallel. Pick `agent` from the configured subagent keys listed below: `self` keys copy your own " +
@@ -55,6 +57,7 @@ func spawnAgentTool() (Entry, error) {
 				"description": "Optional display label shown in the console and in messages from the subagent.",
 			},
 		},
+		tooloutput.SpawnAgentSchema,
 	)
 }
 
@@ -91,6 +94,7 @@ func readAgentTool() (Entry, error) {
 				"description": "Maximum turns (default 10, at most 100) or events (default 20, at most 500) to return.",
 			},
 		},
+		tooloutput.ReadAgentSchema,
 	)
 }
 
@@ -111,6 +115,7 @@ func sendAgentMessageTool() (Entry, error) {
 				"description": "Message text delivered to the subagent.",
 			},
 		},
+		tooloutput.SendAgentMessageSchema,
 	)
 }
 
@@ -130,9 +135,10 @@ func stopAgentTool() (Entry, error) {
 				"description": "Also archive the subagent and its subagents instead of leaving it idle. Defaults to false.",
 			},
 		},
+		tooloutput.StopAgentSchema,
 	)
 }
 
 func listAgentsTool() (Entry, error) {
-	return toolEntry(ToolNameListAgents, listAgentsToolDescription, nil, nil)
+	return toolEntry(ToolNameListAgents, listAgentsToolDescription, nil, nil, tooloutput.ListAgentsSchema)
 }

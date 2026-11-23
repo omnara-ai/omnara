@@ -1,6 +1,9 @@
 package toolcatalog
 
 import (
+	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,5 +65,61 @@ func TestDefaultCatalogIncludesRuntimeDiscoveryGuidance(t *testing.T) {
 				t.Fatalf("%s schema does not contain %q: %s", check.name, needle, entry.InputSchema)
 			}
 		}
+	}
+}
+
+func TestEntryRequiresOutputSchemaIndependentOfCodeMode(t *testing.T) {
+	catalog, err := Default()
+	if err != nil {
+		t.Fatalf("default catalog: %v", err)
+	}
+	for _, name := range []string{ToolNameStorageWrite, ToolNameWebSearch} {
+		entry, ok := catalog.Lookup(name)
+		if !ok {
+			t.Fatalf("%s missing from default catalog", name)
+		}
+		if err := entry.validate(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, codeMode := range []bool{false, true} {
+			missing := entry
+			missing.CodeMode = codeMode
+			missing.OutputSchema = nil
+			if err := missing.validate(); err == nil || !strings.Contains(err.Error(), "output schema is required") {
+				t.Fatalf("%s code mode %t without output schema: %v", name, codeMode, err)
+			}
+			invalid := missing
+			invalid.OutputSchema = json.RawMessage(`{"type":"nope"}`)
+			if err := invalid.validate(); err == nil || !strings.Contains(err.Error(), "output schema") {
+				t.Fatalf("%s code mode %t with invalid output schema: %v", name, codeMode, err)
+			}
+		}
+	}
+}
+
+func TestToolEntryRequiresOutputSchemaToBuild(t *testing.T) {
+	_, err := toolEntry("lookup", "Look up a user.", nil, nil, func() (json.RawMessage, error) {
+		return nil, errors.New("no schema")
+	})
+	if err == nil || !strings.Contains(err.Error(), "lookup output schema") {
+		t.Fatalf("toolEntry error = %v", err)
+	}
+}
+
+func TestCodeModeStaysOptIn(t *testing.T) {
+	catalog, err := Default()
+	if err != nil {
+		t.Fatalf("default catalog: %v", err)
+	}
+	var codeMode []string
+	for _, entry := range catalog.Entries() {
+		if entry.CodeMode {
+			codeMode = append(codeMode, entry.Name)
+		}
+	}
+	want := []string{ToolNameStorageList, ToolNameStorageRead, ToolNameStorageSearch, ToolNameWebFetch,
+		ToolNameWebSearch}
+	if !slices.Equal(codeMode, want) {
+		t.Fatalf("code-mode tools = %v, want %v", codeMode, want)
 	}
 }
