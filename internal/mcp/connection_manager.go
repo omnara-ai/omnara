@@ -34,9 +34,6 @@ type Manager struct {
 	Client               Client
 	Backoff              func(attempt int) time.Duration
 	SigV4CredentialCache *sigv4.CredentialCache
-	// BindConfig refuses a connection row reconciled for another server config, so this config's
-	// credential is never sent to a different endpoint.
-	BindConfig bool
 
 	OAuthHTTPClient *http.Client
 
@@ -213,6 +210,11 @@ func (m Manager) markConnectionFailed(
 	conn executionstore.MCPConnectionRecord,
 	cause error,
 ) (ConnectionResult, error) {
+	if errors.Is(cause, ErrConnectionConfigChanged) {
+		// The row was reconciled for a newer config, so only this caller's config is stale. The row
+		// is left for a caller that has the newer config.
+		return ConnectionResult{}, cause
+	}
 	ctx, cancel := failureRecordContext(ctx)
 	defer cancel()
 	failed, markErr := m.Execution.MarkMCPConnectionFailed(
@@ -378,15 +380,15 @@ func (m Manager) Connection(
 			server.ServerKey,
 		)
 	}
-	if m.BindConfig {
-		hash, err := executionstore.MCPServerConfigHash(server)
-		if err != nil {
-			return Conn{}, executionstore.MCPServerCatalogIdentity{}, err
-		}
-		if conn.ConfigHash != hash {
-			return Conn{}, executionstore.MCPServerCatalogIdentity{}, fmt.Errorf(
-				"%w: mcp server %q", ErrConnectionConfigChanged, conn.ServerKey)
-		}
+	// A row reconciled for another config of the server is refused, so this config's credential is
+	// never sent to that config's endpoint or session.
+	hash, err := executionstore.MCPServerConfigHash(server)
+	if err != nil {
+		return Conn{}, executionstore.MCPServerCatalogIdentity{}, err
+	}
+	if conn.ConfigHash != hash {
+		return Conn{}, executionstore.MCPServerCatalogIdentity{}, fmt.Errorf(
+			"%w: mcp server %q", ErrConnectionConfigChanged, conn.ServerKey)
 	}
 	return m.connection(ctx, orgID, projectID, conn.ServerKey, conn.EndpointURL, server.Auth, sessionID, protocolVersion)
 }

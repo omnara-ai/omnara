@@ -178,7 +178,7 @@ func TestManagerConnectionRefusesRowOfAnotherConfig(t *testing.T) {
 	rowB := executionstore.MCPConnectionRecord{ServerKey: "docs", EndpointURL: configB.URL, ConfigHash: hashB}
 
 	// Secrets is nil, so reading a credential would panic: the refusal has to come first.
-	_, _, err = Manager{BindConfig: true}.Connection(
+	_, _, err = Manager{}.Connection(
 		context.Background(), uuid.New(), uuid.New(), rowB, configA, "", "")
 	if !errors.Is(err, ErrConnectionConfigChanged) {
 		t.Fatalf("connection for another config = %v, want ErrConnectionConfigChanged", err)
@@ -190,7 +190,7 @@ func TestManagerConnectionRefusesRowOfAnotherConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	rowB.ConfigHash = hash
-	conn, _, err := Manager{BindConfig: true}.Connection(
+	conn, _, err := Manager{}.Connection(
 		context.Background(), uuid.New(), uuid.New(), rowB, unauthenticated, "", "")
 	if err != nil || conn.EndpointURL != configB.URL {
 		t.Fatalf("connection for its own config = %+v, %v", conn, err)

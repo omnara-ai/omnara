@@ -230,7 +230,8 @@ func TestMCPToolResultContentPutsStructuredContentFirstForProgramCalls(t *testin
 	}
 }
 
-func TestProgramMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
+// Model and program calls alike refuse a connection reconciled for another config of the server.
+func TestMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
 	server := func(url string) agentconfig.RuntimeMCPServer {
 		return agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: url,
 			Auth: &agentconfig.RuntimeMCPAuth{Type: "bearer", SecretID: uuid.New()}}
@@ -251,13 +252,13 @@ func TestProgramMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
 	if resolved.URL != current.URL || resolved.Auth.SecretID != current.Auth.SecretID {
 		t.Fatalf("resolved server = %+v, want the current config's", resolved)
 	}
-	if err := mcpConnectionServes(turn, connectionFor(current), resolved); err != nil {
+	if err := mcpConnectionServes(connectionFor(current), resolved); err != nil {
 		t.Fatalf("matching connection rejected: %v", err)
 	}
-	if err := mcpConnectionServes(turn, connectionFor(historical), resolved); err == nil {
+	if err := mcpConnectionServes(connectionFor(historical), resolved); err == nil {
 		t.Fatal("current credentials paired with a connection initialized for another config")
 	}
-	if err := mcpConnectionServes(turn, connectionFor(current), historical); err == nil {
+	if err := mcpConnectionServes(connectionFor(current), historical); err == nil {
 		t.Fatal("historical credentials paired with the current connection")
 	}
 }

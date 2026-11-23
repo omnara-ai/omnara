@@ -60,7 +60,7 @@ func (e Executor) dispatchMCPTool(
 	if err != nil {
 		return toolResultContent{}, err
 	}
-	if err := mcpConnectionServes(turn, conn, server); err != nil {
+	if err := mcpConnectionServes(conn, server); err != nil {
 		return toolResultContent{}, err
 	}
 	manager := mcp.Manager{
@@ -70,9 +70,6 @@ func (e Executor) dispatchMCPTool(
 		Backoff:              e.MCPInitializationBackoff,
 		SigV4CredentialCache: e.SigV4CredentialCache,
 		OAuthHTTPClient:      e.MCPAuthHTTPClient,
-		// The agent's config can change while a command's call is outstanding; this covers the rows
-		// the manager reloads to recover.
-		BindConfig: turn.contract != nil,
 	}
 	result, err := manager.CallTool(ctx, mcp.ToolCallInput{
 		OrgID:     turn.OrgID,
@@ -131,12 +128,10 @@ func (e Executor) runtimeMCPServerForTool(
 	)
 }
 
-func mcpConnectionServes(
-	turn Turn, conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer,
-) error {
-	if turn.contract == nil {
-		return nil
-	}
+// mcpConnectionServes refuses a connection reconciled for another config of the server, which the
+// agent's config can change to while a call is outstanding: its session and endpoint must not be
+// paired with this config's credential. The manager checks the rows it reloads to recover the same way.
+func mcpConnectionServes(conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer) error {
 	hash, err := executionstore.MCPServerConfigHash(server)
 	if err != nil {
 		return err

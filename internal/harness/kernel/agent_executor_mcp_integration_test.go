@@ -1231,7 +1231,11 @@ mcp:
 			t.Fatal(err)
 		}
 	}
-	server := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://legacy.example.com/mcp", DefaultEnabled: true}
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, first.AgentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := launchedMCPServer(t, ctx, fixture, agent.CurrentConfigID)
 	manager := mcp.Manager{
 		Execution: fixture.Store.Execution(),
 		Secrets:   fixture.Store.Secrets(),
@@ -1336,7 +1340,7 @@ mcp:
 			return time.Now().Add(clockSkew)
 		},
 	}
-	server := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://cutover.example.com/mcp", DefaultEnabled: true}
+	server := launchedMCPServer(t, ctx, fixture, profile.CurrentConfigID)
 	expireTools := func() { clockSkew = mcp.DefaultCatalogMinFreshness + time.Minute }
 	restoreClock := func() { clockSkew = 0 }
 	load := func(t *testing.T) executionstore.MCPConnectionRecord {
@@ -1562,9 +1566,35 @@ mcp:
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
+		// The connection is for a config whose secret no longer exists.
 		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: uuid.New()}
+		hash, err := executionstore.MCPServerConfigHash(server)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.Pool.Exec(ctx, `UPDATE agent_mcp_connections SET config_hash = $2 WHERE id = $1`,
+			load(t).ID, hash); err != nil {
+			t.Fatal(err)
+		}
 		ensureFailed(t, load(t), "read mcp auth secret")
 	})
+}
+
+// launchedMCPServer is the docs server as a config declares it: a connection serves only the config
+// it was reconciled for.
+func launchedMCPServer(
+	t *testing.T, ctx context.Context, fixture kernelFixture, configID uuid.UUID,
+) agentconfig.RuntimeMCPServer {
+	t.Helper()
+	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, configID)
+	if err != nil || !found {
+		t.Fatalf("load config: found=%t err=%v", found, err)
+	}
+	contract, err := agentconfig.RuntimeContractFromCompiled(config.CompiledDefinition, config.EffectiveDefinitionHash)
+	if err != nil || len(contract.MCPServers) != 1 {
+		t.Fatalf("runtime contract: %+v %v", contract.MCPServers, err)
+	}
+	return contract.MCPServers[0]
 }
 
 func requireKernelToolNames(t *testing.T, specs []modelcontext.ToolSpec, want ...string) {
