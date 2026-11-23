@@ -18,6 +18,7 @@ import {
   requiredEnvironmentVariable,
 } from './fixtures'
 import {
+  createProfile,
   replaceConfigEditor,
   selectConfiguredModel,
   signIn,
@@ -45,24 +46,6 @@ const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONF
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 const ungrantedModelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_UNGRANTED_MODEL')
 const createAgentPath = `/projects/${projectID}/agents/new`
-
-async function createProfile(page: Page, name: string, instruction: string) {
-  await signIn(page, adminEmail, createAgentPath)
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
-  await page.getByLabel('Instruction').fill(instruction)
-  await selectConfiguredModel(page)
-  await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
-  const created = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname.endsWith('/agent-profiles'),
-  )
-  await page.getByRole('button', { name: 'Create profile' }).click()
-  await expect(page).toHaveURL(
-    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
-  )
-  return schemas.zAgentProfile.parse(await (await created).json())
-}
 
 function uniqueName(base: string) {
   const retry = test.info().retry

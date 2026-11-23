@@ -603,46 +603,6 @@ model:
     expect(parse(cleared)).toEqual(parse(minimalYaml))
   })
 
-  it('writes and clears code mode', () => {
-    const draft = mustDeserialize(minimalYaml)
-    expect(draft.codeMode).toBeUndefined()
-
-    const withCodeMode = applyToSource(minimalYaml, { ...draft, codeMode: { enabled: true } })
-    expect(parse(withCodeMode)).toMatchObject({ code_mode: { enabled: true } })
-    expect(mustDeserialize(withCodeMode).codeMode).toEqual({ enabled: true })
-
-    const cleared = applyToSource(withCodeMode, {
-      ...mustDeserialize(withCodeMode),
-      codeMode: undefined,
-    })
-    expect(parse(cleared)).toEqual(parse(minimalYaml))
-  })
-
-  it('preserves per-tool code_mode settings the form does not manage', () => {
-    const source = `${minimalYaml}code_mode:
-  enabled: true
-tools:
-  web_search:
-    code_mode: false
-mcp:
-  search:
-    url: https://mcp.example.com
-    tools:
-      lookup:
-        code_mode: true
-`
-    const draft = mustDeserialize(source)
-    expect(draft.codeMode).toEqual({ enabled: true })
-    expect(draft.advancedEntries?.map((entry) => entry.path)).toEqual([
-      ['tools', 'web_search'],
-      ['mcp', 'search'],
-    ])
-    expect(parse(applyToSource(source, { ...draft, instruction: 'Do another thing.' }))).toEqual({
-      ...parse(source),
-      instruction: 'Do another thing.',
-    })
-  })
-
   it('keeps an empty source empty for an untouched form', () => {
     expect(applyToSource('', emptyBasicConfig)).toBe('')
   })

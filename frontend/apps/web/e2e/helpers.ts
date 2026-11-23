@@ -1,3 +1,4 @@
+import { schemas } from '@omnara/sdk'
 import { type Cookie, expect, type Page } from '@playwright/test'
 
 import { requiredEnvironmentVariable } from './fixtures'
@@ -7,6 +8,8 @@ export { installFailureTracking, requiredEnvironmentVariable } from './fixtures'
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
+const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
+const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 
 const sessionCookies = new Map<string, Cookie[]>()
 
@@ -69,4 +72,22 @@ export async function selectConfiguredModel(page: Page) {
     .filter({ hasText: modelName })
     .filter({ hasText: providerConfig })
     .click()
+}
+
+export async function createProfile(page: Page, name: string, instruction: string) {
+  await signIn(page, adminEmail, `/projects/${projectID}/agents/new`)
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
+  await page.getByLabel('Instruction').fill(instruction)
+  await selectConfiguredModel(page)
+  await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/agent-profiles'),
+  )
+  await page.getByRole('button', { name: 'Create profile' }).click()
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
+  )
+  return schemas.zAgentProfile.parse(await (await created).json())
 }
