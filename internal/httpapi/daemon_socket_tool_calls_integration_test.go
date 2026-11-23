@@ -64,15 +64,23 @@ tools:
 `
 }
 
-func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture {
+// programToolFixtureOption sets a server option that needs the fixture's store.
+type programToolFixtureOption func(*storage.Store) Option
+
+func newDaemonProgramToolCallFixture(t *testing.T, opts ...programToolFixtureOption) *daemonProgramToolCallFixture {
 	t.Helper()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(integrationKeyWrapper()))
-	server := mustNewServer(t, store,
+	serverOpts := []Option{
 		WithDaemonNotifications(newDaemonSocketRouteTestBus(), newDaemonSocketRouteTestPresence(),
 			daemonSocketRouteReplicaID),
-		WithProgramToolExecutor(tools.Executor{Store: store}))
+		WithProgramToolExecutor(tools.Executor{Store: store}),
+	}
+	for _, opt := range opts {
+		serverOpts = append(serverOpts, opt(store))
+	}
+	server := mustNewServer(t, store, serverOpts...)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "program-tools")
 	base := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(), "program-tools", "run_command")

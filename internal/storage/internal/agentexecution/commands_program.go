@@ -871,6 +871,32 @@ func (c *AgentCell) ListProgramToolReapable(
 	return result, nil
 }
 
+type RunnableProgramTool struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ProcessID uuid.UUID
+}
+
+// ListProgramToolRunnable lists the oldest named calls a server can claim and run, whether or not
+// the command that made them still waits for them.
+func (c *AgentCell) ListProgramToolRunnable(ctx context.Context, limit int32) ([]RunnableProgramTool, error) {
+	var rows []executiondb.ListProgramToolRunnableRow
+	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
+		rows, err = executiondb.New().ListProgramToolRunnable(ctx, tx, executiondb.ListProgramToolRunnableParams{
+			NamedLifetimeMicroseconds: programToolNamedLifetimeMicroseconds(), LimitCount: limit})
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	result := make([]RunnableProgramTool, len(rows))
+	for i, row := range rows {
+		result[i] = RunnableProgramTool{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID,
+			ProcessID: row.ProcessID}
+	}
+	return result, nil
+}
+
 func (c *AgentCell) short(ctx context.Context, run func(pgx.Tx) error) error {
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

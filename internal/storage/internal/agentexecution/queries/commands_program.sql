@@ -86,3 +86,17 @@ WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
  AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)
 ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
 
+
+-- name: ListProgramToolRunnable :many
+-- Named calls a server can pick up without the command that made them: waiting to be authorized,
+-- with no server holding a claim, or approved and waiting to run. A call whose command has ended
+-- counts only within its lifetime, by the named_expired rule of ReadProgramTool.
+SELECT c.id,c.agent_id,a.project_id,p.id AS process_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+WHERE c.caller='program' AND c.program_named
+ AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type<>'custom'))
+ AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp())
+ AND a.state='active'
+ AND ((p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
+  OR NOT (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'))
+ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);

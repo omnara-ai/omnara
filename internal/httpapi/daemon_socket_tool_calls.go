@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
@@ -357,11 +355,10 @@ func (s *daemonSocket) serveToolCall(
 	// exits, so runs waiting their turn are bounded by the calls being served.
 	abandoned := make(chan struct{})
 	defer close(abandoned)
-	// stopRun stops a run this goroutine started once its call has been canceled. A run on another
-	// server stops when it next renews its claim.
-	stopRun := make(chan struct{})
-	var stopOnce sync.Once
 	canceled := call.canceled
+	// run is this server's run of the call, which this goroutine stops once the call has been
+	// canceled. A run on another server stops when it next renews its claim.
+	var run *programToolRun
 	var running <-chan struct{}
 	claim, awaitingApproval, awaitingResult, canceling := true, false, false, false
 	for {
@@ -401,7 +398,9 @@ func (s *daemonSocket) serveToolCall(
 				}
 			}
 			if over {
-				stopOnce.Do(func() { close(stopRun) })
+				if run != nil {
+					run.stop()
+				}
 				s.reportToolCallCanceled(ctx, daemonprotocol.ToolCallCancel{
 					ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID})
 				return
@@ -429,7 +428,8 @@ func (s *daemonSocket) serveToolCall(
 		case executionstore.ToolCallStateAwaitingAuthorization:
 			if claim && running == nil && !canceling {
 				//nolint:contextcheck // the run outlives this socket's context
-				running = server.runProgramToolCall(ref, abandoned, stopRun)
+				run = server.runProgramToolCall(ref, abandoned)
+				running = run.done
 			}
 		case executionstore.ToolCallStateWaiting, executionstore.ToolCallStateRunning:
 			// A call another run started is never run again: if that run stops before it completes,
@@ -470,7 +470,7 @@ func (s *daemonSocket) serveToolCall(
 				if nextRef.ToolCallID != ref.ToolCallID {
 					ref = nextRef
 					watching.Store(ref.ToolCallID)
-					running, claim = nil, true
+					run, running, claim = nil, nil, true
 				}
 			}
 		case <-timer.C:
@@ -590,142 +590,6 @@ func (s *Server) offerProgramToolCall(
 	}
 	return executionstore.ProgramToolCallRef{ProjectID: program.ProjectID, AgentID: program.AgentID,
 		ProcessID: record.ProcessID, ToolCallID: record.ID}, nil, nil
-}
-
-// abandoned stops a run still waiting for capacity. stop ends a canceled run at any point.
-func (s *Server) runProgramToolCall(
-	ref executionstore.ProgramToolCallRef, abandoned, stop <-chan struct{},
-) <-chan struct{} {
-	done := make(chan struct{})
-	if !s.programToolRuns.start() {
-		close(done)
-		return done
-	}
-	go func() {
-		defer close(done)
-		defer s.programToolRuns.done()
-		log := s.log.With("agent_id", ref.AgentID, "tool_call_id", ref.ToolCallID)
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				log.Error("program tool call panicked", "panic", recovered)
-			}
-		}()
-		ctx, cancel := context.WithCancel(s.daemonHub.ctx)
-		defer cancel()
-		go func() {
-			select {
-			case <-stop:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-		if !s.programToolRuns.acquire(ctx, abandoned) {
-			return
-		}
-		defer s.programToolRuns.release()
-		ref.ClaimID = uuid.New()
-		claim, found, err := s.store.Execution().ClaimProgramToolCall(ctx, ref, programToolCallLease)
-		if err != nil || !found {
-			if err != nil && ctx.Err() == nil {
-				log.Error("claim program tool call", "error", err)
-			}
-			return
-		}
-		renewed := make(chan struct{})
-		go func() {
-			defer close(renewed)
-			ticker := time.NewTicker(programToolCallLease / 3)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-				attemptCtx, cancelAttempt := context.WithTimeout(ctx, programToolCallLease/3)
-				err := s.store.Execution().RenewProgramToolCallClaim(attemptCtx, ref, programToolCallLease)
-				cancelAttempt()
-				switch {
-				case err == nil, ctx.Err() != nil:
-				case programToolClaimGone(err):
-					cancel()
-					return
-				default:
-					log.Warn("renew program tool call claim", "error", err)
-				}
-			}
-		}()
-		scope := tools.NewAsyncExecutionScope(nil)
-		err = s.programToolExecutor.RunProgramToolCall(tools.WithAsyncExecutionScope(ctx, scope), claim,
-			programToolCallLease)
-		scope.Seal()
-		<-scope.Done()
-		for _, err := range []error{err, scope.Err()} {
-			if err != nil && !programToolClaimGone(err) && ctx.Err() == nil {
-				log.Error("program tool call failed", "tool", claim.Name, "error", err)
-			}
-		}
-		cancel()
-		<-renewed
-	}()
-	return done
-}
-
-const programToolRunStopGrace = 10 * time.Second
-
-type programToolRuns struct {
-	mu      sync.Mutex
-	closing bool
-	running sync.WaitGroup
-	// slots is nil when the server runs calls without a shared bound.
-	slots chan struct{}
-}
-
-func (r *programToolRuns) acquire(ctx context.Context, abandoned <-chan struct{}) bool {
-	if r.slots == nil {
-		return true
-	}
-	select {
-	case r.slots <- struct{}{}:
-		return true
-	case <-abandoned:
-		return false
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func (r *programToolRuns) release() {
-	if r.slots != nil {
-		<-r.slots
-	}
-}
-
-func (r *programToolRuns) start() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closing {
-		return false
-	}
-	r.running.Add(1)
-	return true
-}
-
-func (r *programToolRuns) done() { r.running.Done() }
-
-func (r *programToolRuns) stop(grace time.Duration) {
-	r.mu.Lock()
-	r.closing = true
-	r.mu.Unlock()
-	idle := make(chan struct{})
-	go func() {
-		r.running.Wait()
-		close(idle)
-	}()
-	select {
-	case <-idle:
-	case <-time.After(grace):
-	}
 }
 
 func programToolClaimGone(err error) bool {

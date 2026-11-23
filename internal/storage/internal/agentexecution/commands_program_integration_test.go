@@ -1022,3 +1022,83 @@ func TestProgramToolRenewRequiresActiveAgent(t *testing.T) {
 	require.ErrorIs(t, cell.RenewProgramTool(t.Context(), f.agent, ref, time.Minute),
 		storeerr.ErrProgramToolCallClaimLost)
 }
+
+// A server runs named calls from what storage records: those waiting to be authorized with no live
+// claim, and approved ones waiting to run. Calls a server holds, custom calls waiting for their
+// runner, unnamed calls, which end with their command, and named calls past their lifetime are
+// left alone.
+func TestProgramToolRunnableListsNamedCallsNoServerHolds(t *testing.T) {
+	f := newProgramFixture(t)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	create := func(key, toolType string, named bool) uuid.UUID {
+		t.Helper()
+		var tool agentexecution.ProgramTool
+		f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+			var err error
+			tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+				ProcessID: f.process, Key: programKey(key), Named: named, Name: "storage_read", Type: toolType,
+				Input: json.RawMessage(`{"path":"a"}`)})
+			require.NoError(t, err)
+		})
+		return tool.ID
+	}
+	runnable := func() []uuid.UUID {
+		t.Helper()
+		rows, err := cell.ListProgramToolRunnable(t.Context(), 1000)
+		require.NoError(t, err)
+		var ids []uuid.UUID
+		for _, row := range rows {
+			if row.AgentID == f.agent {
+				require.Equal(t, f.process, row.ProcessID)
+				ids = append(ids, row.ID)
+			}
+		}
+		return ids
+	}
+	authorize := func(id uuid.UUID) agentexecution.ProgramToolRef {
+		t.Helper()
+		ref := agentexecution.ProgramToolRef{ID: id, ProcessID: f.process, ClaimID: uuid.New()}
+		_, found := f.claim(t, id, ref.ClaimID)
+		require.True(t, found)
+		return ref
+	}
+
+	pending := create("pending", "built_in", true)
+	create("unnamed", "built_in", false)
+	claimed := create("claimed", "built_in", true)
+	authorize(claimed)
+	custom := create("custom", "custom", true)
+	customRef := authorize(custom)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), customRef, time.Minute)
+		require.NoError(t, err)
+	})
+	approved := create("approved", "built_in", true)
+	approveRef := authorize(approved)
+	var interaction agentexecution.Interaction
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		var err error
+		interaction, err = h.OpenProgramPermission(t.Context(), approveRef, programPermission(t), nil)
+		require.NoError(t, err)
+	})
+	require.Equal(t, []uuid.UUID{pending}, runnable())
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.ResolveInteraction(t.Context(), agentexecution.ResolveInteractionInput{ID: interaction.ID,
+			Resolution: interactionform.Resolution{Answers: []interactionform.Answer{
+				{OptionIndices: []int{toolpermission.AllowOptionIndex}}}}})
+		require.NoError(t, err)
+	})
+	require.Equal(t, []uuid.UUID{pending, approved}, runnable(), "an approved call waits for a server")
+	_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls SET program_claim_expires_at=statement_timestamp()
+ WHERE id=$1`, claimed)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{pending, claimed, approved}, runnable(),
+		"a call whose authorizer stopped can be authorized again")
+
+	_, err = f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
+ exit_code=0 WHERE id=$1`, f.process)
+	require.NoError(t, err)
+	require.Len(t, runnable(), 3, "named calls outlive their command")
+	defer agentexecution.SetProgramToolNamedLifetime(0)()
+	require.Empty(t, runnable(), "a named call past its lifetime is left for maintenance to end")
+}

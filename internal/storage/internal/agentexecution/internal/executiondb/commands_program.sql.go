@@ -158,6 +158,58 @@ func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg List
 	return items, nil
 }
 
+const listProgramToolRunnable = `-- name: ListProgramToolRunnable :many
+SELECT c.id,c.agent_id,a.project_id,p.id AS process_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+WHERE c.caller='program' AND c.program_named
+ AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type<>'custom'))
+ AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp())
+ AND a.state='active'
+ AND ((p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
+  OR NOT (c.program_named AND c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond'))
+ORDER BY c.created_at,c.id LIMIT $2
+`
+
+type ListProgramToolRunnableParams struct {
+	NamedLifetimeMicroseconds int64
+	LimitCount                int32
+}
+
+type ListProgramToolRunnableRow struct {
+	ID        uuid.UUID
+	AgentID   uuid.UUID
+	ProjectID uuid.UUID
+	ProcessID uuid.UUID
+}
+
+// Named calls a server can pick up without the command that made them: waiting to be authorized,
+// with no server holding a claim, or approved and waiting to run. A call whose command has ended
+// counts only within its lifetime, by the named_expired rule of ReadProgramTool.
+func (q *Queries) ListProgramToolRunnable(ctx context.Context, db DBTX, arg ListProgramToolRunnableParams) ([]ListProgramToolRunnableRow, error) {
+	rows, err := db.Query(ctx, listProgramToolRunnable, arg.NamedLifetimeMicroseconds, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProgramToolRunnableRow{}
+	for rows.Next() {
+		var i ListProgramToolRunnableRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ProcessID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProgramToolsAwaitingResult = `-- name: ListProgramToolsAwaitingResult :many
 SELECT id FROM tool_calls WHERE agent_id=$1 AND caller='program' AND type='custom'
  AND state='ready' ORDER BY id

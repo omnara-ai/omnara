@@ -339,6 +339,24 @@ func getProgramToolCallTx(ctx context.Context, tx dbsqlc.DBTX, ref ProgramToolCa
 	return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: ref.ProcessID}, nil
 }
 
+// ListRunnableProgramToolCalls lists the oldest named calls waiting for a server to authorize or run
+// them. A server claims each before running it, so servers listing the same calls run each once.
+func (s *Store) ListRunnableProgramToolCalls(ctx context.Context, limit int) ([]ProgramToolCallRef, error) {
+	if limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	rows, err := s.cell.ListProgramToolRunnable(ctx, int32(min(limit, 1000)))
+	if err != nil {
+		return nil, fmt.Errorf("list runnable program tool calls: %w", err)
+	}
+	refs := make([]ProgramToolCallRef, len(rows))
+	for i, row := range rows {
+		refs[i] = ProgramToolCallRef{ProjectID: row.ProjectID, AgentID: row.AgentID, ProcessID: row.ProcessID,
+			ToolCallID: row.ID}
+	}
+	return refs, nil
+}
+
 const programToolReapPages = 10
 
 func (s *Store) ReapProgramToolCalls(ctx context.Context, batch int) (int, error) {

@@ -213,7 +213,7 @@ func (s *Server) resolveSlackInteractionAction(
 		return nil, err
 	}
 	text := integrationruntime.InteractionResolvedText(resolved)
-	s.dismissInteractionAsync(r.Context(), resolved)
+	s.interactionResolved(r.Context(), resolved)
 	return map[string]any{"ok": "resolved", "text": text}, nil
 }
 

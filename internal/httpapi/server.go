@@ -63,6 +63,8 @@ type Server struct {
 	daemonHub                           *daemonSocketHub
 	programToolExecutor                 ProgramToolExecutor
 	programToolRuns                     programToolRuns
+	programToolDriver                   *programToolDriver
+	programToolRecoveryInterval         time.Duration
 	recorder                            *metrics.HTTPRecorder
 	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
@@ -524,6 +526,9 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 			return nil, fmt.Errorf("create daemon socket hub: %w", err)
 		}
 	}
+	if server.daemonHub != nil && server.programToolExecutor != nil {
+		server.startProgramToolDriver()
+	}
 	server.mcpAuth = mcp.NewAuthOptions(server.agentConfigOptions.AllowInsecureLocalMCPHTTP, server.endpointAllowlist)
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpAuth.EndpointHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
@@ -557,6 +562,7 @@ func (s *Server) Close() {
 		if s.agentEventStreamReconciler != nil {
 			s.agentEventStreamReconciler.close()
 		}
+		s.programToolDriver.close()
 		if s.daemonHub != nil {
 			s.daemonHub.Close()
 			s.programToolRuns.stop(programToolRunStopGrace)
