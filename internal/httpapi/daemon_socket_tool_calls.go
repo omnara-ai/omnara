@@ -230,15 +230,24 @@ func (s *daemonSocket) runQueuedToolCallCancel(ctx context.Context, cancel *daem
 	}
 }
 
+// cancelStoredToolCall acknowledges a cancel only once storage has ended the call, or shown there is
+// nothing of it to end. A daemon that can no longer report gets no acknowledgment, so the cancel is
+// sent again on a connection that can.
 func (s *daemonSocket) cancelStoredToolCall(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
 	server := s.server
+	processID, decodeErr := publicid.Decode(publicid.KindProcess, cancel.ProcessID)
+	if decodeErr != nil || !daemonprotocol.ValidProgramToolCallKey(cancel.Key) {
+		// It cannot name a call, so there is nothing to end.
+		s.reportToolCallCanceled(ctx, cancel)
+		return
+	}
 	for {
-		err := server.cancelProgramToolCallByKey(ctx, s.orgID, s.machineID, cancel)
+		err := server.store.Execution().CancelDaemonProgramToolCallByKey(ctx, s.authority(), processID, cancel.Key)
 		if err == nil {
 			s.reportToolCallCanceled(ctx, cancel)
 			return
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
 			return
 		}
 		server.log.Error("cancel program tool call", "process_id", cancel.ProcessID, "error", err)
@@ -253,22 +262,6 @@ func (s *daemonSocket) cancelStoredToolCall(ctx context.Context, cancel daemonpr
 		case <-timer.C:
 		}
 	}
-}
-
-func (s *Server) cancelProgramToolCallByKey(
-	ctx context.Context, orgID, machineID uuid.UUID, cancel daemonprotocol.ToolCallCancel,
-) error {
-	processID, decodeErr := publicid.Decode(publicid.KindProcess, cancel.ProcessID)
-	if decodeErr != nil || !daemonprotocol.ValidProgramToolCallKey(cancel.Key) {
-		return nil //nolint:nilerr // an unreadable process ID is acknowledged, not retried
-	}
-	// A process that can no longer make calls has its calls ended by the reaper.
-	program, found, err := s.store.Execution().GetDaemonProgramToolScope(ctx, orgID, machineID, processID)
-	if err != nil || !found {
-		return err
-	}
-	return s.store.Execution().CancelProgramToolCallByKey(
-		ctx, program.ProjectID, program.AgentID, program.ProcessID, cancel.Key)
 }
 
 func (s *daemonSocket) reportToolCallCanceled(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
@@ -395,7 +388,12 @@ func (s *daemonSocket) serveToolCall(
 			// pending until storage records it.
 			over := record.State == executionstore.ToolCallStateCompleted
 			if !over {
-				over, err = server.store.Execution().CancelProgramToolCall(ctx, ref)
+				over, err = server.store.Execution().CancelDaemonProgramToolCall(ctx, s.authority(), ref)
+				if errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
+					// The daemon can no longer report, so its cancel goes unacknowledged. The call is
+					// not this connection's to end, and keeps going.
+					return
+				}
 				if err != nil && ctx.Err() == nil {
 					server.log.Error("cancel program tool call", "tool_call_id", ref.ToolCallID, "error", err)
 				}

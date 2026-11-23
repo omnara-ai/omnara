@@ -97,3 +97,109 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	state, outcome := f.toolCallState(t, testPublicID(t, publicid.KindToolCall, stored.ID))
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
 }
+
+// awaitingApproval leaves a call waiting for approval, offered on a connection that has since gone.
+func (f *daemonProgramToolCallFixture) awaitingApproval(t *testing.T, key string) daemonprotocol.ToolCallReport {
+	t.Helper()
+	offer := programToolOffer(f.process.ProcessID, key, toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	offer.OfferID = key
+	socket := f.socket()
+	socketCtx, disconnect := context.WithCancel(t.Context())
+	require.NoError(t, socket.handleToolCallOffer(socketCtx, daemonprotocol.Message{ToolCallOffer: &offer}))
+	waiting := nextToolCallReport(t, socket)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, waiting.State)
+	disconnect()
+	socket.toolCallsDone.Wait()
+	return waiting
+}
+
+func (f *daemonProgramToolCallFixture) revokeToken(t *testing.T) {
+	t.Helper()
+	_, err := f.pool.Exec(t.Context(), `UPDATE machine_daemon_tokens SET revoked_at = statement_timestamp(),
+ revoke_reason = 'test' WHERE id = $1`, f.process.TokenUUID)
+	require.NoError(t, err)
+}
+
+func requireNoToolCallReport(t *testing.T, socket *daemonSocket) {
+	t.Helper()
+	socket.toolCallsDone.Wait()
+	select {
+	case outbound := <-socket.send:
+		t.Fatalf("unexpected report %+v", outbound.msg.ToolCallReport)
+	default:
+	}
+}
+
+// A socket whose token was revoked cannot cancel calls, whether it is serving the call or the call
+// was offered on an earlier connection. The call keeps going, and the cancel is not acknowledged.
+func TestDaemonSocketToolCallCancelRequiresAnUnrevokedToken(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	stored := f.awaitingApproval(t, "stored")
+
+	serving := f.socket()
+	offer := programToolOffer(f.process.ProcessID, "serving", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/other.md"}`)
+	offer.OfferID = "serving"
+	require.NoError(t, serving.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+	served := nextToolCallReport(t, serving)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, served.State)
+
+	f.revokeToken(t)
+	servingCancel := daemonprotocol.ToolCallCancel{ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID}
+	require.NoError(t, serving.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &servingCancel}))
+	requireNoToolCallReport(t, serving)
+	old := f.socket()
+	storedCancel := daemonprotocol.ToolCallCancel{ProcessID: f.process.ProcessID,
+		Key: programToolOffer(f.process.ProcessID, "stored", "", "").Key, OfferID: "stored"}
+	require.NoError(t, old.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &storedCancel}))
+	requireNoToolCallReport(t, old)
+	for _, call := range []daemonprotocol.ToolCallReport{stored, served} {
+		state, _ := f.toolCallState(t, call.ToolCallID)
+		require.Equal(t, "awaiting_permission", state, "a revoked token must not end a call")
+	}
+}
+
+// A daemon whose lease expired can no longer start calls, but can still clean up the ones it made.
+func TestDaemonSocketToolCallCancelAllowsAnExpiredLease(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	stored := f.awaitingApproval(t, "stored")
+	expireDaemonRuntimeForHTTPTest(t, t.Context(), f.pool, f.process.RuntimeUUID)
+	socket := f.socket()
+	cancel := daemonprotocol.ToolCallCancel{ProcessID: f.process.ProcessID,
+		Key: programToolOffer(f.process.ProcessID, "stored", "", "").Key, OfferID: "stored"}
+	require.NoError(t, socket.handleToolCallCancel(t.Context(), daemonprotocol.Message{ToolCallCancel: &cancel}))
+	require.True(t, nextToolCallReport(t, socket).CancelRecorded)
+	socket.toolCallsDone.Wait()
+	state, outcome := f.toolCallState(t, stored.ToolCallID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+}
+
+// A cancel ends a call that is waiting for approval after code mode was turned off, and only then
+// is acknowledged: the call is still open even though no new one could start.
+func TestDaemonSocketToolCallCancelEndsACallAfterCodeModeIsOff(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	stored := f.awaitingApproval(t, "stored")
+	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
+	f.rejected(t, "new", toolcatalog.ToolNameStorageList, `{}`, daemonprotocol.ErrorCodeToolCallUnavailable)
+
+	socket := f.socket()
+	cancel := daemonprotocol.ToolCallCancel{ProcessID: f.process.ProcessID,
+		Key: programToolOffer(f.process.ProcessID, "stored", "", "").Key, OfferID: "stored"}
+	require.NoError(t, socket.handleToolCallCancel(t.Context(), daemonprotocol.Message{ToolCallCancel: &cancel}))
+	require.True(t, nextToolCallReport(t, socket).CancelRecorded)
+	socket.toolCallsDone.Wait()
+	state, outcome := f.toolCallState(t, stored.ToolCallID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+	var open int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM agent_interactions WHERE agent_id = $1
+ AND state = 'open'`, f.process.AgentUUID).Scan(&open))
+	require.Zero(t, open, "the call's approval is closed with it")
+}
