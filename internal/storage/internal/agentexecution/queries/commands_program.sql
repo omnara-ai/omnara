@@ -12,9 +12,15 @@ ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'compl
 RETURNING id;
 
 -- name: CountOpenProgramTools :one
--- Named calls outlive their command, so every open one counts against each command of the agent.
+-- Named calls, and custom calls waiting for their results, outlive their command, so every open one
+-- counts against each command of the agent.
 SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
- AND (parent_tool_call_id=sqlc.arg(parent_id)::uuid OR program_named) AND state<>'completed';
+ AND (parent_tool_call_id=sqlc.arg(parent_id)::uuid OR program_named OR (type='custom' AND state='ready'))
+ AND state<>'completed';
+
+-- name: ListProgramToolsAwaitingResult :many
+SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND type='custom'
+ AND state='ready' ORDER BY id;
 
 -- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
@@ -57,7 +63,8 @@ RETURNING c.program_claim_expires_at;
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
- OR ((p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
+ OR (NOT (c.type='custom' AND c.state='ready')
+  AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
   OR (c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'
    AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))

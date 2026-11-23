@@ -361,3 +361,34 @@ func TestReadProgramToolCallInputLimitsSize(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("broken stdin") }
+
+func TestProgramToolCallCLIWaitsForACustomToolResult(t *testing.T) {
+	startFakeToolCallDaemon(t, reply(http.StatusOK,
+		`{"tool_call_id":"tc_1","state":"awaiting_approval"}`+"\n"+
+			`{"tool_call_id":"tc_1","state":"awaiting_result"}`+"\n"+
+			`{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",`+
+			`"content":[{"type":"structured_data","value":{"ticket":"T-1"}}]}`+"\n"))
+	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "create_ticket"}, "")
+	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
+	require.Equal(t, `{"ticket":"T-1"}`+"\n", stdout)
+	require.Equal(t, "omnarad: waiting for approval of create_ticket in Omnara...\n"+
+		"omnarad: waiting for the result of create_ticket...\n", stderr)
+}
+
+func TestProgramToolCallCLITimeoutWaitingForACustomToolResultPrintsItsKey(t *testing.T) {
+	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK, `{"tool_call_id":"tc_slow","state":"awaiting_result"}`))
+	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{
+		Tool: "create_ticket", Timeout: 1500 * time.Millisecond,
+	}, "")
+	require.Equal(t, ProgramToolCallExitTransport, code)
+	require.Empty(t, stdout)
+	key := daemon.recorded()[0].Body.Key
+	require.Contains(t, stderr, "tool call tc_slow is still waiting for its result, so run it again with "+
+		"--idempotency-key "+key+" to pick it up")
+
+	code, _, stderr = runToolCallCLI(t, ProgramToolCallOptions{
+		Tool: "create_ticket", IdempotencyKey: "ticket-1", Timeout: 1500 * time.Millisecond,
+	}, "")
+	require.Equal(t, ProgramToolCallExitTransport, code)
+	require.Contains(t, stderr, "run it again with the same --idempotency-key", "a named call keeps its own hint")
+}

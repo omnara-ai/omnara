@@ -94,7 +94,8 @@ func (h *Handle) readyToolUpdate(
 	interaction *notifications.AgentInteractionUpdate,
 ) {
 	if row.Type == "custom" {
-		h.unit.Notifications().AddReadyCustomToolCallUpdate(h.route.AgentID, row.ID, row.Name, row.Input, interaction)
+		h.unit.Notifications().AddReadyCustomToolCallUpdate(h.route.AgentID, row.ID, uuid.Nil, row.Name, row.Input,
+			interaction)
 		return
 	}
 	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "ready", interaction)

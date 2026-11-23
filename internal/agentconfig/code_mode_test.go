@@ -161,6 +161,8 @@ tools:
   web_fetch: {code_mode: %t}
   storage_read: {deferred: true, code_mode: %t}
   run_command: {}
+  create_ticket: {type: custom, description: Create a ticket., input_schema: {type: object}, code_mode: %t}
+  find_ticket: {type: custom, description: Find a ticket., input_schema: {type: object}, deferred: true}
 mcp:
   crm:
     url: https://example.com/mcp
@@ -187,12 +189,14 @@ mcp:
 			// Each explicit setting is the opposite of the default, so an ignored override fails.
 			override := !test.defaultAllowed
 			contract := compileRuntimeContract(t, test.codeMode+
-				fmt.Sprintf(tools, override, override, override, !override, override))
+				fmt.Sprintf(tools, override, override, override, override, !override, override))
 			want := map[string]bool{
-				"web_search":   test.on && test.defaultAllowed,
-				"web_fetch":    test.on && override,
-				"storage_read": test.on && override,
-				"run_command":  false,
+				"web_search":    test.on && test.defaultAllowed,
+				"web_fetch":     test.on && override,
+				"storage_read":  test.on && override,
+				"run_command":   false,
+				"create_ticket": test.on && override,
+				"find_ticket":   test.on && test.defaultAllowed,
 			}
 			for name, callable := range want {
 				tool, ok := runtimeToolByName(contract, name)
@@ -232,12 +236,6 @@ func TestCodeModeSettingRejectedOnToolsThatDoNotSupportIt(t *testing.T) {
 			source: "tools:\n  run_command: {code_mode: false}\n",
 			path:   "/tools/run_command/code_mode",
 		},
-		{
-			name: "custom tool",
-			source: "tools:\n  create_ticket:\n    type: custom\n    code_mode: true\n" +
-				"    description: Create a ticket.\n    input_schema: {type: object}\n",
-			path: "/tools/create_ticket/code_mode",
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Compile(SourceFormatYAML,
@@ -258,6 +256,7 @@ func TestCodeModeToolSettingsRoundTripThroughSource(t *testing.T) {
 code_mode: {enabled: true, default_allowed: false}
 tools:
   web_fetch: {code_mode: true}
+  create_ticket: {type: custom, description: Create a ticket., input_schema: {type: object}, code_mode: true}
 mcp:
   crm:
     url: https://example.com/mcp
@@ -266,11 +265,13 @@ mcp:
       delete: {code_mode: false}
 `)), CompileOptions{})
 	require.NoError(t, err)
+	require.Equal(t, new(true), result.Compiled.Tools["create_ticket"].CodeMode)
 	source, err := SourceFromCompiled(result.Compiled, SourceNames{
 		Model: func(uuid.UUID) (string, string, error) { return "openai-prod", "gpt-test", nil },
 	})
 	require.NoError(t, err)
 	require.Equal(t, new(true), source.Tools["web_fetch"].CodeMode)
+	require.Equal(t, new(true), source.Tools["create_ticket"].CodeMode)
 	require.Equal(t, new(true), source.MCP["crm"].CodeMode)
 	require.Equal(t, new(false), source.MCP["crm"].Tools["delete"].CodeMode)
 	for _, format := range []SourceFormat{SourceFormatYAML, SourceFormatJSON} {

@@ -613,7 +613,7 @@ func TestAddReadyCustomToolCallUpdateCarriesEncodedInputWithinLimit(t *testing.T
 		{"escaped", json.RawMessage(`"` + strings.Repeat("<", MaxToolCallUpdateInputBytes/4) + `"`), nil},
 	} {
 		tx := NewTxNotifications()
-		tx.AddReadyCustomToolCallUpdate(agentID, toolCallID, "lookup_customer", tc.input, nil)
+		tx.AddReadyCustomToolCallUpdate(agentID, toolCallID, uuid.Nil, "lookup_customer", tc.input, nil)
 		want := ToolCallUpdatedCommitted{
 			AgentID: agentID, ToolCallID: toolCallID, State: "ready", Name: "lookup_customer", Input: tc.want,
 		}

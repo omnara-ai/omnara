@@ -5296,7 +5296,9 @@ paths:
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
-        The first accepted result completes the call. A later submission returns 409 with code
+        The first accepted result completes the call. For a call with caller program, the
+        result goes to the `omnarad call` waiting on it, or to the next one run with the same
+        idempotency key, and not to the model. A later submission returns 409 with code
         tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
         tool call, returns 409. If the first response is lost, a safe retry can return
         tool_call_already_completed even when the original submission succeeded. This
@@ -9777,10 +9779,12 @@ components:
       description: >-
         Code mode lets commands started by run_command call the agent's tools
         with `omnarad call <tool> '<json input>'`; results go to the command,
-        not to the model. The tools that support this are MCP tools,
-        storage_read, storage_list, storage_search, web_search, web_fetch and
-        integration read tools. Commands can call each of them unless
+        not to the model. The tools that support this are MCP tools, custom
+        tools, storage_read, storage_list, storage_search, web_search, web_fetch
+        and integration read tools. Commands can call each of them unless
         `default_allowed` or the tool's own `code_mode` setting says otherwise.
+        A call to a custom tool waits for the result its runner submits, even
+        after the command that made it times out, disconnects or exits.
         Code mode is independent of `deferred` and never changes which tools
         the model can call or load. A subagent keeps the setting of the config
         it is built from.
@@ -14502,9 +14506,12 @@ components:
     ToolResult:
       type: object
       additionalProperties: false
-      required: [event_id, agent_id, tool_call_id, outcome, content_blocks, created_at]
+      required: [agent_id, tool_call_id, outcome, content_blocks, created_at]
       properties:
         event_id:
+          description: >-
+            The agent event that records the result. Absent for a call with caller program: its
+            result goes to the command that made it and never becomes an agent event.
           $ref: '#/components/schemas/AgentEventID'
         agent_id:
           $ref: '#/components/schemas/AgentID'

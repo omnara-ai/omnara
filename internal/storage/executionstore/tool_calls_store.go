@@ -45,7 +45,9 @@ type CompleteCustomToolCallInput struct {
 }
 
 type CompleteCustomToolCallResult struct {
-	ToolCall      ToolCallRecord
+	ToolCall ToolCallRecord
+	// Event is zero for a call a command made: its result goes to the command, not to the agent's
+	// events.
 	Event         TypedAgentEventRecord
 	ContentBlocks json.RawMessage
 }
@@ -337,6 +339,20 @@ func completeCustomToolCallTx(
 	parts, err := executionContent(blocks)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
+	}
+	existing, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
+	}
+	if existing.Caller == "program" {
+		if _, err := h.CompleteProgramCustomTool(ctx, input.ID, string(input.Outcome), parts); err != nil {
+			return CompleteCustomToolCallResult{}, err
+		}
+		record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+		if err != nil {
+			return CompleteCustomToolCallResult{}, err
+		}
+		return CompleteCustomToolCallResult{ToolCall: record, ContentBlocks: record.ResultContentParts}, nil
 	}
 	completed, err := h.CompleteCustomTool(ctx, input.ID, string(input.Outcome), parts)
 	if err != nil {

@@ -159,3 +159,57 @@ func TestRenderSchemaTypeScript(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeContractToolSpecsLetCommandsCallCustomTools(t *testing.T) {
+	contract := webToolsContract(t)
+	contract.CodeMode = &agentconfig.CodeModeCompiled{Enabled: true}
+	contract.Tools = append(contract.Tools,
+		agentconfig.RuntimeTool{Name: "create_ticket", Type: toolcatalog.ToolTypeCustom, CodeMode: true,
+			Description: "Create a ticket.", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		agentconfig.RuntimeTool{Name: "close_ticket", Type: toolcatalog.ToolTypeCustom,
+			Description: "Close a ticket.", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	)
+	specs, err := RuntimeContractToolSpecs(
+		context.Background(), &fakeContextStore{}, uuid.UUID{}, uuid.UUID{}, contract, time.Time{},
+	)
+	if err != nil {
+		t.Fatalf("specs: %v", err)
+	}
+	create, ok := ToolSpecByName(specs, "create_ticket")
+	if !ok || !ProgramCallable(create) {
+		t.Fatalf("create_ticket = %+v, want a tool commands can call", create)
+	}
+	if string(create.OutputSchema) != unknownCustomOutputSchema {
+		t.Fatalf("create_ticket output schema = %s, want the custom tool fallback", create.OutputSchema)
+	}
+	if closeTicket, _ := ToolSpecByName(specs, "close_ticket"); ProgramCallable(closeTicket) {
+		t.Fatal("close_ticket is callable without its code_mode setting")
+	}
+	search, err := SearchTools(ProgramCallableTools(specs), "ticket", 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if search.Total != 1 || search.Tools[0].Name != "create_ticket" ||
+		string(search.Tools[0].OutputSchema) != unknownCustomOutputSchema {
+		t.Fatalf("tool_search from commands = %+v, want only create_ticket with its output schema", search)
+	}
+	runCommand, _ := ToolSpecByName(specs, toolcatalog.ToolNameRunCommand)
+	if !strings.Contains(runCommand.Description, programmaticCustomToolCallsDescription) {
+		t.Fatalf("run_command description does not explain custom tool calls: %q", runCommand.Description)
+	}
+	if strings.Contains(runCommand.Description, "create_ticket:") {
+		t.Fatal("run_command description renders a type for a custom tool with no output schema")
+	}
+
+	contract.Tools[len(contract.Tools)-2].CodeMode = false
+	specs, err = RuntimeContractToolSpecs(
+		context.Background(), &fakeContextStore{}, uuid.UUID{}, uuid.UUID{}, contract, time.Time{},
+	)
+	if err != nil {
+		t.Fatalf("specs: %v", err)
+	}
+	runCommand, _ = ToolSpecByName(specs, toolcatalog.ToolNameRunCommand)
+	if strings.Contains(runCommand.Description, programmaticCustomToolCallsDescription) {
+		t.Fatal("run_command description explains custom tool calls when commands can call none")
+	}
+}

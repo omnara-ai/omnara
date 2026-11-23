@@ -507,11 +507,6 @@ func compileCustomTool(
 	if strings.TrimSpace(source.Description) == "" {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name, "description"), "is required")
 	}
-	if source.CodeMode != nil {
-		return ToolCompiled{}, issuef(
-			jsonPointer("tools", name, "code_mode"), "custom tools cannot be called from commands",
-		)
-	}
 	if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
 		return ToolCompiled{}, issuef(
 			jsonPointer("tools", name),
@@ -546,6 +541,7 @@ func compileCustomTool(
 		Type:        toolcatalog.ToolTypeCustom,
 		Permission:  permission,
 		Deferred:    source.Deferred,
+		CodeMode:    source.CodeMode,
 		Description: strings.TrimSpace(source.Description),
 		InputSchema: schema,
 	}, nil

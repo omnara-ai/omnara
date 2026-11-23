@@ -3,7 +3,7 @@
 import * as z from 'zod';
 
 /**
- * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, custom tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. A call to a custom tool waits for the result its runner submits, even after the command that made it times out, disconnects or exits. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
  */
 export const zAgentConfigDefinitionCodeMode = z.object({
     default_allowed: z.boolean().nullish(),
@@ -1845,7 +1845,7 @@ export const zSubmitToolCallResultRequest = z.object({
 });
 
 export const zToolResult = z.object({
-    event_id: zAgentEventId,
+    event_id: zAgentEventId.optional(),
     agent_id: zAgentId,
     tool_call_id: zToolCallId,
     outcome: zToolCallOutcome,

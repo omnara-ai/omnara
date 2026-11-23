@@ -4,7 +4,10 @@ import "encoding/json"
 
 const (
 	ProgramToolCallStateAwaitingApproval = "awaiting_approval"
-	ProgramToolCallStateCompleted        = "completed"
+	// ProgramToolCallStateAwaitingResult is a custom tool call waiting for the result its runner
+	// submits. It stays open when the command stops waiting, so the key picks it up again.
+	ProgramToolCallStateAwaitingResult = "awaiting_result"
+	ProgramToolCallStateCompleted      = "completed"
 
 	ProgramToolCallOutcomeSucceeded = "succeeded"
 	ProgramToolCallOutcomeFailed    = "failed"

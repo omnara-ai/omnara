@@ -2910,7 +2910,7 @@ export const getToolCallOptions = (options: Options<GetToolCallData>): UnusedSki
 /**
  * Submit a result for a ready custom tool call
  *
- * Only ready custom tool calls accept externally supplied results. The first accepted result completes the call. A later submission returns 409 with code tool_call_already_completed; a result for a call that isn't ready, or for a non-custom tool call, returns 409. If the first response is lost, a safe retry can return tool_call_already_completed even when the original submission succeeded. This confirms that the call is terminal, not which submission completed it.
+ * Only ready custom tool calls accept externally supplied results. The first accepted result completes the call. For a call with caller program, the result goes to the `omnarad call` waiting on it, or to the next one run with the same idempotency key, and not to the model. A later submission returns 409 with code tool_call_already_completed; a result for a call that isn't ready, or for a non-custom tool call, returns 409. If the first response is lost, a safe retry can return tool_call_already_completed even when the original submission succeeded. This confirms that the call is terminal, not which submission completed it.
  */
 export const submitToolCallResultMutation = (options?: Partial<Options<SubmitToolCallResultData>>): UseMutationOptions<SubmitToolCallResultResponse2, SubmitToolCallResultError, Options<SubmitToolCallResultData>> => {
     const mutationOptions: UseMutationOptions<SubmitToolCallResultResponse2, SubmitToolCallResultError, Options<SubmitToolCallResultData>> = {

@@ -190,7 +190,7 @@ code_mode:
   enabled: true                 # default: off
 ```
 
-The tools that support code mode are MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. With code mode on, commands can call each of them the agent has, unless you say otherwise:
+The tools that support code mode are MCP tools, [custom tools](/tools/custom#calls-from-commands), `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. With code mode on, commands can call each of them the agent has, unless you say otherwise:
 
 ```yaml
 code_mode:
@@ -208,7 +208,7 @@ mcp:
         code_mode: false        # overrides the server's setting
 ```
 
-`code_mode.default_allowed` is the default for every tool that supports code mode. A tool's own `code_mode` overrides it; for an MCP tool, the tool's setting overrides its server's, which overrides the default. Setting `code_mode` on a tool that doesn't support it, such as `run_command` or a custom tool, is a config error.
+`code_mode.default_allowed` is the default for every tool that supports code mode. A tool's own `code_mode` overrides it; for an MCP tool, the tool's setting overrides its server's, which overrides the default. Setting `code_mode` on a tool that doesn't support it, such as `run_command`, is a config error.
 
 Code mode only decides what commands can call. It is independent of [`deferred`](#deferred-tools) and never changes the model's own tools: the model calls a loaded tool as usual and loads a deferred one with `tool_search`, whether or not commands can call it.
 

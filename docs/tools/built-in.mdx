@@ -193,7 +193,9 @@ Each tool has an `input_schema` and an `output_schema` for the JSON the call pri
 
 Each call from a command is a real tool call. [`GET /tool-calls`](/api-reference/endpoints/agents/list-tool-calls) lists it with `caller: "program"` and a `parent_tool_call_id` naming the `run_command` call; pass `parent_tool_call_id` to list only one command's calls. The agent's chat shows them under their `run_command` call. Each call follows the tool's [permission mode](/tools/permissions). For an `always_ask` tool, a normal permission interaction opens and the command waits, printing `omnarad: waiting for approval of <tool> in Omnara...` to stderr, until someone resolves it. Raise `--timeout` for calls that may wait on a person.
 
-Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools such as `int__engineering__read`, whether or not they are deferred. Other tools can't be called from commands, including command and process tools, `ask_question`, subagent and machine tools, `skill`, custom tools, and tools that write or upload.
+Commands can call MCP tools, [custom tools](/tools/custom#calls-from-commands), `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools such as `int__engineering__read`, whether or not they are deferred. Other tools can't be called from commands, including command and process tools, `ask_question`, subagent and machine tools, `skill`, and tools that write or upload.
+
+A call to a custom tool waits, printing `omnarad: waiting for the result of <tool>...` to stderr, until your system submits its result. It stays pending when the command times out, loses its connection to the daemon, or exits, and it never expires: only its result, [canceling the agent](/api-reference/endpoints/agents/cancel-agent), or archiving the agent ends it. A later command picks it up by running the call again with the same `--idempotency-key`; for a call made without one, `omnarad call` prints the key to use when it stops waiting. Pending custom calls count against each command's 128 calls in flight.
 
 ## Processes
 

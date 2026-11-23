@@ -102,11 +102,16 @@ func RunProgramToolCall(
 	if err != nil {
 		return fail(ProgramToolCallExitUnavailable, "cannot encode tool call request")
 	}
-	result, err := caller.call(ctx, request, func() {
-		_, _ = fmt.Fprintf(stderr, "omnarad: waiting for approval of %s in Omnara...\n", options.Tool)
+	result, err := caller.call(ctx, request, func(state string) {
+		switch state {
+		case daemonprotocol.ProgramToolCallStateAwaitingApproval:
+			_, _ = fmt.Fprintf(stderr, "omnarad: waiting for approval of %s in Omnara...\n", options.Tool)
+		case daemonprotocol.ProgramToolCallStateAwaitingResult:
+			_, _ = fmt.Fprintf(stderr, "omnarad: waiting for the result of %s...\n", options.Tool)
+		}
 	})
 	if err != nil {
-		return reportProgramToolCallError(ctx, options.Tool, resumable, result, err, stderr)
+		return reportProgramToolCallError(ctx, options.Tool, key, resumable, result, err, stderr)
 	}
 	return writeProgramToolCallResult(result, options.Output, stdout, stderr)
 }
@@ -155,15 +160,16 @@ func newProgramToolCaller(endpoint, processID string) *programToolCaller {
 		CheckRedirect: noRedirects}}
 }
 
+// waiting is told each state the call enters before it completes.
 func (c *programToolCaller) call(
-	ctx context.Context, body []byte, awaitingApproval func(),
+	ctx context.Context, body []byte, waiting func(state string),
 ) (daemonprotocol.ProgramToolCallResult, error) {
 	var last daemonprotocol.ProgramToolCallResult
 	backoff := 250 * time.Millisecond
 	for try := 1; ; try++ {
 		err := c.attempt(ctx, body, func(result daemonprotocol.ProgramToolCallResult) {
-			if result.State == daemonprotocol.ProgramToolCallStateAwaitingApproval && last.State != result.State {
-				awaitingApproval()
+			if result.State != daemonprotocol.ProgramToolCallStateCompleted && last.State != result.State {
+				waiting(result.State)
 			}
 			last = result
 		})
@@ -252,7 +258,7 @@ func programToolCallErrorMessage(response *http.Response, body []byte) string {
 
 func reportProgramToolCallError(
 	ctx context.Context,
-	tool string,
+	tool, key string,
 	resumable bool,
 	last daemonprotocol.ProgramToolCallResult,
 	err error,
@@ -268,6 +274,10 @@ func reportProgramToolCallError(
 			return ProgramToolCallExitUnavailable
 		}
 		return ProgramToolCallExitTransport
+	case ctx.Err() != nil && last.State == daemonprotocol.ProgramToolCallStateAwaitingResult && !resumable:
+		// A custom call stays open after its command stops waiting, under the key this run made up.
+		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: stopped waiting; tool call %s is still waiting for its "+
+			"result, so run it again with --idempotency-key %s to pick it up\n", tool, last.ToolCallID, key)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) && resumable:
 		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: timed out; the call is still open, so run it again with "+
 			"the same --idempotency-key to pick it up\n", tool)

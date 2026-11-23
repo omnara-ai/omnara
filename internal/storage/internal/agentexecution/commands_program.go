@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -102,10 +103,19 @@ func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executi
 	return row, nil
 }
 
-// programToolOpen reports whether a call can still make progress. A named call needs only its
-// agent to be active; any other call ends with the command that made it.
+// programToolOpen reports whether a call can still make progress. A named call, or a custom call
+// waiting for its result, needs only its agent to be active; any other call ends with the command
+// that made it.
 func (h *Handle) programToolOpen(process executiondb.LockProgramProcessRow, row executiondb.ReadProgramToolRow) bool {
-	return h.identity.State == "active" && (process.Live || row.ProgramNamed)
+	return h.identity.State == "active" && (process.Live || row.ProgramNamed || programToolAwaitingResult(row))
+}
+
+// programToolAwaitingResult reports whether a custom call has been authorized and waits for the
+// result its runner submits. Like a named call it then outlives the command that made it, but it
+// never expires: a command's timeout, lost connection or exit leaves it pending, and only its
+// result, a cancel of its agent, or its agent ending settles it.
+func programToolAwaitingResult(row executiondb.ReadProgramToolRow) bool {
+	return row.Type == toolcatalog.ToolTypeCustom && row.State == "ready"
 }
 
 func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (executiondb.ReadProgramToolRow, error) {
@@ -152,6 +162,19 @@ func (h *Handle) programToolNotification(
 ) {
 	h.unit.Notifications().AddProgramToolCallUpdate(h.route.AgentID, row.ID,
 		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
+}
+
+// readyProgramToolNotification carries a custom call's name and input, as for a model's call, so
+// its runner can pick the call up from the update alone.
+func (h *Handle) readyProgramToolNotification(
+	row executiondb.ReadProgramToolRow, interaction *notifications.AgentInteractionUpdate,
+) {
+	if row.Type != toolcatalog.ToolTypeCustom {
+		h.programToolNotification(row, "ready", interaction)
+		return
+	}
+	h.unit.Notifications().AddReadyCustomToolCallUpdate(h.route.AgentID, row.ID,
+		storeutil.ValueOrZero(row.ParentToolCallID), row.Name, row.Input, interaction)
 }
 
 func validProgramToolKey(key string) bool {
@@ -231,7 +254,7 @@ func (h *Handle) ResumeProgramTool(ctx context.Context, input CreateProgramToolI
 
 func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, error) {
 	return programCommand(h, func() (ProgramTool, error) {
-		if input.Type != "built_in" && input.Type != "mcp" {
+		if !toolcatalog.Type(input.Type).Valid() {
 			return ProgramTool{}, storeerr.ErrInvalidRequest
 		}
 		callInput, err := programToolInput(input)
@@ -299,7 +322,8 @@ func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, l
 			return false, err
 		}
 		switch {
-		case row.State == "waiting" && storeutil.ValueOrZero(row.ProgramClaimID) == ref.ClaimID:
+		case row.State == "waiting" && storeutil.ValueOrZero(row.ProgramClaimID) == ref.ClaimID,
+			programToolAwaitingResult(row):
 			return false, nil
 		case row.State != "awaiting_authorization":
 			return false, storeerr.ErrStateTransitionConflict
@@ -308,6 +332,11 @@ func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, l
 			return false, err
 		}
 		row.State, row.ProgramClaimID = "ready", nil
+		if row.Type == toolcatalog.ToolTypeCustom {
+			// Nothing here runs a custom tool: the call waits for the result its runner submits.
+			h.readyProgramToolNotification(row, nil)
+			return true, nil
+		}
 		if err = h.transitionProgramTool(ctx, row, "waiting", ref.ClaimID, lease); err != nil {
 			return false, err
 		}
@@ -391,7 +420,7 @@ func (h *Handle) ClaimProgramTool(
 		}
 		next, phase := "waiting", ProgramToolExecute
 		switch {
-		case row.State == "ready":
+		case row.State == "ready" && row.Type != toolcatalog.ToolTypeCustom:
 		case row.State == "waiting" && row.ClaimExpired && row.Type == "built_in":
 		case row.State == "awaiting_authorization" && (row.ProgramClaimID == nil || row.ClaimExpired):
 			next, phase = row.State, ProgramToolAuthorize
@@ -444,7 +473,7 @@ func (h *Handle) ReleaseProgramTool(ctx context.Context, ref ProgramToolRef) err
 		if err = h.transitionProgramTool(ctx, row, "ready", uuid.Nil, 0); err != nil {
 			return struct{}{}, err
 		}
-		h.programToolNotification(row, "ready", nil)
+		h.readyProgramToolNotification(row, nil)
 		return struct{}{}, nil
 	})
 	return err
@@ -473,6 +502,56 @@ func (h *Handle) CompleteProgramTool(
 		}
 		return h.completeProgramTool(ctx, row, outcome, content, nil)
 	})
+}
+
+// CompleteProgramCustomTool records the result a custom tool's runner submits for a call a command
+// made. Whoever is waiting on the call, in that command or a later one with its key, gets it.
+func (h *Handle) CompleteProgramCustomTool(
+	ctx context.Context, id uuid.UUID, outcome string, content []Content,
+) (ProgramTool, error) {
+	return programCommand(h, func() (ProgramTool, error) {
+		row, err := h.programTool(ctx, id, uuid.Nil)
+		if err != nil {
+			return ProgramTool{}, err
+		}
+		if row.Type == toolcatalog.ToolTypeCustom && row.State == "completed" {
+			return ProgramTool{}, storeerr.ErrToolCallCompleted
+		}
+		if !programToolAwaitingResult(row) || (outcome != "succeeded" && outcome != "failed") {
+			return ProgramTool{}, storeerr.ErrStateTransitionConflict
+		}
+		return h.completeProgramTool(ctx, row, outcome, content, nil)
+	})
+}
+
+// cancelProgramToolsAwaitingResult ends the agent's custom calls still waiting for their results
+// when the agent is canceled. Their runners may have acted on them, so their keys keep returning
+// outcome_unknown rather than calling the tool again.
+func (h *Handle) cancelProgramToolsAwaitingResult(ctx context.Context) error {
+	ids, err := executiondb.New().ListProgramToolsAwaitingResult(ctx, h.unit.DB(),
+		executiondb.ListProgramToolsAwaitingResultParams{AgentID: h.route.AgentID})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		row, err := h.programTool(ctx, id, uuid.Nil)
+		if err != nil {
+			return err
+		}
+		if !programToolAwaitingResult(row) {
+			continue
+		}
+		outcome, body, err := programToolStopped(row, "agent_canceled",
+			"The agent was canceled before this call's result was submitted.")
+		if err != nil {
+			return err
+		}
+		if _, err = h.completeProgramTool(ctx, row, outcome,
+			[]Content{{Kind: "structured_data", Data: body}}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handle) completeProgramTool(
@@ -529,11 +608,11 @@ func (h *Handle) completeProgramTool(
 
 // programToolStopped is the result of a call that is ended without finishing. A call that never
 // started, or a built-in read that is safe to repeat, is canceled, so its key can run it again. An
-// external call that had started is failed as outcome_unknown, because it may have taken effect, and
-// its key keeps returning that result.
+// external call that had started, or a custom call handed to its runner, is failed as
+// outcome_unknown, because it may have taken effect, and its key keeps returning that result.
 func programToolStopped(row executiondb.ReadProgramToolRow, code, message string) (string, json.RawMessage, error) {
 	outcome := "canceled"
-	if row.State == "waiting" && row.Type != "built_in" {
+	if row.State == "waiting" && row.Type != "built_in" || programToolAwaitingResult(row) {
 		outcome, code = "failed", "outcome_unknown"
 		message += " The call had started, so it may or may not have taken effect."
 	}
@@ -553,7 +632,7 @@ func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgra
 		code, message = "agent_inactive", "The agent is no longer active."
 	case (process.Live || row.ProgramNamed) && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
 		code, message = "server_lost", "The server running this call stopped before it completed."
-	case process.Live:
+	case process.Live, programToolAwaitingResult(row):
 		return false, nil
 	case row.ProgramNamed:
 		// A named call outlives its command so a rerun can pick it up. It ends only when none did.
@@ -581,6 +660,7 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 }
 
 // CancelProgramTool also ends a call a server is still running: that server loses its claim and stops.
+// A custom call waiting for its result stays pending: only the command stopped waiting for it.
 func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.fencedProgramTool(ctx, ref)
@@ -616,7 +696,7 @@ func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID
 }
 
 func (h *Handle) cancelProgramTool(ctx context.Context, row executiondb.ReadProgramToolRow) error {
-	if row.State == "completed" {
+	if row.State == "completed" || programToolAwaitingResult(row) {
 		return nil
 	}
 	outcome, body, err := programToolStopped(row, "caller_gone", "The command stopped waiting for this call.")
@@ -689,7 +769,7 @@ func (h *Handle) resolveProgramInteraction(
 			if err = h.transitionProgramTool(ctx, call, "ready", uuid.Nil, 0); err != nil {
 				return Interaction{}, err
 			}
-			h.programToolNotification(call, "ready", result.notification())
+			h.readyProgramToolNotification(call, result.notification())
 			return result, nil
 		}
 		body, err := json.Marshal(map[string]string{"reason": decision.Reason})

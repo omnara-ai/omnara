@@ -110,11 +110,15 @@ func runtimeContractToolSpecs(
 				return nil, err
 			}
 		}
+		outputSchema := tool.OutputSchema
+		if tool.Type == toolcatalog.ToolTypeCustom && len(outputSchema) == 0 {
+			outputSchema = json.RawMessage(unknownCustomOutputSchema)
+		}
 		out = append(out, ToolSpec{
 			Name:         tool.Name,
 			Description:  description,
 			InputSchema:  inputSchema,
-			OutputSchema: tool.OutputSchema,
+			OutputSchema: outputSchema,
 			Deferred:     tool.Deferred,
 			Type:         tool.Type,
 			Permission:   tool.Permission,

@@ -59,4 +59,31 @@ mcp:
       instruction: 'Do another thing.',
     })
   })
+
+  it('keeps a custom tool code_mode setting editable without errors', () => {
+    const source = `${minimalYaml}code_mode:
+  enabled: true
+  default_allowed: false
+tools:
+  create_ticket:
+    type: custom
+    description: Create a ticket.
+    input_schema: {type: object}
+    code_mode: true
+`
+    const session = createBasicConfigSession(source, 'yaml')
+    expect(session.diagnostics.filter((issue) => issue.error)).toEqual([])
+    const draft = mustDeserialize(source)
+    expect(draft.advancedEntries).toEqual([
+      expect.objectContaining({ path: ['tools', 'create_ticket'], kind: 'custom' }),
+    ])
+    const edited = applyToSource(source, {
+      ...draft,
+      advancedEntries: draft.advancedEntries?.map((entry) => ({
+        ...entry,
+        source: entry.source.replace('code_mode: true', 'code_mode: false'),
+      })),
+    })
+    expect(parse(edited)).toEqual(parse(source.replace('code_mode: true', 'code_mode: false')))
+  })
 })

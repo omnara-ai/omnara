@@ -12,6 +12,9 @@ import (
 const unknownMCPOutputSchema = `{"description":"The server declares no output schema. Commands get the ` +
 	`tool's structured result when it returns one, otherwise its text as a JSON string."}`
 
+const unknownCustomOutputSchema = `{"description":"Custom tools declare no output schema. Commands get the ` +
+	`structured result the tool's runner submits when it has one, otherwise its text as a JSON string."}`
+
 const programmaticToolCallsRunCommandDescription = "\n\nCommands can call some of this agent's tools with " +
 	"`omnarad call <tool> '<json input>'`; pass `-` as the input to read it from stdin. On success it " +
 	"prints one JSON value to stdout: the tool's structured result, or its text as a JSON string when it has " +
@@ -23,6 +26,10 @@ const programmaticToolCallsRunCommandDescription = "\n\nCommands can call some o
 	"fails with error_code `outcome_unknown` may have taken effect and is not run again. Results go only to the command, not to you, so " +
 	"chain calls with pipes, jq, loops or scripts and print only what you need. In PowerShell and cmd.exe, " +
 	"pass the input on stdin with `-` instead of quoting it."
+
+const programmaticCustomToolCallsDescription = " A call to a custom tool waits for the result its runner " +
+	"submits, which can take a while. If the command stops waiting, the call stays open, and `omnarad call` " +
+	"prints the --idempotency-key that picks it up."
 
 const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeScript types (their inputs are " +
 	"the same as when you call them):\n```ts\n"
@@ -116,6 +123,11 @@ func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
 		types.WriteString(spec.Name + ": " + rendered + ";\n")
 	}
 	description := programmaticToolCallsRunCommandDescription
+	if slices.ContainsFunc(specs, func(spec ToolSpec) bool {
+		return spec.Type == toolcatalog.ToolTypeCustom && spec.CodeMode
+	}) {
+		description += programmaticCustomToolCallsDescription
+	}
 	if types.Len() > 0 {
 		description += programmaticToolCallsTypesHeading + types.String() + "```"
 	}

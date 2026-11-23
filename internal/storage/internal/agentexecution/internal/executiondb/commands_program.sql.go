@@ -15,7 +15,8 @@ import (
 
 const countOpenProgramTools = `-- name: CountOpenProgramTools :one
 SELECT count(*) FROM tool_calls WHERE agent_id=$1 AND caller='program'
- AND (parent_tool_call_id=$2::uuid OR program_named) AND state<>'completed'
+ AND (parent_tool_call_id=$2::uuid OR program_named OR (type='custom' AND state='ready'))
+ AND state<>'completed'
 `
 
 type CountOpenProgramToolsParams struct {
@@ -23,7 +24,8 @@ type CountOpenProgramToolsParams struct {
 	ParentID uuid.UUID
 }
 
-// Named calls outlive their command, so every open one counts against each command of the agent.
+// Named calls, and custom calls waiting for their results, outlive their command, so every open one
+// counts against each command of the agent.
 func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountOpenProgramToolsParams) (int64, error) {
 	row := db.QueryRow(ctx, countOpenProgramTools, arg.AgentID, arg.ParentID)
 	var count int64
@@ -72,7 +74,8 @@ const listProgramToolReapable = `-- name: ListProgramToolReapable :many
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
- OR ((p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
+ OR (NOT (c.type='custom' AND c.state='ready')
+  AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
   OR (c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond'
    AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
@@ -117,6 +120,35 @@ func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg List
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProgramToolsAwaitingResult = `-- name: ListProgramToolsAwaitingResult :many
+SELECT id FROM tool_calls WHERE agent_id=$1 AND caller='program' AND type='custom'
+ AND state='ready' ORDER BY id
+`
+
+type ListProgramToolsAwaitingResultParams struct {
+	AgentID uuid.UUID
+}
+
+func (q *Queries) ListProgramToolsAwaitingResult(ctx context.Context, db DBTX, arg ListProgramToolsAwaitingResultParams) ([]uuid.UUID, error) {
+	rows, err := db.Query(ctx, listProgramToolsAwaitingResult, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -82,7 +82,7 @@ export type AgentConfigToolsDefinition = {
 };
 
 /**
- * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, custom tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. A call to a custom tool waits for the result its runner submits, even after the command that made it times out, disconnects or exits. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
  */
 export type AgentConfigDefinitionCodeMode = {
     /**
@@ -3149,7 +3149,10 @@ export type SubmitToolCallResultRequest = {
 };
 
 export type ToolResult = {
-    event_id: AgentEventId;
+    /**
+     * The agent event that records the result. Absent for a call with caller program: its result goes to the command that made it and never becomes an agent event.
+     */
+    event_id?: AgentEventId;
     agent_id: AgentId;
     tool_call_id: ToolCallId;
     outcome: ToolCallOutcome;

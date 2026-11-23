@@ -353,8 +353,10 @@ func (n *TxNotifications) AddProgramToolCallUpdate(
 	})
 }
 
+// AddReadyCustomToolCallUpdate takes the run_command call whose process made the call as parentID,
+// or uuid.Nil for a call the model made.
 func (n *TxNotifications) AddReadyCustomToolCallUpdate(
-	agentID, toolCallID uuid.UUID,
+	agentID, toolCallID, parentID uuid.UUID,
 	name string,
 	input json.RawMessage,
 	interactionUpdate *AgentInteractionUpdate,
@@ -362,6 +364,7 @@ func (n *TxNotifications) AddReadyCustomToolCallUpdate(
 	n.addToolCallUpdate(ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
+		ParentToolCallID:  parentID,
 		State:             "ready",
 		Name:              name,
 		Input:             ToolCallUpdateInput(input),

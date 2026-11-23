@@ -184,6 +184,23 @@ Handlers must cooperate with cancellation: the owning operation waits for them t
 
 The optional `onObserve` hook reports admission, readiness, handler, submission and recovery timings/outcomes without identifiers, names, inputs or results. Readiness observations cover notification GETs; discovery is measured per page. Use cheap local callbacks; observer failures never change execution. The SDK sends no telemetry. Request-level observations separately report retries and HTTP failures.
 
+## Calls from commands
+
+With [code mode](/agents/configuration#code-mode) on, commands the agent runs can call a custom tool with [`omnarad call`](/tools/built-in#calling-tools-from-commands), unless the tool sets `code_mode: false`:
+
+```yaml
+tools:
+  create_ticket:
+    type: custom
+    description: Create a ticket in the tracker.
+    input_schema: { type: object, properties: { title: { type: string } }, required: [title] }
+    code_mode: true             # overrides code_mode.default_allowed for this tool
+```
+
+Your worker finds and completes these calls the same way. They are listed with `caller: "program"` and a `parent_tool_call_id` naming the `run_command` call, and their result goes to the command instead of the model: the response's `tool_result` has no `event_id`, and the agent's turn does not continue.
+
+A call from a command stays `ready` until you submit its result, even after the command that made it times out, disconnects, or exits; a rerun with the same `--idempotency-key` gets your result. Canceling or archiving the agent ends calls still waiting, with `error_code: "outcome_unknown"` since your system may already have acted on them, and a later submission returns `409` with `tool_call_already_completed`.
+
 ## Submit the result
 
 Post the outcome with content blocks — text, inline media, or structured data:

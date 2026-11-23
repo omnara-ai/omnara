@@ -333,7 +333,7 @@ func (s *daemonSocket) serveToolCall(
 	var stopOnce sync.Once
 	canceled := call.canceled
 	var running <-chan struct{}
-	claim, awaitingApproval, canceling := true, false, false
+	claim, awaitingApproval, awaitingResult, canceling := true, false, false, false
 	var reclaimAfter time.Time
 	for {
 		record, found, err := server.store.Execution().GetProgramToolCall(
@@ -382,7 +382,17 @@ func (s *daemonSocket) serveToolCall(
 				awaitingApproval = true
 				s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
 			}
-		case executionstore.ToolCallStateAwaitingAuthorization, executionstore.ToolCallStateReady:
+		case executionstore.ToolCallStateReady:
+			if record.Type == toolcatalog.ToolTypeCustom {
+				// Nothing here runs a custom tool: its runner submits the result, which completes the call.
+				if !awaitingResult {
+					awaitingResult = true
+					s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
+				}
+				break
+			}
+			fallthrough
+		case executionstore.ToolCallStateAwaitingAuthorization:
 			if claim && running == nil && !canceling {
 				//nolint:contextcheck // the run outlives this socket's context
 				running = server.runProgramToolCall(ref, abandoned, stopRun)
@@ -427,7 +437,7 @@ func (s *daemonSocket) serveToolCall(
 				s.workMu.Lock()
 				call.offerID = next.OfferID
 				s.workMu.Unlock()
-				offer, awaitingApproval = *next, false
+				offer, awaitingApproval, awaitingResult = *next, false, false
 				if nextRef.ToolCallID != ref.ToolCallID {
 					ref = nextRef
 					watching.Store(ref.ToolCallID)
@@ -698,8 +708,11 @@ func programToolCallResult(record executionstore.ToolCallRecord) (daemonprotocol
 		return result, err
 	}
 	result.ToolCallID = id
-	if record.State == executionstore.ToolCallStateAwaitingPermission {
+	switch {
+	case record.State == executionstore.ToolCallStateAwaitingPermission:
 		result.State = daemonprotocol.ProgramToolCallStateAwaitingApproval
+	case record.State == executionstore.ToolCallStateReady && record.Type == toolcatalog.ToolTypeCustom:
+		result.State = daemonprotocol.ProgramToolCallStateAwaitingResult
 	}
 	if record.State != executionstore.ToolCallStateCompleted {
 		return result, nil

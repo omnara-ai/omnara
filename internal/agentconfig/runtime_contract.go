@@ -210,6 +210,7 @@ func runtimeTools(compiled map[string]ToolCompiled, codeMode *CodeModeCompiled) 
 				Deferred:    tool.Deferred,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
+				CodeMode:    codeMode.allows(tool.CodeMode),
 			})
 			continue
 		}
@@ -248,9 +249,6 @@ func validateRuntimeTool(
 		return fmt.Errorf("compiled tool %q has unsupported type", name)
 	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
-		if tool.CodeMode != nil {
-			return fmt.Errorf("compiled custom tool %q cannot set code_mode", name)
-		}
 		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses a reserved integration or MCP tool namespace", name)
 		}
