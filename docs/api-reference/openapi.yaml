@@ -11226,30 +11226,52 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        Prices in USD per million tokens, as exact decimal strings. Cache prices are
-        omitted when not set.
+        Provider-advertised list prices in USD per million tokens, as exact decimal
+        strings. Present only when the provider publishes pricing in its model
+        catalog (OpenRouter). Cache prices are omitted when the provider does not
+        publish them.
       required: [input_usd_per_million, output_usd_per_million]
       properties:
         input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_read_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        cache_write_input_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        output_usd_per_million:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+    ModelPricing:
+      type: object
+      additionalProperties: false
+      description: >-
+        Your own prices in USD per million tokens, as exact decimal strings, named
+        like genai-prices catalog entries. Missing cache prices use the input price.
+      required: [input_mtok, output_mtok]
+      properties:
+        input_mtok:
           description: USD per million input tokens.
           type: string
           maxLength: 31
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
-        cache_read_input_usd_per_million:
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$'
+        cache_read_mtok:
           description: USD per million input tokens read from the prompt cache.
           type: string
           maxLength: 31
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
-        cache_write_input_usd_per_million:
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$'
+        cache_write_mtok:
           description: USD per million input tokens written to the prompt cache.
           type: string
           maxLength: 31
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
-        output_usd_per_million:
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$'
+        output_mtok:
           description: USD per million output tokens.
           type: string
           maxLength: 31
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$'
     ModelProviderConfigList:
       type: object
       additionalProperties: false
@@ -11322,7 +11344,7 @@ components:
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
         pricing:
-          $ref: '#/components/schemas/DiscoveredModelPricing'
+          $ref: '#/components/schemas/ModelPricing'
           description: >-
             Your own prices for this model. Calls on it are priced from these
             instead of the provider-reported cost or list prices. Missing cache
@@ -11387,7 +11409,7 @@ components:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
         pricing:
           anyOf:
-            - $ref: '#/components/schemas/DiscoveredModelPricing'
+            - $ref: '#/components/schemas/ModelPricing'
             - type: 'null'
           description: Your own prices for this model. Omit to keep them, or set to null to remove them.
     ConfiguredModel:
@@ -11449,7 +11471,7 @@ components:
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
         pricing:
-          $ref: '#/components/schemas/DiscoveredModelPricing'
+          $ref: '#/components/schemas/ModelPricing'
           description: Your own prices for this model, when set.
         created_at:
           $ref: '#/components/schemas/Timestamp'

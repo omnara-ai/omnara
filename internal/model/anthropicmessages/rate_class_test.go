@@ -33,22 +33,13 @@ func TestAnthropicResponseRecordsRateClass(t *testing.T) {
 		want  modelenvelope.AnthropicMetadata
 	}{
 		{
-			name:  "standard values are omitted",
-			usage: `{"input_tokens":5,"output_tokens":2,"service_tier":"standard","inference_geo":"global","speed":"standard"}`,
-		},
-		{
-			name: "older models report geo as not available",
-			usage: `{"input_tokens":5,"output_tokens":2,` +
-				`"service_tier":"standard","inference_geo":"not_available","speed":"standard"}`,
-		},
-		{
-			name:  "absent fields mean standard",
-			usage: `{"input_tokens":5,"output_tokens":2}`,
-		},
-		{
-			name:  "premium values are kept",
+			name:  "rate class is recorded as reported",
 			usage: `{"input_tokens":5,"output_tokens":2,"service_tier":"priority","inference_geo":"us","speed":"fast"}`,
 			want:  modelenvelope.AnthropicMetadata{Speed: "fast", InferenceGeo: "us", ServiceTier: "priority"},
+		},
+		{
+			name:  "absent fields stay empty",
+			usage: `{"input_tokens":5,"output_tokens":2}`,
 		},
 		{
 			name: "cache split with writes",

@@ -101,6 +101,11 @@ sql:
             go_type:
               import: "github.com/omnara-ai/omnara/internal/processcmd"
               type: "ExecutionSpec"
+          - column: "configured_model_revisions.pricing"
+            go_type:
+              import: "github.com/omnara-ai/omnara/internal/modelprice"
+              type: "Pricing"
+              pointer: true
           - db_type: "pg_catalog.uuid"
             go_type:
               import: "github.com/google/uuid"

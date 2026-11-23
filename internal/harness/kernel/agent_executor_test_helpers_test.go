@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -99,7 +100,7 @@ type kernelFixture struct {
 type kernelConfiguredModelOptions struct {
 	ContextWindowTokens *int
 	MaxOutputTokens     *int
-	Pricing             *json.RawMessage
+	Pricing             *modelprice.Pricing
 }
 
 func newKernelFixture(t *testing.T, ctx context.Context, opts ...storage.Option) kernelFixture {

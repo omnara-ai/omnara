@@ -1,6 +1,7 @@
 package modelprice
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -37,10 +39,6 @@ var knownBadAliases = map[string]bool{
 	"mistral-large-latest": true,
 }
 
-var pricedServiceTiers = map[string]bool{"flex": true, "priority": true, "fast": true}
-
-var standardServiceTiers = map[string][]string{"groq": {"flex", "on_demand"}}
-
 type Input struct {
 	BaseURL         string
 	APIFormat       modelprotocol.APIFormat
@@ -54,7 +52,7 @@ type Input struct {
 
 type Estimator interface {
 	Estimate(ctx context.Context, input Input) modelenvelope.ProviderReportedCostUSD
-	Prices(input Input, requestOptions json.RawMessage) bool
+	Prices(input Input) bool
 }
 
 type Result struct {
@@ -239,42 +237,10 @@ func (p *Pricer) Estimate(ctx context.Context, input Input) modelenvelope.Provid
 	return result.CostUSD
 }
 
-func (p *Pricer) Prices(input Input, requestOptions json.RawMessage) bool {
-	input.Metadata = requestedRateClass(input.APIFormat, requestOptions)
+func (p *Pricer) Prices(input Input) bool {
 	input.Usage = modelenvelope.Usage{InputTokens: 1_000_000, UncachedInputTokens: 1_000_000, OutputTokens: 1_000_000}
 	input.CreatedAt = time.Now()
 	return estimate(p.current.Load().calculator, input).CostUSD != ""
-}
-
-func requestedRateClass(format modelprotocol.APIFormat, requestOptions json.RawMessage) modelenvelope.ProviderMetadata {
-	var requested struct {
-		Speed              string `json:"speed"`
-		InferenceGeo       string `json:"inference_geo"`
-		ServiceTier        string `json:"service_tier"`
-		PromptCacheOptions struct {
-			TTL string `json:"ttl"`
-		} `json:"prompt_cache_options"`
-	}
-	_ = json.Unmarshal(requestOptions, &requested)
-	if format == modelprotocol.APIFormatAnthropicMessages {
-		var metadata modelenvelope.AnthropicMetadata
-		if requested.Speed != "standard" {
-			metadata.Speed = requested.Speed
-		}
-		if requested.InferenceGeo != "global" {
-			metadata.InferenceGeo = requested.InferenceGeo
-		}
-		return modelenvelope.ProviderMetadata{Anthropic: metadata}
-	}
-	tier := requested.ServiceTier
-	if tier == "auto" {
-		tier = ""
-	}
-	cacheWrite12hTokens := 0
-	if format == modelprotocol.APIFormatOpenAIResponses && requested.PromptCacheOptions.TTL == "12h" {
-		cacheWrite12hTokens = 1
-	}
-	return modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIRateClass(tier, cacheWrite12hTokens)}
 }
 
 func estimate(calculator priceCalculator, input Input) (result Result) {
@@ -291,18 +257,9 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 		return Result{Reason: "no_usage"}
 	}
 	anthropic := input.Metadata.Anthropic
-	if anthropic.Speed != "" || anthropic.InferenceGeo != "" || anthropic.ServiceTier != "" ||
-		input.Metadata.OpenAI.CacheWrite12hInputTokens > 0 {
-		return Result{Reason: "unpriced_rate_class"}
+	request := genai.PriceRequest{
+		Timestamp: input.CreatedAt, PriceContext: priceContext(input.Metadata), Usage: genaiUsage(usage),
 	}
-	tier := input.Metadata.OpenAI.ServiceTier
-
-	request := genai.PriceRequest{Timestamp: input.CreatedAt, Usage: genai.Usage{
-		genai.UsageInputTokens:      float64(usage.InputTokens),
-		genai.UsageCacheReadTokens:  float64(usage.CacheReadTokens),
-		genai.UsageCacheWriteTokens: float64(usage.CacheWriteTokens),
-		genai.UsageOutputTokens:     float64(usage.OutputTokens),
-	}}
 	bedrock := input.APIVariant == modelprotocol.APIVariantBedrock
 	if bedrock {
 		request.ProviderID = "aws"
@@ -326,7 +283,6 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 			continue
 		}
 		request.Model = name
-		request.PriceContext = nil
 		calculation, err := calculator.Calculate(request)
 		if errors.Is(err, genai.ErrModelNotFound) {
 			continue
@@ -336,17 +292,6 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 		}
 		if err != nil {
 			return Result{Reason: "price_lookup_error"}
-		}
-		if tier != "" && !slices.Contains(standardServiceTiers[calculation.ProviderID], tier) {
-			if !pricedServiceTiers[tier] {
-				return Result{Reason: "unpriced_service_tier"}
-			}
-			standard := calculation.TotalPrice
-			request.PriceContext = map[string]string{"service_tier": tier}
-			calculation, err = calculator.Calculate(request)
-			if err != nil || calculation.TotalPrice == standard {
-				return Result{Reason: "unpriced_service_tier"}
-			}
 		}
 		cost, ok := decimalCost(calculation.TotalPrice)
 		if !ok {
@@ -358,6 +303,25 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 		return result
 	}
 	return Result{Reason: reason}
+}
+
+func genaiUsage(usage modelenvelope.Usage) genai.Usage {
+	return genai.Usage{
+		genai.UsageInputTokens:      float64(usage.InputTokens),
+		genai.UsageCacheReadTokens:  float64(usage.CacheReadTokens),
+		genai.UsageCacheWriteTokens: float64(usage.CacheWriteTokens),
+		genai.UsageOutputTokens:     float64(usage.OutputTokens),
+	}
+}
+
+func priceContext(metadata modelenvelope.ProviderMetadata) map[string]string {
+	context := map[string]string{
+		"speed":         metadata.Anthropic.Speed,
+		"inference_geo": metadata.Anthropic.InferenceGeo,
+		"service_tier":  cmp.Or(metadata.OpenAI.ServiceTier, metadata.Anthropic.ServiceTier),
+	}
+	maps.DeleteFunc(context, func(_, value string) bool { return value == "" })
+	return context
 }
 
 func candidateNames(input Input) []string {

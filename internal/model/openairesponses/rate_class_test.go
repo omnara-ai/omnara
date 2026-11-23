@@ -36,23 +36,13 @@ func TestResponsesRecordRateClassAndXAICost(t *testing.T) {
 		cost     modelenvelope.ProviderReportedCostUSD
 	}{
 		{
-			name:   "default tier is omitted",
-			fields: `"service_tier":"default","usage":{"input_tokens":10,"output_tokens":2}`,
-		},
-		{
-			name:     "non-default tier is kept",
+			name:     "tier is recorded as reported",
 			fields:   `"service_tier":"flex","usage":{"input_tokens":10,"output_tokens":2}`,
 			metadata: modelenvelope.OpenAIMetadata{ServiceTier: "flex"},
 		},
 		{
-			name: "12-hour cache writes",
-			fields: `"usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":` +
-				`{"cache_write_tokens":4,"cache_write_tokens_details":{"ttl_12h_tokens":4}}}`,
-			metadata: modelenvelope.OpenAIMetadata{CacheWrite12hInputTokens: 4},
-		},
-		{
 			name:   "xAI ticks",
-			fields: `"service_tier":"default","usage":{"input_tokens":187,"output_tokens":2,"cost_in_usd_ticks":1043500}`,
+			fields: `"usage":{"input_tokens":187,"output_tokens":2,"cost_in_usd_ticks":1043500}`,
 			cost:   "0.00010435",
 		},
 		{

@@ -1,6 +1,6 @@
 package patch
 
-import "encoding/json"
+import "github.com/omnara-ai/omnara/internal/modelprice"
 
 type NullableInt struct {
 	Set   bool
@@ -12,7 +12,7 @@ type NullableBool struct {
 	Value *bool
 }
 
-type NullableJSON struct {
+type NullablePricing struct {
 	Set   bool
-	Value *json.RawMessage
+	Value *modelprice.Pricing
 }

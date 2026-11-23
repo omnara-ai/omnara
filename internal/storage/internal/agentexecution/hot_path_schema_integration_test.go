@@ -153,6 +153,8 @@ opening_input_ids,opening_event_sequence)
 func TestExecutionBudgetReachedPlan(t *testing.T) {
 	f := migratedExecutionFixture(t)
 	ctx := t.Context()
+	root := f.create(t, uuid.New(), uuid.Nil)
+	family := []uuid.UUID{root, f.create(t, uuid.New(), root), f.create(t, uuid.New(), root)}
 	tx, err := f.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -166,10 +168,16 @@ SELECT $1,scope.id,day,1 FROM generate_series(current_date-1095,current_date,int
 CROSS JOIN (SELECT id FROM projects WHERE org_id=$1 UNION ALL SELECT NULL::uuid) scope`, f.org)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `
-INSERT INTO budgets(org_id,project_id,interval,amount_usd) VALUES
-($1,NULL,'month',1000000),($1,NULL,'week',1000000),($1,$2,'day',1000000)`, f.org, f.project)
+INSERT INTO daily_model_costs(org_id,project_id,agent_id,day,effective_cost_usd)
+SELECT $1,$2,agent,day,1 FROM generate_series(current_date-30,current_date,interval '1 day') day
+CROSS JOIN unnest($3::uuid[]) agent`, f.org, f.project, family)
 	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `ANALYZE projects; ANALYZE daily_model_costs; ANALYZE budgets;
+	_, err = tx.Exec(ctx, `
+INSERT INTO budgets(org_id,project_id,agent_id,interval,amount_usd) VALUES
+($1,NULL,NULL,'month',1000000),($1,NULL,NULL,'week',1000000),($1,$2,NULL,'day',1000000),($1,$2,$3,'month',1000000)`,
+		f.org, f.project, root)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ANALYZE projects; ANALYZE agents; ANALYZE daily_model_costs; ANALYZE budgets;
 SET LOCAL plan_cache_mode=force_generic_plan`)
 	require.NoError(t, err)
 	query := integrationdb.GeneratedQuery(
@@ -177,7 +185,7 @@ SET LOCAL plan_cache_mode=force_generic_plan`)
 	)
 	var raw []byte
 	require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+query, f.org, f.project, nil,
-		uuid.New()).Scan(&raw))
+		root).Scan(&raw))
 	t.Logf("budget check plan=%s", raw)
 	usesScopeIndex := false
 	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
@@ -202,19 +210,21 @@ VALUES($4,$2,$1,1,$5,now())`, id, f.project, name, version, f.config)
 		require.NoError(t, err)
 		return id
 	}
-	rootProfile, childProfile := profile("budget-root"), profile("budget-child")
+	rootProfile, childProfile, grandchildProfile := profile("budget-root"), profile("budget-child"),
+		profile("budget-grandchild")
 	root := f.createWithProfile(t, uuid.New(), uuid.Nil, rootProfile)
 	child := f.createWithProfile(t, uuid.New(), root, childProfile)
+	grandchild := f.createWithProfile(t, uuid.New(), child, grandchildProfile)
 	loner := f.create(t, uuid.New(), uuid.Nil)
 	openings := map[uuid.UUID][2]uuid.UUID{}
-	for _, agent := range []uuid.UUID{root, child, loner} {
+	for _, agent := range []uuid.UUID{root, child, grandchild, loner} {
 		turn, input := f.opening(t, agent, 1, uuid.Nil, "content")
 		openings[agent] = [2]uuid.UUID{turn, input}
 	}
 	tx, err := f.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2", loner: "4"} {
+	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2", grandchild: "8", loner: "4"} {
 		id := uuid.New()
 		_, err = tx.Exec(ctx, `
 INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
@@ -240,8 +250,12 @@ SELECT coalesce(agent_profile_id::text,''),agent_id::text FROM pending_model_cos
 		pending[call]++
 	}
 	require.NoError(t, rows.Err())
-	require.Equal(t, map[[2]string]int{{rootProfile.String(), root.String()}: 2, {"", loner.String()}: 1}, pending,
-		"a subagent's spend counts toward its top-level agent and that agent's profile")
+	require.Equal(t, map[[2]string]int{
+		{rootProfile.String(), root.String()}:       1,
+		{rootProfile.String(), child.String()}:      1,
+		{rootProfile.String(), grandchild.String()}: 1,
+		{"", loner.String()}:                        1,
+	}, pending, "each call keeps its own agent and counts toward its top-level agent's profile")
 	spent := func(projectID, profileID, agentID any) string {
 		var cost string
 		require.NoError(t, tx.QueryRow(ctx,
@@ -250,19 +264,35 @@ SELECT coalesce(agent_profile_id::text,''),agent_id::text FROM pending_model_cos
 		return cost
 	}
 	expectSpend := func(message string) {
-		require.Equal(t, "7.000000000000000", spent(nil, nil, nil), message)
-		require.Equal(t, "7.000000000000000", spent(f.project, nil, nil), message)
-		require.Equal(t, "3.000000000000000", spent(f.project, rootProfile, nil), message)
+		require.Equal(t, "15.000000000000000", spent(nil, nil, nil), message)
+		require.Equal(t, "15.000000000000000", spent(f.project, nil, nil), message)
+		require.Equal(t, "11.000000000000000", spent(f.project, rootProfile, nil), message)
 		require.Equal(t, "0", spent(f.project, childProfile, nil), message)
-		require.Equal(t, "3.000000000000000", spent(f.project, nil, root), message)
+		require.Equal(t, "0", spent(f.project, grandchildProfile, nil), message)
+		require.Equal(t, "11.000000000000000", spent(f.project, nil, root), message)
 		require.Equal(t, "0", spent(f.project, nil, child), message)
 		require.Equal(t, "4.000000000000000", spent(f.project, nil, loner), message)
 	}
 	expectSpend("pending calls count before they merge")
 	merged, err := dbsqlc.New(tx).MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: 100})
 	require.NoError(t, err)
-	require.Equal(t, int64(3), merged)
+	require.Equal(t, int64(4), merged)
 	expectSpend("merging moves spend into scope totals without changing it")
+	agentBuckets := map[string]string{}
+	rows, err = tx.Query(ctx, `
+SELECT agent_id::text, effective_cost_usd::text FROM daily_model_costs
+WHERE org_id=$1 AND project_id=$2 AND agent_profile_id IS NULL AND agent_id IS NOT NULL`, f.org, f.project)
+	require.NoError(t, err)
+	for rows.Next() {
+		var agent, cost string
+		require.NoError(t, rows.Scan(&agent, &cost))
+		agentBuckets[agent] = cost
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, map[string]string{
+		root.String(): "1.000000000000000", child.String(): "2.000000000000000",
+		grandchild.String(): "8.000000000000000", loner.String(): "4.000000000000000",
+	}, agentBuckets, "every agent's bucket holds only its own spend")
 }
 
 func TestMergeKeepsDrainingOtherOrgsWhenOneOrgsTotalsOutgrowACallsCost(t *testing.T) {

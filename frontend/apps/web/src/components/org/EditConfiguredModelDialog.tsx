@@ -1,6 +1,6 @@
 import { useUpdateConfiguredModel } from '@omnara/react'
-import { type ConfiguredModel, type DiscoveredModelPricing } from '@omnara/sdk'
-import { zDiscoveredModelPricing } from '@omnara/sdk/zod'
+import { type ConfiguredModel, type ModelPricing } from '@omnara/sdk'
+import { zModelPricing } from '@omnara/sdk/zod'
 import { useForm } from '@tanstack/react-form'
 import { useId } from 'react'
 
@@ -32,7 +32,7 @@ interface PricingValues {
   cacheWritePrice: string
 }
 
-function pricingFromValues(values: PricingValues): DiscoveredModelPricing | null {
+function pricingFromValues(values: PricingValues): ModelPricing | null {
   const input = values.inputPrice.trim()
   const output = values.outputPrice.trim()
   const cacheRead = values.cacheReadPrice.trim()
@@ -41,16 +41,16 @@ function pricingFromValues(values: PricingValues): DiscoveredModelPricing | null
     return null
   }
   return {
-    input_usd_per_million: input,
-    output_usd_per_million: output,
-    ...(cacheRead && { cache_read_input_usd_per_million: cacheRead }),
-    ...(cacheWrite && { cache_write_input_usd_per_million: cacheWrite }),
+    input_mtok: input,
+    output_mtok: output,
+    ...(cacheRead && { cache_read_mtok: cacheRead }),
+    ...(cacheWrite && { cache_write_mtok: cacheWrite }),
   }
 }
 
 function pricingError(values: PricingValues) {
   const pricing = pricingFromValues(values)
-  return pricing && !zDiscoveredModelPricing.safeParse(pricing).success
+  return pricing && !zModelPricing.safeParse(pricing).success
     ? 'Enter input and output prices, and any cache prices, as USD amounts like 0.15.'
     : ''
 }
@@ -82,10 +82,10 @@ export function EditConfiguredModelDialog({
     maxOutputTokens: model.max_output_tokens == null ? '' : String(model.max_output_tokens),
     defaultMaxOutputTokens:
       model.default_max_output_tokens == null ? '' : String(model.default_max_output_tokens),
-    inputPrice: model.pricing?.input_usd_per_million ?? '',
-    outputPrice: model.pricing?.output_usd_per_million ?? '',
-    cacheReadPrice: model.pricing?.cache_read_input_usd_per_million ?? '',
-    cacheWritePrice: model.pricing?.cache_write_input_usd_per_million ?? '',
+    inputPrice: model.pricing?.input_mtok ?? '',
+    outputPrice: model.pricing?.output_mtok ?? '',
+    cacheReadPrice: model.pricing?.cache_read_mtok ?? '',
+    cacheWritePrice: model.pricing?.cache_write_mtok ?? '',
   }
   const valid = (value: typeof defaultValues) =>
     resourceNameValid(value.name) &&

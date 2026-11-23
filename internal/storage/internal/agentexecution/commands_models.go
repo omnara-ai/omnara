@@ -264,7 +264,7 @@ func (h *Handle) admissionDenial(
 	if !revision.Allowed {
 		return storeerr.ManagedWorkAdmissionDeniedCode, storeerr.InsufficientOmnaraCreditsMessage, nil
 	}
-	if !revision.Budgeted || (revision.Pricing != nil && modelprice.FreePricing(*revision.Pricing)) {
+	if !revision.Budgeted || (revision.Pricing != nil && revision.Pricing.Free()) {
 		return "", "", nil
 	}
 	if !modelPriced(h.unit.cell.costEstimator, revision) {
@@ -289,10 +289,9 @@ func modelPriced(estimator modelprice.Estimator, revision executiondb.ExecutionM
 	}
 	return estimator != nil && estimator.Prices(modelprice.Input{
 		BaseURL:         revision.BaseUrl,
-		APIFormat:       modelprotocol.APIFormat(revision.ApiFormat),
 		APIVariant:      modelprotocol.APIVariant(revision.ApiVariant),
 		ConfiguredModel: revision.ProviderModelSlug,
-	}, revision.ApiVariantOptions)
+	})
 }
 
 type PrepareNormalInput struct {

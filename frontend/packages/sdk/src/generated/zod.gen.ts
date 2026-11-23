@@ -442,13 +442,13 @@ export const zModelCacheRetention = z.enum([
 ]);
 
 /**
- * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
  */
 export const zDiscoveredModelPricing = z.object({
-    input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    cache_read_input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
-    cache_write_input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
-    output_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
 });
 
 export const zDiscoveredProviderModel = z.object({
@@ -470,6 +470,16 @@ export const zModelCatalog = z.object({
     error: z.string().optional()
 });
 
+/**
+ * Your own prices in USD per million tokens, as exact decimal strings, named like genai-prices catalog entries. Missing cache prices use the input price.
+ */
+export const zModelPricing = z.object({
+    input_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/),
+    cache_read_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    cache_write_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    output_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/)
+});
+
 export const zCreateConfiguredModelRequest = z.object({
     name: zResourceName,
     provider_model_slug: z.string().min(1),
@@ -484,7 +494,7 @@ export const zCreateConfiguredModelRequest = z.object({
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
     api_variant_options: zModelApiVariantOptions.optional(),
-    pricing: zDiscoveredModelPricing.optional()
+    pricing: zModelPricing.optional()
 });
 
 /**
@@ -504,7 +514,7 @@ export const zUpdateConfiguredModelRequest = z.object({
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
     api_variant_options: zModelApiVariantOptions.optional(),
-    pricing: zDiscoveredModelPricing.nullish()
+    pricing: zModelPricing.nullish()
 });
 
 /**
@@ -724,7 +734,7 @@ export const zConfiguredModel = z.object({
     input_modalities: z.array(z.string()),
     output_modalities: z.array(z.string()),
     api_variant_options: zModelApiVariantOptions,
-    pricing: zDiscoveredModelPricing.optional(),
+    pricing: zModelPricing.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     revision_created_at: zTimestamp

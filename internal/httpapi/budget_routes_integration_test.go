@@ -4,7 +4,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,7 +33,7 @@ func (listedModels) Estimate(context.Context, modelprice.Input) modelenvelope.Pr
 	return ""
 }
 
-func (listedModels) Prices(modelprice.Input, json.RawMessage) bool {
+func (listedModels) Prices(modelprice.Input) bool {
 	return true
 }
 

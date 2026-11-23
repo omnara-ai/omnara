@@ -4,7 +4,6 @@ package kernel
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -32,7 +31,7 @@ type fixedCostEstimator struct {
 	inputs   []modelprice.Input
 }
 
-func (e *fixedCostEstimator) Prices(modelprice.Input, json.RawMessage) bool {
+func (e *fixedCostEstimator) Prices(modelprice.Input) bool {
 	return !e.unpriced
 }
 
@@ -54,7 +53,7 @@ func budgetResponse(id string, cost modelenvelope.ProviderReportedCostUSD) model
 	}
 }
 
-const budgetTestPricing = `{"input_usd_per_million":"100000","output_usd_per_million":"200000"}`
+var budgetTestPricing = modelprice.Pricing{Input: "100000", Output: "200000"}
 
 type budgetTurn struct {
 	turnID    uuid.UUID
@@ -366,7 +365,7 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 			}
 			var options kernelConfiguredModelOptions
 			if test.pricing {
-				pricing := json.RawMessage(budgetTestPricing)
+				pricing := budgetTestPricing
 				options.Pricing = &pricing
 			}
 			agentID, userID := f.createAgentWithModelOptions(t, ctx, "openai/budget-model", f.Now, options)
@@ -424,7 +423,7 @@ func TestAgentExecutorBudgetRefusesUnpricedModels(t *testing.T) {
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{unpriced: true}))
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
-	pricing := json.RawMessage(budgetTestPricing)
+	pricing := budgetTestPricing
 	pricedAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Priced", "priced/budget-model",
 		f.Now, kernelConfiguredModelOptions{Pricing: &pricing})
 	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{project: true, interval: "month", amount: "100"})
@@ -444,7 +443,7 @@ func TestAgentExecutorBudgetLetsModelsPricedAtZeroRun(t *testing.T) {
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
-	free := json.RawMessage(`{"input_usd_per_million":"0","output_usd_per_million":"0"}`)
+	free := modelprice.Pricing{Input: "0", Output: "0"}
 	freeAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Free", "priced/budget-model",
 		f.Now, kernelConfiguredModelOptions{Pricing: &free})
 	runBudgetTurn(t, ctx, f, agentID, userID, "spend", f.Now.Add(time.Second), budgetResponse("resp_spend", "2"), nil)
@@ -478,7 +477,7 @@ func TestAgentExecutorRecordsEffectiveCosts(t *testing.T) {
 		budgetResponse("resp_estimated", ""), nil)
 	runBudgetTurn(t, ctx, f, agentID, userID, "reported", f.Now.Add(time.Minute),
 		budgetResponse("resp_reported", "1"), nil)
-	pricing := json.RawMessage(budgetTestPricing)
+	pricing := budgetTestPricing
 	pricedAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Priced", "priced/budget-model",
 		f.Now, kernelConfiguredModelOptions{Pricing: &pricing})
 	runBudgetTurn(t, ctx, f, pricedAgentID, userID, "custom", f.Now.Add(3*time.Minute),

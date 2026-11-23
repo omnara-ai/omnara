@@ -948,25 +948,35 @@ export type DiscoveredProviderModel = {
 };
 
 /**
- * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
+ * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
  */
 export type DiscoveredModelPricing = {
+    input_usd_per_million: string;
+    cache_read_input_usd_per_million?: string;
+    cache_write_input_usd_per_million?: string;
+    output_usd_per_million: string;
+};
+
+/**
+ * Your own prices in USD per million tokens, as exact decimal strings, named like genai-prices catalog entries. Missing cache prices use the input price.
+ */
+export type ModelPricing = {
     /**
      * USD per million input tokens.
      */
-    input_usd_per_million: string;
+    input_mtok: string;
     /**
      * USD per million input tokens read from the prompt cache.
      */
-    cache_read_input_usd_per_million?: string;
+    cache_read_mtok?: string;
     /**
      * USD per million input tokens written to the prompt cache.
      */
-    cache_write_input_usd_per_million?: string;
+    cache_write_mtok?: string;
     /**
      * USD per million output tokens.
      */
-    output_usd_per_million: string;
+    output_mtok: string;
 };
 
 export type ModelProviderConfigList = {
@@ -1024,7 +1034,7 @@ export type CreateConfiguredModelRequest = {
     /**
      * Your own prices for this model. Calls on it are priced from these instead of the provider-reported cost or list prices. Missing cache prices use the input price.
      */
-    pricing?: DiscoveredModelPricing;
+    pricing?: ModelPricing;
 };
 
 /**
@@ -1080,7 +1090,7 @@ export type UpdateConfiguredModelRequest = {
     /**
      * Your own prices for this model. Omit to keep them, or set to null to remove them.
      */
-    pricing?: DiscoveredModelPricing | null;
+    pricing?: ModelPricing | null;
 };
 
 export type ConfiguredModel = {
@@ -1138,7 +1148,7 @@ export type ConfiguredModel = {
     /**
      * Your own prices for this model, when set.
      */
-    pricing?: DiscoveredModelPricing;
+    pricing?: ModelPricing;
     created_at: Timestamp;
     updated_at: Timestamp;
     revision_created_at: Timestamp;

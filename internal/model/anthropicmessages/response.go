@@ -155,15 +155,8 @@ func anthropicResponseEvidence(response messagesResponse) model.Response {
 }
 
 func rateClassFromUsage(value usage) modelenvelope.AnthropicMetadata {
-	out := modelenvelope.AnthropicMetadata{}
-	if value.Speed != "standard" {
-		out.Speed = value.Speed
-	}
-	if value.InferenceGeo != "global" && value.InferenceGeo != "not_available" {
-		out.InferenceGeo = value.InferenceGeo
-	}
-	if value.ServiceTier != "standard" {
-		out.ServiceTier = value.ServiceTier
+	out := modelenvelope.AnthropicMetadata{
+		Speed: value.Speed, InferenceGeo: value.InferenceGeo, ServiceTier: value.ServiceTier,
 	}
 	if value.CacheCreation != nil && value.CacheCreationInputTokens > 0 &&
 		value.CacheCreation.Ephemeral1hInputTokens >= 0 &&

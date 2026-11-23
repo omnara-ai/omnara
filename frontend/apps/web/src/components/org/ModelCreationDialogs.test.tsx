@@ -800,7 +800,7 @@ it('sets custom prices under Advanced and requires input and output prices', asy
       context_window_tokens: model.context_window_tokens,
       max_output_tokens: null,
       default_max_output_tokens: null,
-      pricing: { input_usd_per_million: '0.15', output_usd_per_million: '0.6' },
+      pricing: { input_mtok: '0.15', output_mtok: '0.6' },
     },
   ])
 })

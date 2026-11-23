@@ -2,7 +2,6 @@ package agentexecution
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,26 +12,24 @@ import (
 )
 
 type catalogEstimator struct {
-	prices  bool
-	input   modelprice.Input
-	options json.RawMessage
+	prices bool
+	input  modelprice.Input
 }
 
 func (*catalogEstimator) Estimate(context.Context, modelprice.Input) modelenvelope.ProviderReportedCostUSD {
 	return ""
 }
 
-func (e *catalogEstimator) Prices(input modelprice.Input, options json.RawMessage) bool {
+func (e *catalogEstimator) Prices(input modelprice.Input) bool {
 	e.input = input
-	e.options = options
 	return e.prices
 }
 
 func TestModelPriced(t *testing.T) {
-	pricing := json.RawMessage(`{"input_usd_per_million":"1","output_usd_per_million":"2"}`)
+	pricing := modelprice.Pricing{Input: "1", Output: "2"}
 	listed := executiondb.ExecutionModelRevisionRow{
 		ProviderModelSlug: "gpt-x", BaseUrl: "https://api.openai.com/v1",
-		ApiFormat: "openai-responses", ApiVariant: "default", ApiVariantOptions: json.RawMessage(`{"service_tier":"flex"}`),
+		ApiVariant: "default",
 	}
 	custom, openRouter := listed, listed
 	custom.Pricing = &pricing
@@ -57,8 +54,7 @@ func TestModelPriced(t *testing.T) {
 	estimator := &catalogEstimator{}
 	modelPriced(estimator, listed)
 	require.Equal(t, modelprice.Input{
-		BaseURL: "https://api.openai.com/v1", APIFormat: "openai-responses", APIVariant: "default",
+		BaseURL: "https://api.openai.com/v1", APIVariant: "default",
 		ConfiguredModel: "gpt-x",
 	}, estimator.input)
-	require.JSONEq(t, `{"service_tier":"flex"}`, string(estimator.options))
 }

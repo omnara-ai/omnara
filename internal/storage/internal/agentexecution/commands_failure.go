@@ -170,11 +170,11 @@ func (h *Handle) effectiveCost(
 ) (*string, *string) {
 	usage := normalizedUsage(evidence.Usage)
 	hasTokens := usage.InputTokens > 0 || usage.OutputTokens > 0
-	if row.Pricing != nil && modelprice.FreePricing(*row.Pricing) && (hasTokens || evidence.Cost != "") {
+	if row.Pricing != nil && row.Pricing.Free() && (hasTokens || evidence.Cost != "") {
 		return costOfKind("0", "custom")
 	}
 	if row.Pricing != nil && hasTokens {
-		if cost := modelprice.CustomCost(*row.Pricing, usage); cost != "" {
+		if cost := row.Pricing.Cost(usage); cost != "" {
 			return costOfKind(cost, "custom")
 		}
 	}

@@ -161,7 +161,7 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	out.ProviderMetadata.OpenAI = modelenvelope.OpenAIRateClass(string(response.ServiceTier), 0)
+	out.ProviderMetadata.OpenAI.ServiceTier = string(response.ServiceTier)
 	cost, valid := modelenvelope.ProviderReportedCostFromTicks(response.Usage.CostInUSDTicks)
 	if !valid {
 		logent.ModelResponseProviderCostInvalid(ctx)

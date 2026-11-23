@@ -138,7 +138,7 @@ func patchModelProviderConfigInputFromOpenAPI(
 func createConfiguredModelInputFromOpenAPI(
 	orgID, configID uuid.UUID,
 	body openapigen.CreateConfiguredModelRequest,
-) (modelstore.CreateConfiguredModelInput, error) {
+) modelstore.CreateConfiguredModelInput {
 	input := modelstore.CreateConfiguredModelInput{
 		OrgID:                  orgID,
 		ModelProviderConfigID:  configID,
@@ -169,25 +169,26 @@ func createConfiguredModelInputFromOpenAPI(
 		input.OutputModalities = append([]string(nil), (*body.OutputModalities)...)
 	}
 	if body.Pricing != nil {
-		pricing, err := modelPricingJSON(*body.Pricing)
-		if err != nil {
-			return modelstore.CreateConfiguredModelInput{}, err
-		}
-		input.Pricing = pricing
+		input.Pricing = modelPricingFromRequest(*body.Pricing)
 	}
-	return input, nil
+	return input
 }
 
-func modelPricingJSON(pricing openapigen.DiscoveredModelPricing) (*json.RawMessage, error) {
-	raw, err := json.Marshal(pricing)
-	if err != nil {
-		return nil, err
+func modelPricingFromRequest(pricing openapigen.ModelPricing) *modelprice.Pricing {
+	return &modelprice.Pricing{
+		Input: pricing.InputMtok, CacheRead: valueOrZero(pricing.CacheReadMtok),
+		CacheWrite: valueOrZero(pricing.CacheWriteMtok), Output: pricing.OutputMtok,
 	}
-	value := json.RawMessage(raw)
-	if !modelprice.PricingFits(value) {
-		return nil, errors.New("prices are too large to compute a call's cost")
+}
+
+func modelPricingResponse(pricing *modelprice.Pricing) *openapigen.ModelPricing {
+	if pricing == nil {
+		return nil
 	}
-	return &value, nil
+	return &openapigen.ModelPricing{
+		InputMtok: pricing.Input, CacheReadMtok: optionalNonEmpty(pricing.CacheRead),
+		CacheWriteMtok: optionalNonEmpty(pricing.CacheWrite), OutputMtok: pricing.Output,
+	}
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
@@ -620,10 +621,7 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
-	input, err := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
-	if err != nil {
-		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
-	}
+	input := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
 	record, err := s.server.store.Models().CreateConfiguredModel(ctx, input)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -831,9 +829,7 @@ func patchConfiguredModelInput(
 			if err != nil {
 				return modelstore.PatchConfiguredModelInput{}, err
 			}
-			if input.Pricing.Value, err = modelPricingJSON(pricing); err != nil {
-				return modelstore.PatchConfiguredModelInput{}, err
-			}
+			input.Pricing.Value = modelPricingFromRequest(pricing)
 		}
 	}
 	return input, nil
@@ -1256,13 +1252,6 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		value := openapigen.ModelCacheRetention(record.DefaultCacheRetention)
 		cacheRetention = &value
 	}
-	var pricing *openapigen.DiscoveredModelPricing
-	if record.Pricing != nil {
-		pricing = new(openapigen.DiscoveredModelPricing)
-		if err := json.Unmarshal(*record.Pricing, pricing); err != nil {
-			return openapigen.ConfiguredModel{}, err
-		}
-	}
 	return openapigen.ConfiguredModel{
 		Id:                        id,
 		OrgId:                     orgID,
@@ -1282,7 +1271,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		InputModalities:           inputModalities,
 		OutputModalities:          outputModalities,
 		ApiVariantOptions:         jsonOrFallback(record.APIVariantOptions, json.RawMessage(`{}`)),
-		Pricing:                   pricing,
+		Pricing:                   modelPricingResponse(record.Pricing),
 		CreatedAt:                 record.CreatedAt,
 		UpdatedAt:                 record.UpdatedAt,
 		RevisionCreatedAt:         record.RevisionCreatedAt,

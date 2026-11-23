@@ -34,7 +34,7 @@ func TestChatResponseRecordsTierAndXAICost(t *testing.T) {
 	require.Equal(t, modelenvelope.ProviderReportedCostUSD("0.00010435"), resp.ProviderReportedCostUSD)
 
 	zero := parseChatBody(t,
-		`"service_tier":"default","usage":{"prompt_tokens":1,"completion_tokens":1,"cost_in_usd_ticks":0}`)
+		`"usage":{"prompt_tokens":1,"completion_tokens":1,"cost_in_usd_ticks":0}`)
 	require.Equal(t, modelenvelope.OpenAIMetadata{}, zero.ProviderMetadata.OpenAI)
 	require.Equal(t, modelenvelope.ProviderReportedCostUSD("0"), zero.ProviderReportedCostUSD)
 }

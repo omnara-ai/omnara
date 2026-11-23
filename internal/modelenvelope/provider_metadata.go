@@ -23,8 +23,7 @@ type AnthropicMetadata struct {
 }
 
 type OpenAIMetadata struct {
-	ServiceTier              string `json:"service_tier,omitempty"`
-	CacheWrite12hInputTokens int    `json:"cache_write_12h_input_tokens,omitempty"`
+	ServiceTier string `json:"service_tier,omitempty"`
 }
 
 func (m *ProviderMetadata) UnmarshalJSON(data []byte) error {
@@ -51,7 +50,6 @@ func (m ProviderMetadata) MarshalJSON() ([]byte, error) {
 		m.Anthropic.CacheWrite1hInputTokens = nil
 	}
 	m.OpenAI.ServiceTier = boundedMetadataText(m.OpenAI.ServiceTier, maxRateClassBytes)
-	m.OpenAI.CacheWrite12hInputTokens = max(m.OpenAI.CacheWrite12hInputTokens, 0)
 	type plain ProviderMetadata
 	return json.Marshal(plain(m))
 }
@@ -61,12 +59,4 @@ func boundedMetadataText(value string, limit int) string {
 		return ""
 	}
 	return value
-}
-
-func OpenAIRateClass(serviceTier string, cacheWrite12hTokens int) OpenAIMetadata {
-	out := OpenAIMetadata{CacheWrite12hInputTokens: max(cacheWrite12hTokens, 0)}
-	if serviceTier != "default" {
-		out.ServiceTier = serviceTier
-	}
-	return out
 }

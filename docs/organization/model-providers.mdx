@@ -102,7 +102,7 @@ Changing a model's runtime settings creates a new **revision** (`mrev_…`). Age
 
 ## Set model prices
 
-Usage and [budgets](/organization/budgets) count the cost the provider reports for each call, or an estimate from public list prices when it reports none. To count your own rates instead, such as negotiated prices or a self-hosted model's cost, set `pricing` on the configured model in USD per million tokens: `input_usd_per_million` and `output_usd_per_million`, plus optional `cache_read_input_usd_per_million` and `cache_write_input_usd_per_million`. Cache prices you leave out use the input price.
+Usage and [budgets](/organization/budgets) count the cost the provider reports for each call, or an estimate from public list prices when it reports none. To count your own rates instead, such as negotiated prices or a self-hosted model's cost, set `pricing` on the configured model as decimal strings in USD per million tokens: `input_mtok` and `output_mtok`, plus optional `cache_read_mtok` and `cache_write_mtok`. These follow the [genai-prices](https://github.com/pydantic/genai-prices) price names. Cache prices you leave out use the input price.
 
 In the dashboard, open the model's **Edit** dialog and expand **Advanced**. To go back to provider costs, clear the prices, or set `pricing` to `null` through the API.
 

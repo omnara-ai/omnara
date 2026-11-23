@@ -1466,14 +1466,12 @@ func TestConfiguredModelPricing(t *testing.T) {
 	), http.StatusCreated))
 	modelsPath := orgPath + "/model-provider-configs/" + testutil.RequireType[string](t, provider["id"]) + "/models"
 
-	pricing := map[string]any{
-		"input_usd_per_million": "3", "cache_read_input_usd_per_million": "0.3", "output_usd_per_million": "15",
-	}
+	pricing := map[string]any{"input_mtok": "3", "cache_read_mtok": "0.3", "output_mtok": "15"}
 	created := request(http.MethodPost, modelsPath,
 		`{"name":"priced","provider_model_slug":"priced","context_window_tokens":128000,`+
-			`"pricing":{"input_usd_per_million":"3","cache_read_input_usd_per_million":"0.3","output_usd_per_million":"15"}}`,
+			`"pricing":{"input_mtok":"3.00","cache_read_mtok":"0.30","output_mtok":"15"}}`,
 		http.StatusCreated)
-	require.Equal(t, pricing, created["pricing"])
+	require.Equal(t, pricing, created["pricing"], "prices are stored normalized")
 	modelPath := modelsPath + "/" + testutil.RequireType[string](t, created["id"])
 
 	renamed := request(http.MethodPut, modelPath, `{"name":"renamed"}`, http.StatusOK)
@@ -1481,25 +1479,27 @@ func TestConfiguredModelPricing(t *testing.T) {
 	require.Equal(t, created["current_revision_id"], renamed["current_revision_id"])
 
 	resent := request(http.MethodPut, modelPath,
-		`{"pricing":{"input_usd_per_million":"3","cache_read_input_usd_per_million":"0.3","output_usd_per_million":"15"}}`,
-		http.StatusOK)
-	require.Equal(t, renamed["current_revision_id"], resent["current_revision_id"])
+		`{"pricing":{"input_mtok":"3","cache_read_mtok":"0.3","output_mtok":"15.0"}}`, http.StatusOK)
+	require.Equal(t, renamed["current_revision_id"], resent["current_revision_id"],
+		"the same prices written differently are not a change")
 
-	changed := request(http.MethodPut, modelPath,
-		`{"pricing":{"input_usd_per_million":"4","output_usd_per_million":"15"}}`, http.StatusOK)
-	require.Equal(t, map[string]any{"input_usd_per_million": "4", "output_usd_per_million": "15"}, changed["pricing"])
+	changed := request(http.MethodPut, modelPath, `{"pricing":{"input_mtok":"4","output_mtok":"15"}}`, http.StatusOK)
+	require.Equal(t, map[string]any{"input_mtok": "4", "output_mtok": "15"}, changed["pricing"])
 	require.NotEqual(t, renamed["current_revision_id"], changed["current_revision_id"])
 
 	cleared := request(http.MethodPut, modelPath, `{"pricing":null}`, http.StatusOK)
 	require.NotContains(t, cleared, "pricing")
 	require.NotEqual(t, changed["current_revision_id"], cleared["current_revision_id"])
 
-	request(http.MethodPut, modelPath,
-		`{"pricing":{"input_usd_per_million":"-1","output_usd_per_million":"15"}}`, http.StatusBadRequest)
-	request(http.MethodPut, modelPath,
-		`{"pricing":{"input_usd_per_million":"0.123456789012345678901234567890","output_usd_per_million":"15"}}`,
-		http.StatusBadRequest)
-	tooLarge := `{"input_usd_per_million":"1000000000000","output_usd_per_million":"15"}`
+	for _, invalid := range []string{
+		`{"input_mtok":"-1","output_mtok":"15"}`,
+		`{"input_mtok":"0.1234567890123456","output_mtok":"15"}`,
+		`{"input_mtok":"3"}`,
+		`{"input_usd_per_million":"3","output_usd_per_million":"15"}`,
+	} {
+		request(http.MethodPut, modelPath, `{"pricing":`+invalid+`}`, http.StatusBadRequest)
+	}
+	tooLarge := `{"input_mtok":"1000000000000","output_mtok":"15"}`
 	request(http.MethodPut, modelPath, `{"pricing":`+tooLarge+`}`, http.StatusBadRequest)
 	request(http.MethodPost, modelsPath, `{"name":"too-large","provider_model_slug":"too-large",`+
 		`"context_window_tokens":128000,"pricing":`+tooLarge+`}`, http.StatusBadRequest)

@@ -87,9 +87,10 @@ LANGUAGE sql STABLE PARALLEL SAFE
 AS $$
     SELECT coalesce(CASE
         WHEN p_agent_id IS NOT NULL THEN (
-            SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
-            WHERE cost.org_id = p_org_id AND cost.project_id = p_project_id
-              AND cost.agent_profile_id IS NULL AND cost.agent_id = p_agent_id AND cost.day >= bounds.since
+            SELECT sum(cost.effective_cost_usd) FROM agents family
+            JOIN daily_model_costs cost ON cost.org_id = p_org_id AND cost.project_id = family.project_id
+              AND cost.agent_profile_id IS NULL AND cost.agent_id = family.id AND cost.day >= bounds.since
+            WHERE family.project_id = p_project_id AND family.root_agent_id = p_agent_id
         )
         WHEN p_agent_profile_id IS NOT NULL THEN (
             SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
@@ -112,7 +113,10 @@ AS $$
         WHERE pending.org_id = p_org_id
           AND (p_project_id IS NULL OR pending.project_id = p_project_id)
           AND (p_agent_profile_id IS NULL OR pending.agent_profile_id = p_agent_profile_id)
-          AND (p_agent_id IS NULL OR pending.agent_id = p_agent_id)
+          AND (p_agent_id IS NULL OR pending.agent_id IN (
+              SELECT family.id FROM agents family
+              WHERE family.project_id = p_project_id AND family.root_agent_id = p_agent_id
+          ))
           AND pending.day >= bounds.since
     ), 0)
     FROM (
@@ -132,7 +136,7 @@ BEGIN
     INSERT INTO pending_model_costs(
         model_call_context_id, org_id, project_id, agent_profile_id, agent_id, day, effective_cost_usd
     )
-    SELECT NEW.id, NEW.org_id, NEW.project_id, root.agent_profile_id, root.id,
+    SELECT NEW.id, NEW.org_id, NEW.project_id, root.agent_profile_id, agent.id,
            (NEW.created_at AT TIME ZONE 'UTC')::date, NEW.effective_cost_usd
     FROM agents agent
     JOIN agents root ON root.project_id = agent.project_id AND root.id = agent.root_agent_id

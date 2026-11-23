@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 )
 
 const configuredModelHasActiveGrants = `-- name: ConfiguredModelHasActiveGrants :one
@@ -295,7 +296,7 @@ type GetConfiguredModelRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -382,7 +383,7 @@ type GetConfiguredModelByNameRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -465,7 +466,7 @@ type GetConfiguredModelDisplayRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -597,7 +598,7 @@ type GetConfiguredModelRevisionDisplayRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	CreatedAt                 time.Time
 	ConfiguredModelName       string
 	ProviderConfigName        string
@@ -864,7 +865,7 @@ revision AS (
             default_max_output_tokens,
                 default_cache_retention, supports_tools, supports_reasoning,
                 default_reasoning_effort, supported_reasoning_efforts,
-                input_modalities, output_modalities, api_variant_options, pricing, created_at
+                input_modalities, output_modalities, api_variant_options, created_at
 )
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.management_kind, configured_model.name,
@@ -873,7 +874,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_model
@@ -897,7 +898,7 @@ type InsertConfiguredModelParams struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 }
 
 type InsertConfiguredModelRow struct {
@@ -919,7 +920,6 @@ type InsertConfiguredModelRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -966,7 +966,6 @@ func (q *Queries) InsertConfiguredModel(ctx context.Context, arg InsertConfigure
 		&i.InputModalities,
 		&i.OutputModalities,
 		&i.ApiVariantOptions,
-		&i.Pricing,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1254,7 +1253,7 @@ type ListConfiguredModelsRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -1720,7 +1719,7 @@ type LockConfiguredModelForUseRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -1917,7 +1916,7 @@ type RenameConfiguredModelRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -1996,7 +1995,7 @@ revision AS (
             default_max_output_tokens,
                 default_cache_retention, supports_tools, supports_reasoning,
                 default_reasoning_effort, supported_reasoning_efforts,
-                input_modalities, output_modalities, api_variant_options, pricing, created_at
+                input_modalities, output_modalities, api_variant_options, created_at
 ),
 configured_model AS (
   UPDATE configured_models
@@ -2019,7 +2018,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_model
@@ -2043,7 +2042,7 @@ type UpdateConfiguredModelParams struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
+	Pricing                   *modelprice.Pricing
 	Name                      string
 }
 
@@ -2066,7 +2065,6 @@ type UpdateConfiguredModelRow struct {
 	InputModalities           []string
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
-	Pricing                   *json.RawMessage
 	DeletedAt                 *time.Time
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -2114,7 +2112,6 @@ func (q *Queries) UpdateConfiguredModel(ctx context.Context, arg UpdateConfigure
 		&i.InputModalities,
 		&i.OutputModalities,
 		&i.ApiVariantOptions,
-		&i.Pricing,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

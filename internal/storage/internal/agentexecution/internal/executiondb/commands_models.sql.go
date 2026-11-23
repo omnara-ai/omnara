@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 )
 
 const createExecutionAttempt = `-- name: CreateExecutionAttempt :one
@@ -123,7 +124,7 @@ func (q *Queries) ExecutionCompactionBoundary(ctx context.Context, db DBTX, arg 
 const executionModelRevision = `-- name: ExecutionModelRevision :one
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
  ELSE true END::boolean AS allowed,c.org_id,root.agent_profile_id AS root_agent_profile_id,
- r.provider_model_slug,r.pricing,r.api_variant_options,p.base_url,p.api_format,p.api_variant,
+ r.provider_model_slug,r.pricing,p.base_url,p.api_variant,
  EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
  AND (b.agent_profile_id IS NULL OR b.agent_profile_id=root.agent_profile_id)
  AND (b.agent_id IS NULL OR b.agent_id=root.id) AND b.deleted_at IS NULL)::boolean AS budgeted
@@ -148,10 +149,8 @@ type ExecutionModelRevisionRow struct {
 	OrgID              uuid.UUID
 	RootAgentProfileID *uuid.UUID
 	ProviderModelSlug  string
-	Pricing            *json.RawMessage
-	ApiVariantOptions  json.RawMessage
+	Pricing            *modelprice.Pricing
 	BaseUrl            string
-	ApiFormat          string
 	ApiVariant         string
 	Budgeted           bool
 }
@@ -168,9 +167,7 @@ func (q *Queries) ExecutionModelRevision(ctx context.Context, db DBTX, arg Execu
 		&i.RootAgentProfileID,
 		&i.ProviderModelSlug,
 		&i.Pricing,
-		&i.ApiVariantOptions,
 		&i.BaseUrl,
-		&i.ApiFormat,
 		&i.ApiVariant,
 		&i.Budgeted,
 	)
@@ -407,7 +404,7 @@ type ReadExecutionAttemptRow struct {
 	ProviderReportedCostUsd     string
 	ProviderMetadata            json.RawMessage
 	ProviderModelSlug           string
-	Pricing                     *json.RawMessage
+	Pricing                     *modelprice.Pricing
 	InputFingerprint            string
 	SourceExcerptReductionCount int64
 	CreatedAt                   time.Time

@@ -2,7 +2,6 @@ package modelstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -91,6 +91,9 @@ func (s *Store) createConfiguredModelTx(
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
+	if err := normalizePricing(&input.Pricing); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
 	if err := management.Validate(managementKind); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -160,7 +163,9 @@ func (s *Store) createConfiguredModelTx(
 		}
 		return ConfiguredModelRecord{}, fmt.Errorf("insert configured model: %w", err)
 	}
-	return configuredModelRecordFromInsertSQLC(row), nil
+	record := configuredModelRecordFromInsertSQLC(row)
+	record.Pricing = input.Pricing
+	return record, nil
 }
 
 func (s *Store) PatchConfiguredModel(
@@ -169,6 +174,9 @@ func (s *Store) PatchConfiguredModel(
 ) (ConfiguredModelRecord, error) {
 	if input.OrgID == uuid.Nil || input.ModelProviderConfigID == uuid.Nil || input.ID == uuid.Nil {
 		return ConfiguredModelRecord{}, errors.New("org, provider config, and configured model are required")
+	}
+	if err := normalizePricing(&input.Pricing.Value); err != nil {
+		return ConfiguredModelRecord{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -369,7 +377,9 @@ func updateConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("update configured model: %w", err)
 	}
-	return configuredModelRecordFromUpdateSQLC(row), nil
+	record := configuredModelRecordFromUpdateSQLC(row)
+	record.Pricing = input.Pricing
+	return record, nil
 }
 
 func renameConfiguredModelTx(
@@ -490,11 +500,11 @@ func configuredModelBehaviorChanged(current ConfiguredModelRecord, update config
 		!samePricing(current.Pricing, update.Pricing)
 }
 
-func samePricing(left, right *json.RawMessage) bool {
+func samePricing(left, right *modelprice.Pricing) bool {
 	if left == nil || right == nil {
 		return left == right
 	}
-	return jsoncanonical.Equal(*left, *right)
+	return *left == *right
 }
 
 func applyNullableIntPatch(target **int, value patch.NullableInt) {
@@ -686,7 +696,6 @@ func configuredModelRecordFromInsertSQLC(row dbsqlc.InsertConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
-		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -854,7 +863,6 @@ func configuredModelRecordFromUpdateSQLC(row dbsqlc.UpdateConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
-		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,

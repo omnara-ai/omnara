@@ -228,10 +228,7 @@ func responseEvidence(response responsesResponse) model.Response {
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	out.ProviderMetadata.OpenAI = modelenvelope.OpenAIRateClass(
-		response.ServiceTier,
-		response.Usage.InputTokensDetails.CacheWriteTokensDetails.TTL12hTokens,
-	)
+	out.ProviderMetadata.OpenAI.ServiceTier = response.ServiceTier
 	out.ProviderReportedCostUSD, _ = modelenvelope.ProviderReportedCostFromTicks(response.Usage.CostInUSDTicks)
 	return out
 }
@@ -275,14 +272,9 @@ type responsesUsage struct {
 }
 
 type responsesTokenDetails struct {
-	CachedTokens            modelenvelope.ReportedCount `json:"cached_tokens,omitzero"`
-	CacheWriteTokens        int                         `json:"cache_write_tokens"`
-	ReasoningTokens         int                         `json:"reasoning_tokens"`
-	CacheWriteTokensDetails responsesCacheWriteTTLs     `json:"cache_write_tokens_details"`
-}
-
-type responsesCacheWriteTTLs struct {
-	TTL12hTokens int `json:"ttl_12h_tokens"`
+	CachedTokens     modelenvelope.ReportedCount `json:"cached_tokens,omitzero"`
+	CacheWriteTokens int                         `json:"cache_write_tokens"`
+	ReasoningTokens  int                         `json:"reasoning_tokens"`
 }
 
 type responsesOutputItem struct {

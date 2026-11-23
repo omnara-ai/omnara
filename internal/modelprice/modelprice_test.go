@@ -100,28 +100,18 @@ func TestEstimatePricesFromBuiltInData(t *testing.T) {
 			model: "gpt-5",
 		},
 		{
-			name: "tier without its own price",
+			name: "tier without its own price falls back to the standard price",
 			input: Input{BaseURL: openAIURL, ServedModel: "gpt-4o", Usage: tokens(1_000, 1_000),
 				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "flex"}}},
-			reason: "unpriced_service_tier",
+			cost:  "0.0125",
+			model: "gpt-4o",
 		},
 		{
-			name: "openai auto tier",
+			name: "openai default tier",
 			input: Input{BaseURL: openAIURL, ServedModel: "gpt-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "auto"}}},
-			reason: "unpriced_service_tier",
-		},
-		{
-			name: "openai scale tier",
-			input: Input{BaseURL: openAIURL, ServedModel: "gpt-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "scale"}}},
-			reason: "unpriced_service_tier",
-		},
-		{
-			name: "openai ultrafast tier",
-			input: Input{BaseURL: openAIURL, ServedModel: "gpt-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "ultrafast"}}},
-			reason: "unpriced_service_tier",
+				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "default"}}},
+			cost:  "0.01125",
+			model: "gpt-5",
 		},
 		{
 			name: "groq on_demand tier",
@@ -129,31 +119,6 @@ func TestEstimatePricesFromBuiltInData(t *testing.T) {
 				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "on_demand"}}},
 			cost:  "0.00138",
 			model: "llama-3.3-70b-versatile",
-		},
-		{
-			name: "groq flex tier",
-			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "flex"}}},
-			cost:  "0.00138",
-			model: "llama-3.3-70b-versatile",
-		},
-		{
-			name: "groq auto tier",
-			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "auto"}}},
-			reason: "unpriced_service_tier",
-		},
-		{
-			name: "groq performance tier",
-			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "performance"}}},
-			reason: "unpriced_service_tier",
-		},
-		{
-			name: "openai 12-hour cache writes",
-			input: Input{BaseURL: openAIURL, ServedModel: "gpt-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{CacheWrite12hInputTokens: 10}}},
-			reason: "unpriced_rate_class",
 		},
 		{
 			name: "anthropic mixed 5-minute and 1-hour writes",
@@ -182,27 +147,6 @@ func TestEstimatePricesFromBuiltInData(t *testing.T) {
 			cost:       "0.0516",
 			model:      "claude-sonnet-4-5",
 			assumption: "cache_write_split_missing_priced_as_1h",
-		},
-		{
-			name: "anthropic fast mode",
-			input: Input{BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages,
-				ServedModel: "claude-sonnet-4-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{Anthropic: modelenvelope.AnthropicMetadata{Speed: "fast"}}},
-			reason: "unpriced_rate_class",
-		},
-		{
-			name: "anthropic US-only inference",
-			input: Input{BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages,
-				ServedModel: "claude-sonnet-4-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{Anthropic: modelenvelope.AnthropicMetadata{InferenceGeo: "us"}}},
-			reason: "unpriced_rate_class",
-		},
-		{
-			name: "anthropic priority tier",
-			input: Input{BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages,
-				ServedModel: "claude-sonnet-4-5", Usage: tokens(1_000, 1_000),
-				Metadata: modelenvelope.ProviderMetadata{Anthropic: modelenvelope.AnthropicMetadata{ServiceTier: "priority"}}},
-			reason: "unpriced_rate_class",
 		},
 		{
 			name: "haiku 5.5 below the long-context threshold",
@@ -468,38 +412,9 @@ func TestValidateRejectsPriceDataThatShrinksByMoreThanHalf(t *testing.T) {
 func TestPricesReportsWhetherTheCatalogPricesAModel(t *testing.T) {
 	pricer, err := New()
 	require.NoError(t, err)
-	require.True(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "gpt-4o"}, nil))
-	require.False(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "self-hosted-model"}, nil))
-	require.False(t, pricer.Prices(Input{BaseURL: "https://models.example.test/v1", ConfiguredModel: "gpt-4o"}, nil))
-}
-
-func TestPricesAppliesTheRequestedRateClass(t *testing.T) {
-	pricer, err := New()
-	require.NoError(t, err)
-	claude := Input{BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages,
-		ConfiguredModel: "claude-sonnet-4-5"}
-	gpt := Input{BaseURL: openAIURL, APIFormat: modelprotocol.APIFormatOpenAIResponses, ConfiguredModel: "gpt-4o"}
-	gptChat := Input{BaseURL: openAIURL, APIFormat: modelprotocol.APIFormatOpenAIChatCompletions,
-		ConfiguredModel: "gpt-4o"}
-	for _, test := range []struct {
-		input   Input
-		options string
-		priced  bool
-	}{
-		{claude, `{}`, true},
-		{claude, `{"speed":"standard","inference_geo":"global","service_tier":"auto"}`, true},
-		{claude, `{"speed":"fast"}`, false},
-		{claude, `{"inference_geo":"us"}`, false},
-		{gpt, `{"service_tier":"auto"}`, true},
-		{gpt, `{"service_tier":"default"}`, true},
-		{gpt, `{"service_tier":"scale"}`, false},
-		{gpt, `{"prompt_cache_options":{"ttl":"30m"}}`, true},
-		{gpt, `{"prompt_cache_options":{"ttl":"12h"}}`, false},
-		{gpt, `{"service_tier":"auto","prompt_cache_options":{"ttl":"12h"}}`, false},
-		{gptChat, `{"prompt_cache_options":{"ttl":"12h"}}`, true},
-	} {
-		require.Equal(t, test.priced, pricer.Prices(test.input, json.RawMessage(test.options)), test.options)
-	}
+	require.True(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "gpt-4o"}))
+	require.False(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "self-hosted-model"}))
+	require.False(t, pricer.Prices(Input{BaseURL: "https://models.example.test/v1", ConfiguredModel: "gpt-4o"}))
 }
 
 func TestLoadRacesWithEstimates(t *testing.T) {
@@ -520,4 +435,46 @@ func TestLoadRacesWithEstimates(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestEstimatePassesRateClassAsPriceContext(t *testing.T) {
+	variant := func(key, value string, price int) map[string]any {
+		return map[string]any{
+			"when": map[string]string{key: value}, "prices": map[string]any{"input_mtok": price, "output_mtok": price},
+		}
+	}
+	models := make([]map[string]any, 0, minPricedModels)
+	for index := range minPricedModels {
+		id := fmt.Sprintf("claude-%d", index)
+		models = append(models, map[string]any{
+			"id": id, "match": map[string]string{"equals": id},
+			"prices": map[string]any{"input_mtok": 1, "output_mtok": 1},
+			"price_variants": []map[string]any{
+				variant("speed", "fast", 6), variant("inference_geo", "us", 3), variant("service_tier", "priority", 4),
+			},
+		})
+	}
+	data, err := json.Marshal([]map[string]any{{
+		"id": "anthropic", "name": "Anthropic", "api_pattern": `https://api\.anthropic\.com`, "models": models,
+	}})
+	require.NoError(t, err)
+	pricer, err := New()
+	require.NoError(t, err)
+	require.NoError(t, pricer.Load(data))
+	for _, test := range []struct {
+		metadata modelenvelope.AnthropicMetadata
+		cost     modelenvelope.ProviderReportedCostUSD
+	}{
+		{modelenvelope.AnthropicMetadata{Speed: "fast"}, "12"},
+		{modelenvelope.AnthropicMetadata{InferenceGeo: "us"}, "6"},
+		{modelenvelope.AnthropicMetadata{ServiceTier: "priority"}, "8"},
+		{modelenvelope.AnthropicMetadata{}, "2"},
+		{modelenvelope.AnthropicMetadata{Speed: "standard", InferenceGeo: "global", ServiceTier: "standard"}, "2"},
+	} {
+		require.Equal(t, test.cost, pricer.Estimate(context.Background(), Input{
+			BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages, ServedModel: "claude-0",
+			Usage: tokens(1_000_000, 1_000_000), CreatedAt: callTime,
+			Metadata: modelenvelope.ProviderMetadata{Anthropic: test.metadata},
+		}), "%+v", test.metadata)
+	}
 }

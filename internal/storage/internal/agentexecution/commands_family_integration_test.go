@@ -286,7 +286,8 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 	}
 	var pending int
 	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT count(*) FROM pending_model_costs WHERE agent_id=$1`, parent).Scan(&pending))
+		`SELECT count(*) FROM pending_model_costs WHERE agent_id IN (SELECT id FROM agents WHERE root_agent_id=$1)`,
+		parent).Scan(&pending))
 	require.Equal(t, len(inputs), pending)
 }
 
