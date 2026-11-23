@@ -455,7 +455,9 @@ WHERE process.org_id = sqlc.arg(org_id)
   );
 
 -- name: GetDaemonProgramToolScope :one
-SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id
+SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id,
+  coalesce(current_definition.compiled_definition->'code_mode'->>'enabled' = 'true', false)::boolean
+    AS code_mode_enabled
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -488,8 +490,7 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND original_definition.compiled_definition->'code_mode'->>'enabled' = 'true'
-  AND current_definition.compiled_definition->'code_mode'->>'enabled' = 'true';
+  AND original_definition.compiled_definition->'code_mode'->>'enabled' = 'true';
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec

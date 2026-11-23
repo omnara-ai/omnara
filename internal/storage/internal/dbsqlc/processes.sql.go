@@ -734,7 +734,9 @@ func (q *Queries) GetDaemonProcessForProjectReport(ctx context.Context, arg GetD
 }
 
 const getDaemonProgramToolScope = `-- name: GetDaemonProgramToolScope :one
-SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id
+SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id,
+  coalesce(current_definition.compiled_definition->'code_mode'->>'enabled' = 'true', false)::boolean
+    AS code_mode_enabled
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -768,7 +770,6 @@ WHERE process.org_id = $1
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
   AND original_definition.compiled_definition->'code_mode'->>'enabled' = 'true'
-  AND current_definition.compiled_definition->'code_mode'->>'enabled' = 'true'
 `
 
 type GetDaemonProgramToolScopeParams struct {
@@ -778,10 +779,11 @@ type GetDaemonProgramToolScopeParams struct {
 }
 
 type GetDaemonProgramToolScopeRow struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	ProcessID     uuid.UUID
-	AgentConfigID uuid.UUID
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	ProcessID       uuid.UUID
+	AgentConfigID   uuid.UUID
+	CodeModeEnabled bool
 }
 
 func (q *Queries) GetDaemonProgramToolScope(ctx context.Context, arg GetDaemonProgramToolScopeParams) (GetDaemonProgramToolScopeRow, error) {
@@ -792,6 +794,7 @@ func (q *Queries) GetDaemonProgramToolScope(ctx context.Context, arg GetDaemonPr
 		&i.AgentID,
 		&i.ProcessID,
 		&i.AgentConfigID,
+		&i.CodeModeEnabled,
 	)
 	return i, err
 }

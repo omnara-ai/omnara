@@ -501,11 +501,12 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
 	f.rejected(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	f.rejected(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	f.changeConfig(t, programToolAgentYAML(true, "storage_list", "storage_read"))
+	// A key that already names a call still reaches it, and its run fails under the current config.
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.Empty(t, resumed.AckStatus, resumed.Error)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
-	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, resumed.Outcome)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, resumed.Outcome)
+	f.changeConfig(t, programToolAgentYAML(true, "storage_list", "storage_read"))
 
 	// A tool's own code_mode setting keeps commands from calling it while code mode stays on.
 	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list", "storage_read"),
@@ -714,5 +715,64 @@ func TestDaemonSocketProgramToolCallReattachesAfterConfigChange(t *testing.T) {
 	require.Equal(t, waiting.ToolCallID, done.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, done.Outcome,
 		"the tool can no longer be called from commands: %+v", done.Content)
+	reconnected.toolCallsDone.Wait()
+}
+
+// Turning code mode off stops new calls, but a command that offers a key it already used, after
+// reconnecting, still reaches that call: an approval it is waiting on, or a result already recorded.
+func TestDaemonSocketProgramToolCallReattachesAfterCodeModeIsOff(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	finished := f.offer(t, "finished", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, finished.State)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, finished.Outcome)
+
+	pending := programToolOffer(f.process.ProcessID, "pending", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	first := f.socket()
+	firstCtx, disconnect := context.WithCancel(ctx)
+	require.NoError(t, first.handleToolCallOffer(firstCtx, daemonprotocol.Message{ToolCallOffer: &pending}))
+	waiting := nextToolCallReport(t, first)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, waiting.State)
+	disconnect()
+	first.toolCallsDone.Wait()
+
+	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
+	f.rejected(t, "new", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`,
+		daemonprotocol.ErrorCodeToolCallUnavailable)
+	f.rejected(t, "search", toolcatalog.ToolNameToolSearch, `{"pattern":"storage"}`,
+		daemonprotocol.ErrorCodeToolCallUnavailable)
+
+	again := f.offer(t, "finished", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.Empty(t, again.AckStatus, "a finished call returns its result: %s", again.Error)
+	require.Equal(t, finished.ProgramToolCallResult, again.ProgramToolCallResult)
+
+	reconnected := f.socket()
+	require.NoError(t, reconnected.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &pending}))
+	reattached := nextToolCallReport(t, reconnected)
+	require.Empty(t, reattached.AckStatus, "the open call is picked up, not rejected: %s", reattached.Error)
+	require.Equal(t, waiting.ProgramToolCallResult, reattached.ProgramToolCallResult)
+
+	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+	interactions := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions?state=open", "",
+		"", http.StatusOK, authHeaders(f.project.AdminToken))
+	open, ok := interactions["data"].([]any)
+	require.True(t, ok)
+	require.Len(t, open, 1)
+	interaction, ok := open[0].(map[string]any)
+	require.True(t, ok)
+	interactionID, ok := interaction["id"].(string)
+	require.True(t, ok)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/interactions/"+interactionID+"/resolve",
+		httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	done := nextToolCallReport(t, reconnected)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+	require.Equal(t, waiting.ToolCallID, done.ToolCallID)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, done.Outcome,
+		"the approved call runs under the current config, which no longer allows it: %+v", done.Content)
 	reconnected.toolCallsDone.Wait()
 }

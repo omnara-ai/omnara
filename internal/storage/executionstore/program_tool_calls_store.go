@@ -20,6 +20,9 @@ type ProgramToolScope struct {
 	AgentID       uuid.UUID
 	ProcessID     uuid.UUID
 	AgentConfigID uuid.UUID
+	// CodeModeEnabled is whether the agent's current config lets commands start new tool calls. A
+	// process its original config let call tools keeps its scope, so calls already made still resolve.
+	CodeModeEnabled bool
 }
 
 const MaxOpenProgramToolCalls = agentexecution.MaxOpenProgramTools
@@ -104,7 +107,7 @@ func (s *Store) GetDaemonProgramToolScope(
 		return ProgramToolScope{}, false, fmt.Errorf("load daemon program tool scope: %w", err)
 	}
 	return ProgramToolScope{ProjectID: row.ProjectID, AgentID: row.AgentID, ProcessID: row.ProcessID,
-		AgentConfigID: row.AgentConfigID}, true, nil
+		AgentConfigID: row.AgentConfigID, CodeModeEnabled: row.CodeModeEnabled}, true, nil
 }
 
 func programUnit[T any](

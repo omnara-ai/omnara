@@ -56,7 +56,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "model", parentRecord.Caller)
 	require.Equal(t, executionstore.ProgramToolScope{ProjectID: testProjectID, AgentID: fixture.AgentID,
-		ProcessID: process.ID, AgentConfigID: config.ID}, scope)
+		ProcessID: process.ID, AgentConfigID: config.ID, CodeModeEnabled: true}, scope)
 
 	create := func(key string) executionstore.ProgramToolCallRecord {
 		t.Helper()

@@ -557,8 +557,9 @@ func (s *Server) offerProgramToolCall(
 				{Type: daemonprotocol.ProgramToolCallContentStructuredData, Value: value}},
 		}, nil
 	}
-	// A key that already names a call returns it before the checks for starting a new one. Whoever
-	// runs it checks the agent's current config again, so it always reaches a result.
+	// A key that already names a call returns it before the checks for starting a new one, even once
+	// code mode is off. Whoever runs it checks the agent's current config again, so it always reaches
+	// a result.
 	create := executionstore.CreateProgramToolCallInput{
 		ProjectID: program.ProjectID, AgentID: program.AgentID, ProcessID: program.ProcessID,
 		Key: key, Named: offer.KeepOnDisconnect, Name: offer.Name, Input: offer.Input, OfferID: offer.OfferID,
@@ -570,6 +571,9 @@ func (s *Server) offerProgramToolCall(
 	if resumed {
 		return executionstore.ProgramToolCallRef{ProjectID: program.ProjectID, AgentID: program.AgentID,
 			ProcessID: existing.ProcessID, ToolCallID: existing.ID}, nil, nil
+	}
+	if !program.CodeModeEnabled {
+		return ref, nil, uncallable
 	}
 	spec, _, found, err := tools.AgentConfigToolSpec(
 		ctx, s.store, program.ProjectID, program.AgentID, program.AgentConfigID, offer.Name)
