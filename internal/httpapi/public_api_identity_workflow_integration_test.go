@@ -264,16 +264,20 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 	if testutil.RequireType[map[string]any](t, replayed["org"])["id"] != org["id"] {
 		t.Fatalf("expected idempotent replay, got %+v", replayed)
 	}
-	requestJSONWithHeaders(
+	changed := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs",
 		`{"name":"Changed Org"}`,
 		"idem-owner-org",
-		http.StatusConflict,
+		http.StatusOK,
 		authHeaders(ownerToken),
 	)
+	if changedOrg := testutil.RequireType[map[string]any](t, changed["org"]); changedOrg["id"] != org["id"] ||
+		changedOrg["name"] != org["name"] {
+		t.Fatalf("expected replay of the original organization, got %+v", changed)
+	}
 }
 
 func TestPublicInvitationFlow(t *testing.T) {

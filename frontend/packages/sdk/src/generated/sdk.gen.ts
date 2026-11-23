@@ -258,7 +258,8 @@ export const listOrganizations = <ThrowOnError extends boolean = true>(options?:
  *
  * Creates the organization and its local default resources atomically.
  * An idempotency key determines the proposed organization ID; replaying it
- * returns the existing organization. Without a key, each request is a fresh
+ * returns the existing organization even if the retry body differs, and the
+ * retry body is not applied. Without a key, each request is a fresh
  * attempt. Optional default-provider provisioning begins after commit and
  * retries asynchronously without failing organization creation.
  *
@@ -659,7 +660,7 @@ export const listVisibleProjects = <ThrowOnError extends boolean = true>(options
 /**
  * Create project
  *
- * Creates a project, makes the caller its admin, and returns it. The new project has no grants to organization models, machines, skills, or secrets.
+ * Creates a project, makes the caller its admin, and returns it. The new project has no grants to organization models, machines, skills, or secrets. Reusing an idempotency key returns the current project even if the retry body differs. The retry body is not applied.
  */
 export const createProject = <ThrowOnError extends boolean = true>(options: Options<CreateProjectData, ThrowOnError>): RequestResult<CreateProjectResponses, CreateProjectErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectResponses, CreateProjectErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectResponse),
@@ -2040,7 +2041,7 @@ export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: 
 /**
  * Create agent profile
  *
- * Creates a named profile that points at an agent config and returns the profile with its current config.
+ * Creates a named profile that points at an agent config and returns the profile with its current config. Reusing an idempotency key returns the current profile even if the retry body differs. The retry body is not applied.
  */
 export const createAgentProfile = <ThrowOnError extends boolean = true>(options: Options<CreateAgentProfileData, ThrowOnError>): RequestResult<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateAgentProfileResponse),

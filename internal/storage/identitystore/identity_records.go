@@ -32,7 +32,6 @@ type ProvisionOrganizationInput struct {
 
 type GetOrgCreationReplayInput struct {
 	UserID         uuid.UUID
-	Name           string
 	IdempotencyKey string
 }
 

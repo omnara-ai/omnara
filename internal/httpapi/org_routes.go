@@ -80,7 +80,6 @@ func (s strictOpenAPIServer) CreateOrganization(
 		}
 		replay, found, err := s.server.store.Identity().GetOrgCreationReplay(ctx, identitystore.GetOrgCreationReplayInput{
 			UserID:         principal.ID,
-			Name:           request.Body.Name,
 			IdempotencyKey: idempotencyKey,
 		})
 		if err != nil {

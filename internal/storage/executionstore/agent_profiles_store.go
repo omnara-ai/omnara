@@ -633,41 +633,26 @@ func insertAgentProfileTx(
 	if input.IdempotencyKey == "" {
 		return AgentProfileRecord{}, false, storeerr.ErrIdempotencyConflict
 	}
-	record, err := loadAgentProfileByIdempotencyKeyTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		input.IdempotencyKey,
-	)
+	record, found, err := loadAgentProfileReplayMaybeTx(ctx, qtx, input.ProjectID, input.IdempotencyKey)
 	if err != nil {
 		return AgentProfileRecord{}, false, err
 	}
-	if record.ProjectID != input.ProjectID || record.Name != input.Name {
+	if !found {
+		// The key is held by a soft-deleted profile; the key stays consumed.
 		return AgentProfileRecord{}, false, storeerr.ErrIdempotencyConflict
 	}
-	initialVersion, err := qtx.GetAgentProfileVersionByGeneration(
-		ctx,
-		dbsqlc.GetAgentProfileVersionByGenerationParams{
-			ProjectID:  record.ProjectID,
-			ProfileID:  record.ID,
-			Generation: 1,
-		},
-	)
-	if err != nil {
-		return AgentProfileRecord{}, false, fmt.Errorf(
-			"load initial agent profile version: %w",
-			err,
-		)
-	}
-	if initialVersion.AgentConfigID != input.CurrentConfigID {
-		return AgentProfileRecord{}, false, storeerr.ErrIdempotencyConflict
-	}
-	currentConfig, err := loadAgentConfigTx(ctx, qtx, record.ProjectID, record.CurrentConfigID)
-	if err != nil {
-		return AgentProfileRecord{}, false, err
-	}
-	record.CurrentConfig = currentConfig
 	return record, false, nil
+}
+
+func (s *Store) GetAgentProfileCreationReplay(
+	ctx context.Context,
+	projectID uuid.UUID,
+	idempotencyKey string,
+) (AgentProfileRecord, bool, error) {
+	if idempotencyKey == "" {
+		return AgentProfileRecord{}, false, nil
+	}
+	return loadAgentProfileReplayMaybeTx(ctx, s.q, projectID, agentProfileCreateIdempotencyKey(idempotencyKey))
 }
 
 func loadAgentProfileTx(
@@ -718,12 +703,12 @@ func lockAgentProfileForLaunchTx(
 	return loadAgentProfileTx(ctx, qtx, projectID, id)
 }
 
-func loadAgentProfileByIdempotencyKeyTx(
+func loadAgentProfileReplayMaybeTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID uuid.UUID,
 	idempotencyKey string,
-) (AgentProfileRecord, error) {
+) (AgentProfileRecord, bool, error) {
 	row, err := qtx.GetAgentProfileByIdempotencyKey(
 		ctx,
 		dbsqlc.GetAgentProfileByIdempotencyKeyParams{
@@ -732,13 +717,17 @@ func loadAgentProfileByIdempotencyKeyTx(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// The key is held by a soft-deleted profile; the key stays consumed.
-		return AgentProfileRecord{}, storeerr.ErrIdempotencyConflict
+		return AgentProfileRecord{}, false, nil
 	}
 	if err != nil {
-		return AgentProfileRecord{}, fmt.Errorf("load idempotent agent profile: %w", err)
+		return AgentProfileRecord{}, false, fmt.Errorf("load idempotent agent profile: %w", err)
 	}
-	return agentProfileRecordFromGetByIdempotencySQLC(row), nil
+	record := agentProfileRecordFromGetByIdempotencySQLC(row)
+	record.CurrentConfig, err = loadAgentConfigTx(ctx, qtx, record.ProjectID, record.CurrentConfigID)
+	if err != nil {
+		return AgentProfileRecord{}, false, err
+	}
+	return record, true, nil
 }
 
 func loadAgentProfileVersionByIdempotencyKeyMaybeTx(

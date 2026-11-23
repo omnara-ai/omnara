@@ -177,6 +177,17 @@ func (s strictOpenAPIServer) createAgentProfile(
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	if replay, found, err := s.server.store.Execution().GetAgentProfileCreationReplay(
+		ctx, project.ID, idempotencyKey,
+	); err != nil {
+		return nil, apierror.ProjectScoped(err)
+	} else if found {
+		response, err := s.server.agentProfileResponseFromRecord(ctx, replay)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.CreateAgentProfile200JSONResponse(response), nil
+	}
 	budgets, err := budgetAttachments(request.Body.Budgets)
 	if err != nil {
 		return nil, err

@@ -492,20 +492,34 @@ func TestBudgetsCreatedWithTheirResources(t *testing.T) {
 			http.StatusOK, admin)
 		return len(testutil.RequireType[[]any](t, page["data"]))
 	}
-	id := func(response map[string]any, field string) string {
+	resource := func(response map[string]any, field string) map[string]any {
 		if field != "" {
-			response = testutil.RequireType[map[string]any](t, response[field])
+			return testutil.RequireType[map[string]any](t, response[field])
 		}
-		return testutil.RequireType[string](t, response["id"])
+		return response
+	}
+	id := func(response map[string]any, field string) string {
+		return testutil.RequireType[string](t, resource(response, field)["id"])
+	}
+	weekly := []any{map[string]any{"interval": "week", "amount_usd": "9"}}
+	requireReplay := func(created, replayed map[string]any, field string) {
+		for _, key := range []string{"id", "name", "current_config_id"} {
+			require.Equal(t, resource(created, field)[key], resource(replayed, field)[key],
+				"a replay returns the original resource without applying the retry body")
+		}
 	}
 
-	org := post("/api/v1/orgs", map[string]any{"name": "Budgeted Org", "budgets": monthly}, "", http.StatusCreated, admin)
+	org := post("/api/v1/orgs", map[string]any{"name": "Budgeted Org", "budgets": monthly}, "budgeted-org",
+		http.StatusCreated, admin)
+	requireReplay(org, post("/api/v1/orgs", map[string]any{"name": "Changed Org", "budgets": weekly}, "budgeted-org",
+		http.StatusOK, admin), "org")
 	require.Equal(t, 1, budgets(id(org, "org"), "scope_type=org"))
 
 	projectsPath := "/api/v1/orgs/" + project.OrgID + "/projects"
-	projectBody := map[string]any{"name": "Budgeted Project", "budgets": monthly}
-	created := post(projectsPath, projectBody, "budgeted-project", http.StatusCreated, admin)
-	post(projectsPath, projectBody, "budgeted-project", http.StatusOK, admin)
+	created := post(projectsPath, map[string]any{"name": "Budgeted Project", "budgets": monthly}, "budgeted-project",
+		http.StatusCreated, admin)
+	requireReplay(created, post(projectsPath, map[string]any{"name": "Changed Project", "budgets": weekly},
+		"budgeted-project", http.StatusOK, admin), "")
 	require.Equal(t, 1, budgets(project.OrgID, "scope_type=project&project_id="+id(created, "")),
 		"a replayed create must not add budgets")
 	post(projectsPath, map[string]any{"name": "Twice", "budgets": []any{
@@ -516,9 +530,20 @@ func TestBudgetsCreatedWithTheirResources(t *testing.T) {
 		"budget-inline").Agent
 	config, err := publicid.Encode(publicid.KindAgentConfig, agent.CurrentConfigID)
 	require.NoError(t, err)
+	profilesPath := project.ProjectPath + "/agent-profiles"
 	profileBody := map[string]any{"name": "Budgeted Profile", "config": config, "budgets": monthly}
-	post(project.ProjectPath+"/agent-profiles", profileBody, "", http.StatusForbidden, developer)
-	profileID := id(post(project.ProjectPath+"/agent-profiles", profileBody, "", http.StatusCreated, admin), "")
+	post(profilesPath, profileBody, "", http.StatusForbidden, developer)
+	profile := post(profilesPath, profileBody, "budgeted-profile", http.StatusCreated, admin)
+	missingConfig, err := publicid.Encode(publicid.KindAgentConfig, uuid.New())
+	require.NoError(t, err)
+	requireReplay(profile, post(profilesPath, map[string]any{"name": "Changed Profile", "config": missingConfig,
+		"budgets": weekly}, "budgeted-profile", http.StatusOK, admin), "")
+	post(profilesPath, map[string]any{"name": "Missing Config", "config": missingConfig}, "", http.StatusNotFound, admin)
+	developerBody := map[string]any{"name": "Developer Profile", "config": config}
+	developerProfile := post(profilesPath, developerBody, "developer-profile", http.StatusCreated, developer)
+	developerBody["budgets"] = monthly
+	requireReplay(developerProfile, post(profilesPath, developerBody, "developer-profile", http.StatusOK, developer), "")
+	profileID := id(profile, "")
 	require.Equal(t, 1, budgets(project.OrgID,
 		"scope_type=profile&project_id="+project.ProjectID+"&agent_profile_id="+profileID))
 
