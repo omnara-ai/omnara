@@ -848,6 +848,27 @@ func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 	})
 }
 
+func TestProgramToolCancelKeepsNamedCallsOpen(t *testing.T) {
+	f := newProgramFixture(t)
+	var tool agentexecution.ProgramTool
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		var err error
+		tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: f.process, Key: programKey("named-cancel"), Named: true, Name: "storage_read", Type: "built_in",
+			Input: json.RawMessage(`{"path":"a"}`), OfferID: "offer-1"})
+		require.NoError(t, err)
+	})
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		ended, err := h.CancelProgramTool(t.Context(),
+			agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process})
+		require.NoError(t, err)
+		require.False(t, ended, "CancelProgramTool must not end a named call")
+		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("named-cancel"), "offer-1"))
+	})
+	state, _ := programState(t, f, tool.ID)
+	require.Equal(t, "awaiting_authorization", state)
+}
+
 func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
 	f := newProgramFixture(t)
 	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)

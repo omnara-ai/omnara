@@ -89,3 +89,10 @@ WHERE c.caller='program' AND c.program_named
  AND ((p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
   OR NOT (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'))
 ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
+
+-- name: ReadCurrentAgentCompiledConfig :one
+SELECT d.compiled_definition,d.effective_definition_hash
+FROM agents a
+JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+WHERE a.project_id=sqlc.arg(project_id) AND a.id=sqlc.arg(agent_id);

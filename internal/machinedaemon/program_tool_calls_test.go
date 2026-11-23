@@ -908,7 +908,7 @@ func TestProgramToolCallServerCancelsOnlyWhenTheLastWaiterLeaves(t *testing.T) {
 func TestProgramToolCallServerKeepsACallAnyWaiterAskedToKeep(t *testing.T) {
 	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
 	first := streamProgramToolCall(t, server, processID, `{"key":"k-1","name":"storage_list","input":{}}`)
-	nextProgramToolCallMessage(t, transport)
+	offered := nextProgramToolCallMessage(t, transport)
 	require.Equal(t, http.StatusOK, <-first.status)
 	second := streamProgramToolCall(t, server, processID,
 		`{"key":"k-1","name":"storage_list","input":{},"keep_on_disconnect":true}`)
@@ -918,11 +918,50 @@ func TestProgramToolCallServerKeepsACallAnyWaiterAskedToKeep(t *testing.T) {
 	second.stop()
 	first.stop()
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
-	select {
-	case message := <-transport.toolSend:
-		t.Fatalf("a call a waiter asked to keep was canceled: %+v", message)
-	case <-time.After(100 * time.Millisecond):
+	detached := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallCancel, detached.Type)
+	require.Equal(t, daemonprotocol.ToolCallCancel{
+		ProcessID: processID, Key: "k-1", OfferID: offered.ToolCallOffer.OfferID, DetachOnly: true,
+	}, *detached.ToolCallCancel, "disconnecting a kept call detaches the watcher without canceling the call")
+	handler.mu.Lock()
+	cancels := len(handler.cancels)
+	handler.mu.Unlock()
+	require.Zero(t, cancels, "a detach is not queued for replay as a durable cancel")
+}
+
+func TestProgramToolBinDirConcurrent(t *testing.T) {
+	client := New(Config{
+		OmnaraHome: t.TempDir(), ExpectedInstallationID: "inst_test", ExpectedMachineID: "mch_test",
+	}, nil, nil)
+	executable := filepath.Join(t.TempDir(), "omnarad")
+	require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o700))
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	dirs := make(chan string, 16)
+	for range 16 {
+		wg.Go(func() {
+			dir, err := client.programToolBinDir(executable)
+			if err != nil {
+				errs <- err
+				return
+			}
+			dirs <- dir
+		})
 	}
+	wg.Wait()
+	close(errs)
+	close(dirs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	var dir string
+	for d := range dirs {
+		require.NotEmpty(t, d)
+		dir = d
+	}
+	target, err := os.Readlink(filepath.Join(dir, "omnarad"))
+	require.NoError(t, err)
+	require.Equal(t, executable, target)
 }
 
 func TestProgramToolCallServerRefusesAKeyInFlightForAnotherCall(t *testing.T) {

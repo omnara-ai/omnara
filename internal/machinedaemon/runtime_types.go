@@ -57,8 +57,9 @@ type Client struct {
 	bootstrap                   daemonBootstrap
 	runnerLauncher              processRunnerLauncher
 
-	stateMu sync.Mutex
-	state   *statedb.Store
+	stateMu          sync.Mutex
+	state            *statedb.Store
+	programToolBinMu sync.Mutex
 
 	transportMu   sync.RWMutex
 	transport     daemonReportTransport

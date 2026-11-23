@@ -256,6 +256,31 @@ func (q *Queries) LockProgramProcess(ctx context.Context, db DBTX, arg LockProgr
 	return i, err
 }
 
+const readCurrentAgentCompiledConfig = `-- name: ReadCurrentAgentCompiledConfig :one
+SELECT d.compiled_definition,d.effective_definition_hash
+FROM agents a
+JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+WHERE a.project_id=$1 AND a.id=$2
+`
+
+type ReadCurrentAgentCompiledConfigParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type ReadCurrentAgentCompiledConfigRow struct {
+	CompiledDefinition      json.RawMessage
+	EffectiveDefinitionHash string
+}
+
+func (q *Queries) ReadCurrentAgentCompiledConfig(ctx context.Context, db DBTX, arg ReadCurrentAgentCompiledConfigParams) (ReadCurrentAgentCompiledConfigRow, error) {
+	row := db.QueryRow(ctx, readCurrentAgentCompiledConfig, arg.ProjectID, arg.AgentID)
+	var i ReadCurrentAgentCompiledConfigRow
+	err := row.Scan(&i.CompiledDefinition, &i.EffectiveDefinitionHash)
+	return i, err
+}
+
 const readProgramTool = `-- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,

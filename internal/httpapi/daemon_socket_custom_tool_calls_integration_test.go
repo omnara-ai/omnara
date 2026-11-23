@@ -166,3 +166,73 @@ func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	require.Equal(t, "already closed", failed.Content[0].Text)
 	reconnected.toolCallsDone.Wait()
 }
+
+func TestDaemonSocketProgramCustomToolRevokedBeforeApproval(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		mutateYAML  func(string) string
+		wantOutcome string
+	}{
+		{
+			name: "code mode disabled",
+			mutateYAML: func(base string) string {
+				return strings.Replace(base, "code_mode:\n  enabled: true", "code_mode:\n  enabled: false", 1)
+			},
+			wantOutcome: daemonprotocol.ProgramToolCallOutcomeFailed,
+		},
+		{
+			name: "permission changed to always_deny",
+			mutateYAML: func(base string) string {
+				return strings.Replace(base, "permission: {mode: always_ask}", "permission: {mode: always_deny}", 1)
+			},
+			wantOutcome: "denied",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newDaemonProgramToolCallFixture(t)
+			f.acceptProcess(t)
+			initialYAML := strings.Replace(programToolAgentYAML(true, "storage_list"), "code_mode:\n",
+				customProgramToolsYAML+"code_mode:\n", 1)
+			f.changeConfig(t, initialYAML)
+			ctx := t.Context()
+			agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+				testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+			admin := authHeaders(f.project.AdminToken)
+
+			socket := f.socket()
+			ask := programToolOffer(f.process.ProcessID, "close-revoked", "close_ticket", `{"id":"T-1"}`)
+			require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &ask}))
+			approval := nextToolCallReport(t, socket)
+			require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, approval.State)
+
+			f.changeConfig(t, tc.mutateYAML(initialYAML))
+
+			interactions := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions?state=open",
+				"", "", http.StatusOK, admin)
+			open, ok := interactions["data"].([]any)
+			require.True(t, ok)
+			require.Len(t, open, 1)
+			interactionID, ok := open[0].(map[string]any)["id"].(string)
+			require.True(t, ok)
+			requestJSONWithHeaders(t, f.handler, http.MethodPost,
+				agentPath+"/interactions/"+interactionID+"/resolve",
+				httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK, admin)
+
+			done := nextToolCallReport(t, socket)
+			socket.toolCallsDone.Wait()
+			require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+			require.Equal(t, tc.wantOutcome, done.Outcome)
+
+			pending := requestJSONWithHeaders(t, f.handler, http.MethodGet,
+				"/api/v1/orgs/"+f.project.OrgID+"/projects/"+f.project.ProjectID+"/tool-calls?type=custom&state=ready",
+				"", "", http.StatusOK, admin)
+			items, ok := pending["data"].([]any)
+			require.True(t, ok)
+			require.Empty(t, items, "revoked custom call must not appear as ready for external runners")
+			requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/tool-calls/"+approval.ToolCallID+"/result",
+				`{"outcome":"succeeded","content_blocks":[{"type":"text","text":"late"}]}`, "", http.StatusConflict, admin)
+		})
+	}
+}

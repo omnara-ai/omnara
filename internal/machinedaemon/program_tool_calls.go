@@ -53,6 +53,8 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
 }
 
 func (c *Client) programToolBinDir(executable string) (string, error) {
+	c.programToolBinMu.Lock()
+	defer c.programToolBinMu.Unlock()
 	machine, err := c.machineStore()
 	if err != nil {
 		return "", err
@@ -65,13 +67,20 @@ func (c *Client) programToolBinDir(executable string) (string, error) {
 	if target, err := os.Readlink(link); err == nil && target == executable {
 		return dir, nil
 	}
-	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	if err := os.Symlink(executable, link); err != nil {
-		if linkErr := os.Link(executable, link); linkErr != nil {
+	tmp := filepath.Join(dir, ".omnarad-"+uuid.NewString()+filepath.Ext(executable))
+	if err := os.Symlink(executable, tmp); err != nil {
+		if linkErr := os.Link(executable, tmp); linkErr != nil {
 			return "", errors.Join(err, linkErr)
 		}
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		if rmErr := os.Remove(link); rmErr == nil || errors.Is(rmErr, os.ErrNotExist) {
+			if retryErr := os.Rename(tmp, link); retryErr == nil {
+				return dir, nil
+			}
+		}
+		_ = os.Remove(tmp)
+		return "", err
 	}
 	return dir, nil
 }
@@ -314,10 +323,31 @@ func (h *programToolCallHandler) leave(ctx context.Context, id string, call *pro
 	if last && h.calls[id] == call {
 		delete(h.calls, id)
 	}
-	abandon := last && !call.keep && !programToolCallOver(call.report)
+	over := programToolCallOver(call.report)
+	abandon := last && !call.keep && !over
+	detach := last && call.keep && !over
 	h.mu.Unlock()
-	if abandon {
+	switch {
+	case abandon:
 		h.abandon(ctx, call.offer)
+	case detach:
+		h.detach(ctx, call.offer)
+	}
+}
+
+func (h *programToolCallHandler) detach(ctx context.Context, offer daemonprotocol.ToolCallOffer) {
+	select {
+	case <-h.stopping:
+		return
+	default:
+	}
+	cancel := daemonprotocol.ToolCallCancel{
+		ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID, DetachOnly: true,
+	}
+	ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), programToolCallCancelTimeout)
+	defer stop()
+	if transport, connected := h.client.socketTransport(); connected {
+		transport.cancelToolCall(ctx, cancel)
 	}
 }
 

@@ -263,18 +263,26 @@ func reportProgramToolCallError(
 	stderr io.Writer,
 ) int {
 	var status httpStatusError
+	pendingCustom := last.State == daemonprotocol.ProgramToolCallStateAwaitingResult && !resumable
+	recovery := fmt.Sprintf("tool call %s is still waiting for its result, so run it again with "+
+		"--idempotency-key %s to pick it up", last.ToolCallID, key)
 	switch {
 	case errors.As(err, &status):
-		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s\n", tool, status.Body)
+		if pendingCustom {
+			_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s; %s\n", tool, status.Body, recovery)
+		} else {
+			_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s\n", tool, status.Body)
+		}
 		switch status.StatusCode {
 		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusGone,
 			http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
 			return ProgramToolCallExitUnavailable
 		}
 		return ProgramToolCallExitTransport
-	case ctx.Err() != nil && last.State == daemonprotocol.ProgramToolCallStateAwaitingResult && !resumable:
-		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: stopped waiting; tool call %s is still waiting for its "+
-			"result, so run it again with --idempotency-key %s to pick it up\n", tool, last.ToolCallID, key)
+	case pendingCustom && ctx.Err() != nil:
+		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: stopped waiting; %s\n", tool, recovery)
+	case pendingCustom:
+		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %v; %s\n", tool, err, recovery)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) && resumable:
 		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: timed out; the call is still open, so run it again with "+
 			"the same --idempotency-key to pick it up\n", tool)

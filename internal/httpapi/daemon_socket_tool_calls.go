@@ -73,6 +73,7 @@ func rejectToolCall(code, format string, args ...any) error {
 
 type servedToolCall struct {
 	canceled  chan struct{}
+	detached  chan struct{}
 	done      chan struct{}
 	reoffered chan struct{}
 	offerID   string
@@ -80,8 +81,8 @@ type servedToolCall struct {
 }
 
 func newServedToolCall(offer daemonprotocol.ToolCallOffer) *servedToolCall {
-	return &servedToolCall{canceled: make(chan struct{}), done: make(chan struct{}),
-		reoffered: make(chan struct{}, 1), offerID: offer.OfferID}
+	return &servedToolCall{canceled: make(chan struct{}), detached: make(chan struct{}),
+		done: make(chan struct{}), reoffered: make(chan struct{}, 1), offerID: offer.OfferID}
 }
 
 func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotocol.Message) error {
@@ -171,6 +172,17 @@ func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol
 	id := cancel.ProcessID + "\x00" + cancel.Key
 	s.workMu.Lock()
 	call, serving := s.toolCalls[id]
+	if cancel.DetachOnly {
+		switch {
+		case serving && call.next != nil && call.next.OfferID == cancel.OfferID:
+			call.next = nil
+		case serving && (cancel.OfferID == "" || cancel.OfferID == call.offerID):
+			close(call.detached)
+			delete(s.toolCalls, id)
+		}
+		s.workMu.Unlock()
+		return
+	}
 	switch {
 	case serving && call.next != nil && call.next.OfferID == cancel.OfferID:
 		call.next = nil
@@ -348,6 +360,12 @@ func (s *daemonSocket) serveToolCall(
 		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: *result})
 		return
 	}
+	select {
+	case <-call.detached:
+		server.programToolDriver.wake()
+		return
+	default:
+	}
 	poll := programToolCallFallbackPoll
 	updates := make(chan struct{}, 1)
 	var watching atomic.Value
@@ -393,14 +411,21 @@ func (s *daemonSocket) serveToolCall(
 			return
 		}
 		select {
+		case <-call.detached:
+			if record.State == executionstore.ToolCallStateAwaitingAuthorization ||
+				(record.State == executionstore.ToolCallStateReady && record.Type != toolcatalog.ToolTypeCustom) {
+				server.programToolDriver.wake()
+			}
+			return
 		case <-canceled:
 			canceling, canceled = true, nil
 		default:
 		}
 		if canceling {
 			over := record.State == executionstore.ToolCallStateCompleted
+			ended := over
 			if !over {
-				over, err = server.store.Execution().CancelDaemonProgramToolCall(ctx, s.authority(), ref)
+				over, ended, err = server.store.Execution().CancelDaemonProgramToolCall(ctx, s.authority(), ref)
 				if errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
 					return
 				}
@@ -409,8 +434,11 @@ func (s *daemonSocket) serveToolCall(
 				}
 			}
 			if over {
-				if run != nil {
+				if ended && run != nil {
 					run.stop()
+				} else if !ended && (record.State == executionstore.ToolCallStateAwaitingAuthorization ||
+					(record.State == executionstore.ToolCallStateReady && record.Type != toolcatalog.ToolTypeCustom)) {
+					server.programToolDriver.wake()
 				}
 				s.reportToolCallCanceled(ctx, daemonprotocol.ToolCallCancel{
 					ProcessID: offer.ProcessID, Key: offer.Key, OfferID: offer.OfferID})
@@ -457,6 +485,13 @@ func (s *daemonSocket) serveToolCall(
 		case <-canceled:
 			timer.Stop()
 			canceling, canceled = true, nil
+		case <-call.detached:
+			timer.Stop()
+			if record.State == executionstore.ToolCallStateAwaitingAuthorization ||
+				(record.State == executionstore.ToolCallStateReady && record.Type != toolcatalog.ToolTypeCustom) {
+				server.programToolDriver.wake()
+			}
+			return
 		case <-call.reoffered:
 			timer.Stop()
 			next := s.nextToolCallOffer(call)

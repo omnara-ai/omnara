@@ -412,3 +412,53 @@ func TestProgramToolCallCLITimeoutWaitingForACustomToolResultPrintsItsKey(t *tes
 	require.Equal(t, ProgramToolCallExitTransport, code)
 	require.Contains(t, stderr, "run it again with the same --idempotency-key", "a named call keeps its own hint")
 }
+
+func TestProgramToolCallCLICustomToolTransportFailurePrintsItsKey(t *testing.T) {
+	last := daemonprotocol.ProgramToolCallResult{
+		ToolCallID: "tc_drop", State: daemonprotocol.ProgramToolCallStateAwaitingResult,
+	}
+	for _, tc := range []struct {
+		name     string
+		err      error
+		wantCode int
+	}{
+		{
+			name:     "stream dropped with active context",
+			err:      errors.New("daemon stopped before the tool call completed"),
+			wantCode: ProgramToolCallExitTransport,
+		},
+		{
+			name:     "http 503 after retries",
+			err:      httpStatusError{StatusCode: http.StatusServiceUnavailable, Body: "tool call service busy"},
+			wantCode: ProgramToolCallExitTransport,
+		},
+		{
+			name:     "http 404 after awaiting result",
+			err:      httpStatusError{StatusCode: http.StatusNotFound, Body: "no running process"},
+			wantCode: ProgramToolCallExitUnavailable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			code := reportProgramToolCallError(t.Context(), "create_ticket", "gen-key-1", false, last, tc.err, &stderr)
+			require.Equal(t, tc.wantCode, code)
+			require.Contains(t, stderr.String(), "tool call tc_drop is still waiting for its result, so run it again "+
+				"with --idempotency-key gen-key-1 to pick it up")
+		})
+	}
+
+	daemon := startFakeToolCallDaemon(t, func(attempt int, _ fakeToolCallRequest) (int, http.Header, string) {
+		if attempt == 0 {
+			return http.StatusOK, nil, `{"tool_call_id":"tc_drop","state":"awaiting_result"}` + "\n"
+		}
+		return http.StatusNotFound, nil, `{"error":"no running process can call tools here","code":"not_found"}`
+	})
+	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{
+		Tool: "create_ticket", Timeout: 5 * time.Second,
+	}, "")
+	require.Equal(t, ProgramToolCallExitUnavailable, code)
+	require.Empty(t, stdout)
+	key := daemon.recorded()[0].Body.Key
+	require.Contains(t, stderr, "tool call tc_drop is still waiting for its result, so run it again with "+
+		"--idempotency-key "+key+" to pick it up")
+}

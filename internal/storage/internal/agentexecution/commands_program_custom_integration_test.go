@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -108,10 +110,10 @@ func TestProgramCustomToolWaitsForItsResult(t *testing.T) {
 
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("ticket"), ""))
-		over, err := h.CancelProgramTool(t.Context(),
+		ended, err := h.CancelProgramTool(t.Context(),
 			agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process})
 		require.NoError(t, err)
-		require.True(t, over, "the waiter is released")
+		require.False(t, ended, "a custom call awaiting its result stays open")
 	})
 	state, _ = programState(t, f, tool.ID)
 	require.Equal(t, "ready", state, "a command that stops waiting leaves the call pending")
@@ -186,10 +188,84 @@ func TestProgramCustomToolResultChecksTheCall(t *testing.T) {
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
 }
 
+func setCustomProgramConfig(t *testing.T, f programFixture, source string) {
+	t.Helper()
+	ctx := t.Context()
+	store := storage.NewStore(f.pool)
+	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), f.org, f.project, source)
+	_, err := f.pool.Exec(ctx, `UPDATE agents SET current_config_id=$1 WHERE id=$2`, config.ID, f.agent)
+	require.NoError(t, err)
+}
+
+func customProgramPermission(t *testing.T) toolpermission.Request {
+	t.Helper()
+	form, err := toolpermission.NewAllowDenyForm("Permission", nil)
+	require.NoError(t, err)
+	return toolpermission.Request{
+		Permission:    toolpermission.Selection{Mode: toolpermission.ModeAlwaysAsk},
+		Authorization: toolpermission.Authorization{ToolName: "create_ticket", Input: json.RawMessage(customProgramInput)},
+		Form:          form,
+	}
+}
+
+func customProgramYAML(codeModeEnabled bool, toolCodeMode string, permissionMode string) string {
+	enabled := "false"
+	if codeModeEnabled {
+		enabled = "true"
+	}
+	toolCM := ""
+	if toolCodeMode != "" {
+		toolCM = "    code_mode: " + toolCodeMode + "\n"
+	}
+	return executionFixtureSource +
+		"tools:\n  create_ticket:\n    type: custom\n    description: Create a ticket.\n" +
+		"    input_schema: {type: object, properties: {title: {type: string}}}\n" +
+		"    permission: {mode: " + permissionMode + "}\n" + toolCM +
+		"code_mode:\n  enabled: " + enabled + "\n"
+}
+
 func TestProgramCustomToolPermission(t *testing.T) {
-	for _, mode := range []string{"allow", "deny"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		option         int
+		updatedConfig  string
+		wantState      string
+		wantOutcome    string
+		wantReadyEvent bool
+	}{
+		{
+			name: "allow", option: toolpermission.AllowOptionIndex,
+			wantState: "ready", wantReadyEvent: true,
+		},
+		{
+			name: "deny", option: toolpermission.DenyOptionIndex,
+			wantState: "completed", wantOutcome: "denied",
+		},
+		{
+			name: "revoked code mode", option: toolpermission.AllowOptionIndex,
+			updatedConfig: customProgramYAML(false, "", string(toolpermission.ModeAlwaysAsk)),
+			wantState:     "completed", wantOutcome: "failed",
+		},
+		{
+			name: "revoked tool code mode", option: toolpermission.AllowOptionIndex,
+			updatedConfig: customProgramYAML(true, "false", string(toolpermission.ModeAlwaysAsk)),
+			wantState:     "completed", wantOutcome: "failed",
+		},
+		{
+			name: "changed to always_deny", option: toolpermission.AllowOptionIndex,
+			updatedConfig: customProgramYAML(true, "", string(toolpermission.ModeAlwaysDeny)),
+			wantState:     "completed", wantOutcome: "denied",
+		},
+		{
+			name: "changed to always_allow", option: toolpermission.AllowOptionIndex,
+			updatedConfig:  customProgramYAML(true, "", string(toolpermission.ModeAlwaysAllow)),
+			wantState:      "ready",
+			wantReadyEvent: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			f := newProgramFixture(t)
+			setCustomProgramConfig(t, f, customProgramYAML(true, "", string(toolpermission.ModeAlwaysAsk)))
 			before := f.fingerprint(t)
 			tool := f.createCustom(t, "ticket")
 			claim := uuid.New()
@@ -200,30 +276,34 @@ func TestProgramCustomToolPermission(t *testing.T) {
 				var err error
 				opened, err = h.OpenProgramPermission(t.Context(),
 					agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: claim},
-					programPermission(t), nil)
+					customProgramPermission(t), nil)
 				require.NoError(t, err)
 			})
 			state, _ := programState(t, f, tool.ID)
 			require.Equal(t, "awaiting_permission", state)
-			option := toolpermission.AllowOptionIndex
-			if mode == "deny" {
-				option = toolpermission.DenyOptionIndex
+			if tc.updatedConfig != "" {
+				setCustomProgramConfig(t, f, tc.updatedConfig)
 			}
 			var updates []notifications.ToolCallUpdatedCommitted
 			f.tx(t, func(u *agentexecution.Unit, h *agentexecution.Handle) {
 				_, err := h.ResolveInteraction(t.Context(), agentexecution.ResolveInteractionInput{ID: opened.ID,
 					Resolution: interactionform.Resolution{Answers: []interactionform.Answer{
-						{OptionIndices: []int{option}}}}})
+						{OptionIndices: []int{tc.option}}}}})
 				require.NoError(t, err)
 				updates = u.Notifications().ToolCallUpdates()
 			})
 			require.Len(t, updates, 1)
 			state, outcome := programState(t, f, tool.ID)
-			if mode == "deny" {
-				require.Equal(t, []string{"completed", "denied"}, []string{state, outcome})
+			require.Equal(t, tc.wantState, state)
+			require.Equal(t, tc.wantOutcome, outcome)
+			if !tc.wantReadyEvent {
 				require.Equal(t, "completed", updates[0].State)
+				require.Empty(t, updates[0].Name, "a revoked or denied custom call must not publish readiness")
+				f.try(t, func(h *agentexecution.Handle) {
+					_, err := h.CompleteProgramCustomTool(t.Context(), tool.ID, "succeeded", nil)
+					require.ErrorIs(t, err, storeerr.ErrToolCallCompleted)
+				})
 			} else {
-				require.Equal(t, "ready", state, "an approved custom call waits for its result")
 				require.Equal(t, "create_ticket", updates[0].Name)
 				require.Equal(t, f.parent, updates[0].ParentToolCallID)
 				require.NotNil(t, updates[0].InteractionUpdate)

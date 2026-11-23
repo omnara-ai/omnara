@@ -134,3 +134,62 @@ func TestDaemonSocketNamedToolCallRunsAfterItsOfferIsGone(t *testing.T) {
 		})
 	}
 }
+
+func TestDaemonSocketNamedToolCallDetachAndCancelPreserveCall(t *testing.T) {
+	t.Parallel()
+	for _, detachOnly := range []bool{true, false} {
+		name := "cancel"
+		if detachOnly {
+			name = "detach"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newDaemonProgramToolCallFixture(t)
+			f.acceptProcess(t)
+			ctx := t.Context()
+			ask := programToolOffer(f.process.ProcessID, "named-"+name, toolcatalog.ToolNameStorageRead,
+				`{"path":"/memory/engineering/notes.md"}`)
+			ask.OfferID, ask.KeepOnDisconnect = "first", true
+
+			socket := f.socket()
+			require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &ask}))
+			waiting := nextToolCallReport(t, socket)
+			require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, waiting.State)
+
+			require.NoError(t, socket.handleToolCallCancel(ctx, daemonprotocol.Message{
+				ToolCallCancel: &daemonprotocol.ToolCallCancel{
+					ProcessID: ask.ProcessID, Key: ask.Key, OfferID: ask.OfferID, DetachOnly: detachOnly,
+				},
+			}))
+			socket.toolCallsDone.Wait()
+			if !detachOnly {
+				ack := nextToolCallReport(t, socket)
+				require.True(t, ack.CancelRecorded)
+			}
+			socket.workMu.Lock()
+			active := socket.toolCallsActive
+			socket.workMu.Unlock()
+			require.Zero(t, active, "detaching or canceling a named call frees its socket slot")
+			require.Zero(t, len(f.server.programToolRuns.pending), "pending server slot is freed")
+
+			state, _ := f.toolCallState(t, waiting.ToolCallID)
+			require.Equal(t, "awaiting_permission", state, "the named call remains open for approval")
+
+			callID, err := publicid.Decode(publicid.KindToolCall, waiting.ToolCallID)
+			require.NoError(t, err)
+			var interaction uuid.UUID
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT id FROM agent_interactions
+ WHERE agent_id=$1 AND tool_call_id=$2 AND state='open'`, f.process.AgentUUID, callID).Scan(&interaction))
+			agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+				testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+			requestJSONWithHeaders(t, f.handler, http.MethodPost,
+				agentPath+"/interactions/"+testPublicID(t, publicid.KindAgentInteraction, interaction)+"/resolve",
+				httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
+				authHeaders(f.project.AdminToken))
+			require.Eventually(t, func() bool {
+				state, _ := f.toolCallState(t, waiting.ToolCallID)
+				return state == "completed"
+			}, 15*time.Second, 50*time.Millisecond, "the detached named call runs once approved")
+		})
+	}
+}

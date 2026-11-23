@@ -71,7 +71,8 @@ type ToolCallReport struct {
 }
 
 type ToolCallCancel struct {
-	ProcessID string `json:"process_id"`
-	Key       string `json:"key"`
-	OfferID   string `json:"offer_id,omitempty"`
+	ProcessID  string `json:"process_id"`
+	Key        string `json:"key"`
+	OfferID    string `json:"offer_id,omitempty"`
+	DetachOnly bool   `json:"detach_only,omitempty"`
 }

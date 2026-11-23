@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -665,7 +667,7 @@ func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (boo
 		if err != nil {
 			return false, err
 		}
-		return true, h.cancelProgramTool(ctx, row)
+		return h.cancelProgramTool(ctx, row)
 	})
 }
 
@@ -687,21 +689,25 @@ func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID
 			(offerID != "" && storeutil.ValueOrZero(row.ProgramOfferID) != offerID) {
 			return struct{}{}, nil
 		}
-		return struct{}{}, h.cancelProgramTool(ctx, row)
+		_, err = h.cancelProgramTool(ctx, row)
+		return struct{}{}, err
 	})
 	return err
 }
 
-func (h *Handle) cancelProgramTool(ctx context.Context, row executiondb.ReadProgramToolRow) error {
-	if row.State == "completed" || programToolAwaitingResult(row) {
-		return nil
+func (h *Handle) cancelProgramTool(ctx context.Context, row executiondb.ReadProgramToolRow) (bool, error) {
+	if row.State == "completed" {
+		return true, nil
+	}
+	if row.ProgramNamed || programToolAwaitingResult(row) {
+		return false, nil
 	}
 	outcome, body, err := programToolStopped(row, "caller_gone", "The command stopped waiting for this call.")
 	if err != nil {
-		return err
+		return false, err
 	}
 	_, err = h.completeProgramTool(ctx, row, outcome, []Content{{Kind: "structured_data", Data: body}}, nil)
-	return err
+	return err == nil, err
 }
 
 func (h *Handle) resolveProgramInteraction(
@@ -763,6 +769,17 @@ func (h *Handle) resolveProgramInteraction(
 			return Interaction{}, err
 		}
 		if decision.Decision == toolpermission.DecisionAllow {
+			if call.Type == toolcatalog.ToolTypeCustom {
+				outcome, body, allowed, err := h.programCustomToolApprovalHolds(ctx, call, request)
+				if err != nil {
+					return Interaction{}, err
+				}
+				if !allowed {
+					_, err = h.completeProgramTool(ctx, call, outcome,
+						[]Content{{Kind: "structured_data", Data: body}}, result.notification())
+					return result, err
+				}
+			}
 			if err = h.transitionProgramTool(ctx, call, "ready", uuid.Nil, 0); err != nil {
 				return Interaction{}, err
 			}
@@ -777,6 +794,51 @@ func (h *Handle) resolveProgramInteraction(
 			result.notification())
 		return result, err
 	})
+}
+
+func (h *Handle) programCustomToolApprovalHolds(
+	ctx context.Context, call executiondb.ReadProgramToolRow, request toolpermission.Request,
+) (string, json.RawMessage, bool, error) {
+	cfg, err := executiondb.New().ReadCurrentAgentCompiledConfig(ctx, h.unit.DB(),
+		executiondb.ReadCurrentAgentCompiledConfigParams{ProjectID: h.route.ProjectID, AgentID: h.route.AgentID})
+	if err != nil {
+		return "", nil, false, err
+	}
+	contract, err := agentconfig.RuntimeContractFromCompiled(cfg.CompiledDefinition, cfg.EffectiveDefinitionHash)
+	if err != nil {
+		return "", nil, false, err
+	}
+	var matched *agentconfig.RuntimeTool
+	for i := range contract.Tools {
+		if contract.Tools[i].Name == call.Name && contract.Tools[i].Type == toolcatalog.ToolTypeCustom {
+			matched = &contract.Tools[i]
+			break
+		}
+	}
+	if matched == nil || !matched.CodeMode {
+		body, err := json.Marshal(map[string]any{
+			"error_code": "unsupported",
+			"error":      fmt.Sprintf("tool %q is not enabled for this agent config", call.Name),
+		})
+		return "failed", body, false, err
+	}
+	selection, err := toolpermission.NormalizeSelection(matched.Permission)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("tool %q runtime permission: %w", call.Name, err)
+	}
+	if selection.Mode == toolpermission.ModeAlwaysAllow {
+		return "", nil, true, nil
+	}
+	if selection.Mode != toolpermission.ModeAlwaysDeny &&
+		request.Authorization.ToolName == call.Name &&
+		request.Permission.Mode == selection.Mode &&
+		equalJSON(request.Permission.Parameters, selection.Parameters) {
+		return "", nil, true, nil
+	}
+	body, err := json.Marshal(map[string]string{
+		"reason": "The tool's permission changed after this call was approved. Make the call again.",
+	})
+	return "denied", body, false, err
 }
 
 func (c *AgentCell) RenewProgramTool(

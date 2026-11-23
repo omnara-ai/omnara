@@ -13,21 +13,21 @@ import (
 
 func (s *Store) CancelDaemonProgramToolCall(
 	ctx context.Context, authority DaemonRuntimeAuthority, ref ProgramToolCallRef,
-) (bool, error) {
+) (bool, bool, error) {
 	if err := ref.validate(); err != nil {
-		return false, err
+		return false, false, err
 	}
-	done, found, err := daemonProgramUnit(ctx, s, "cancel_daemon_program_tool_call", authority, ref.ProcessID,
+	ended, found, err := daemonProgramUnit(ctx, s, "cancel_daemon_program_tool_call", authority, ref.ProcessID,
 		func(h *agentexecution.Handle) (bool, error) {
 			return h.CancelProgramTool(ctx, ref.ref())
 		})
 	switch {
 	case errors.Is(err, storeerr.ErrProcessTerminal), errors.Is(err, storeerr.ErrNotFound):
-		return true, nil
+		return true, true, nil
 	case err != nil:
-		return false, err
+		return false, false, err
 	}
-	return done || !found, nil
+	return true, ended || !found, nil
 }
 
 func (s *Store) CancelDaemonProgramToolCallByKey(
