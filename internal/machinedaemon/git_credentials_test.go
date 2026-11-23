@@ -36,6 +36,7 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 	require.NoError(t, err)
 	var calls atomic.Int32
 	var transientFailures atomic.Int32
+	var transientStatus atomic.Int32
 	var rateLimits atomic.Int32
 	var permanentFailure atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,11 +44,16 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 		assert.Equal(t, "/daemon/processes/"+processID+"/git-credentials", r.URL.Path)
 		assert.Equal(t, "Bearer machine-secret", r.Header.Get("Authorization"))
 		if status := permanentFailure.Load(); status != 0 {
-			http.Error(w, "do-not-echo-upstream-body", int(status))
+			code := strings.ToLower(http.StatusText(int(status)))
+			http.Error(w, `{"code":"`+code+`","error":"do-not-echo-upstream-body"}`, int(status))
 			return
 		}
 		if transientFailures.Add(-1) >= 0 {
-			http.Error(w, "temporary failure", http.StatusServiceUnavailable)
+			body := "temporary failure"
+			if transientStatus.Load() == http.StatusUnauthorized {
+				body = `{"code":"` + daemonprotocol.ErrorCodeMachineTokenNotInjected + `"}`
+			}
+			http.Error(w, body, int(transientStatus.Load()))
 			return
 		}
 		if rateLimits.Add(-1) >= 0 {
@@ -120,12 +126,15 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Symlink(executable, alias+".next"))
 	require.NoError(t, os.Rename(alias+".next", alias))
-	transientFailures.Store(2)
-	beforeRetry := calls.Load()
-	output, stderr, err = run("fill", "github.com", env)
-	require.NoError(t, err, stderr)
-	require.Contains(t, output, "password=fresh-token")
-	require.Equal(t, beforeRetry+3, calls.Load())
+	for _, status := range []int{http.StatusServiceUnavailable, http.StatusUnauthorized} {
+		transientStatus.Store(int32(status))
+		transientFailures.Store(2)
+		beforeRetry := calls.Load()
+		output, stderr, err = run("fill", "github.com", env)
+		require.NoError(t, err, stderr)
+		require.Contains(t, output, "password=fresh-token")
+		require.Equal(t, beforeRetry+3, calls.Load())
+	}
 	rateLimits.Store(1)
 	beforeRateLimit := calls.Load()
 	rateLimitedAt := time.Now()
@@ -134,7 +143,7 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 	require.Contains(t, output, "password=fresh-token")
 	require.Equal(t, beforeRateLimit+2, calls.Load())
 	require.GreaterOrEqual(t, time.Since(rateLimitedAt), time.Second, "the helper must wait out Retry-After")
-	for _, status := range []int{http.StatusForbidden, http.StatusConflict} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict} {
 		permanentFailure.Store(int32(status))
 		beforeFailure := calls.Load()
 		output, stderr, err = run("fill", "github.com", env)

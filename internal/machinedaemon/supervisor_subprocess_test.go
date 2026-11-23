@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -656,7 +657,7 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 
 	rejectingServer := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "machine token rejected", http.StatusUnauthorized)
+			http.Error(w, `{"code":"unauthorized","error":"machine token rejected"}`, http.StatusUnauthorized)
 		},
 	))
 	defer rejectingServer.Close()
@@ -695,6 +696,74 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 		"best-effort local process shutdown was incomplete",
 	) {
 		t.Fatalf("clean authority-loss shutdown warning = %q", got)
+	}
+}
+
+func TestMachineTokenNotInjectedKeepsDetachedProcessRunning(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("detached process containment is not complete on Windows")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	fixture := newDetachedSupervisorTestFixture(t, ctx, ProcessAssignment{
+		ID: "prc_machine_token_not_injected",
+		Process: Process{
+			ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
+			Cwd:           t.TempDir(),
+		},
+	})
+	fixture.acceptAndStart(t, ctx)
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			requests.Add(1)
+			http.Error(
+				w,
+				`{"code":"`+daemonprotocol.ErrorCodeMachineTokenNotInjected+`"}`,
+				http.StatusUnauthorized,
+			)
+		},
+	))
+	defer server.Close()
+	restarted := New(
+		Config{
+			APIURL:                 server.URL,
+			MachineToken:           daemonprotocol.ProviderInjectedMachineToken,
+			OmnaraHome:             fixture.client.cfg.OmnaraHome,
+			ExpectedInstallationID: fixture.client.bootstrap.InstallationID,
+			ExpectedMachineID:      fixture.client.bootstrap.MachineID,
+			RunnerPath:             os.Getenv("PATH"),
+			RetryInterval:          time.Millisecond,
+		},
+		nil,
+		nil,
+	)
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- restarted.Run(runCtx) }()
+	for requests.Load() < 3 {
+		select {
+		case err := <-done:
+			t.Fatalf("daemon stopped instead of retrying when the machine token was not injected: %v", err)
+		case <-ctx.Done():
+			t.Fatal("daemon did not keep retrying when the machine token was not injected")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	stop()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("daemon run error = %v, want context canceled", err)
+	}
+	if fixture.runtime.runner.IsDone() {
+		t.Fatal("a machine token that was not injected stopped the process supervisor")
+	}
+	machine, err := restarted.machineStore()
+	require.NoError(t, err)
+	if _, err := os.Stat(machine.MachineDir()); err != nil {
+		t.Fatalf("local machine state was removed: %v", err)
 	}
 }
 
