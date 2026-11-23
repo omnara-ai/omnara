@@ -23,8 +23,11 @@ SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
  AND state='ready' ORDER BY id;
 
 -- name: ReadProgramTool :one
+-- named_expired is decided in database time, by the same rule ListProgramToolReapable applies, so a
+-- server's clock cannot end a named call before maintenance would.
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')::boolean AS named_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
@@ -34,6 +37,7 @@ FOR UPDATE OF c;
 -- name: ReadProgramToolByKey :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')::boolean AS named_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
@@ -64,12 +68,13 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
 RETURNING c.program_claim_expires_at;
 
 -- name: ListProgramToolReapable :many
+-- A named call's lifetime uses the named_expired rule of ReadProgramTool.
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
  OR (NOT (c.type='custom' AND c.state='ready')
   AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
-  OR (c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'
+  OR ((c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')
    AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
  AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)

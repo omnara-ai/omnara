@@ -78,7 +78,7 @@ JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
  OR (NOT (c.type='custom' AND c.state='ready')
   AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
-  OR (c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond'
+  OR ((c.program_named AND c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond')
    AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
  OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
  AND (c.created_at,c.id)>($2::timestamptz,$3::uuid)
@@ -99,6 +99,7 @@ type ListProgramToolReapableRow struct {
 	CreatedAt time.Time
 }
 
+// A named call's lifetime uses the named_expired rule of ReadProgramTool.
 func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg ListProgramToolReapableParams) ([]ListProgramToolReapableRow, error) {
 	rows, err := db.Query(ctx, listProgramToolReapable,
 		arg.NamedLifetimeMicroseconds,
@@ -184,16 +185,18 @@ func (q *Queries) LockProgramProcess(ctx context.Context, db DBTX, arg LockProgr
 const readProgramTool = `-- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond')::boolean AS named_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-WHERE c.agent_id=$1 AND c.caller='program' AND c.id=$2
+WHERE c.agent_id=$2 AND c.caller='program' AND c.id=$3
 FOR UPDATE OF c
 `
 
 type ReadProgramToolParams struct {
-	AgentID uuid.UUID
-	ID      uuid.UUID
+	NamedLifetimeMicroseconds int64
+	AgentID                   uuid.UUID
+	ID                        uuid.UUID
 }
 
 type ReadProgramToolRow struct {
@@ -209,6 +212,7 @@ type ReadProgramToolRow struct {
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
+	NamedExpired          bool
 	CreatedAt             time.Time
 	ProcessID             uuid.UUID
 	ResultID              *uuid.UUID
@@ -216,8 +220,10 @@ type ReadProgramToolRow struct {
 	CompletedAt           *time.Time
 }
 
+// named_expired is decided in database time, by the same rule ListProgramToolReapable applies, so a
+// server's clock cannot end a named call before maintenance would.
 func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramToolParams) (ReadProgramToolRow, error) {
-	row := db.QueryRow(ctx, readProgramTool, arg.AgentID, arg.ID)
+	row := db.QueryRow(ctx, readProgramTool, arg.NamedLifetimeMicroseconds, arg.AgentID, arg.ID)
 	var i ReadProgramToolRow
 	err := row.Scan(
 		&i.ID,
@@ -232,6 +238,7 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
+		&i.NamedExpired,
 		&i.CreatedAt,
 		&i.ProcessID,
 		&i.ResultID,
@@ -244,17 +251,19 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 const readProgramToolByKey = `-- name: ReadProgramToolByKey :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond')::boolean AS named_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-WHERE c.agent_id=$1 AND c.caller='program' AND c.provider_call_id=$2
+WHERE c.agent_id=$2 AND c.caller='program' AND c.provider_call_id=$3
 ORDER BY c.created_at DESC,c.id DESC LIMIT 1
 FOR UPDATE OF c
 `
 
 type ReadProgramToolByKeyParams struct {
-	AgentID uuid.UUID
-	Key     string
+	NamedLifetimeMicroseconds int64
+	AgentID                   uuid.UUID
+	Key                       string
 }
 
 type ReadProgramToolByKeyRow struct {
@@ -270,6 +279,7 @@ type ReadProgramToolByKeyRow struct {
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
+	NamedExpired          bool
 	CreatedAt             time.Time
 	ProcessID             uuid.UUID
 	ResultID              *uuid.UUID
@@ -278,7 +288,7 @@ type ReadProgramToolByKeyRow struct {
 }
 
 func (q *Queries) ReadProgramToolByKey(ctx context.Context, db DBTX, arg ReadProgramToolByKeyParams) (ReadProgramToolByKeyRow, error) {
-	row := db.QueryRow(ctx, readProgramToolByKey, arg.AgentID, arg.Key)
+	row := db.QueryRow(ctx, readProgramToolByKey, arg.NamedLifetimeMicroseconds, arg.AgentID, arg.Key)
 	var i ReadProgramToolByKeyRow
 	err := row.Scan(
 		&i.ID,
@@ -293,6 +303,7 @@ func (q *Queries) ReadProgramToolByKey(ctx context.Context, db DBTX, arg ReadPro
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
+		&i.NamedExpired,
 		&i.CreatedAt,
 		&i.ProcessID,
 		&i.ResultID,

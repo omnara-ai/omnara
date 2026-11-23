@@ -861,3 +861,63 @@ func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	})
 }
+
+// A named call's lifetime is measured in database time, by one rule for a rerun and for maintenance:
+// a server whose clock runs ahead of the database cannot end it before maintenance would.
+func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
+	f := newProgramFixture(t)
+	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
+	// created_at cannot be changed once written, so each call is written with the age it needs.
+	aged := func(key, age string) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		require.NoError(t, f.pool.QueryRow(t.Context(), `INSERT INTO tool_calls(project_id,agent_id,provider_call_id,
+ name,input,type,state,caller,parent_tool_call_id,program_named,created_at)
+ SELECT project_id,agent_id,$2,'storage_read','{"path":"a"}','built_in','awaiting_authorization','program',id,true,
+ statement_timestamp()-$3::interval FROM tool_calls WHERE id=$1 RETURNING id`,
+			f.parent, programKey(key), age).Scan(&id))
+		return id
+	}
+	// Two minutes short of its lifetime: a server two minutes ahead would have seen it as expired.
+	young := aged("young", "23 hours 58 minutes")
+	old := aged("old", "24 hours 1 second")
+	_, err := f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
+ exit_code=0 WHERE id=$1`, f.process)
+	require.NoError(t, err)
+
+	reapable, err := agentexecution.NewCell(f.pool, nil, nil).ListProgramToolReapable(t.Context(),
+		agentexecution.ReapableProgramTool{}, 1000)
+	require.NoError(t, err)
+	var ids []uuid.UUID
+	for _, row := range reapable {
+		if row.AgentID == f.agent {
+			ids = append(ids, row.ID)
+		}
+	}
+	require.Equal(t, []uuid.UUID{old}, ids, "maintenance ends only the call past its lifetime")
+	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		resume := func(key string) (agentexecution.ProgramTool, bool) {
+			tool, found, err := h.ResumeProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+				ProcessID: second.process, Key: programKey(key), Named: true, Name: "storage_read",
+				Input: json.RawMessage(`{"path":"a"}`)})
+			require.NoError(t, err)
+			return tool, found
+		}
+		tool, found := resume("young")
+		require.True(t, found, "a rerun picks up a call still inside its lifetime")
+		require.Equal(t, []any{young, "awaiting_authorization"}, []any{tool.ID, tool.State})
+		_, found = resume("old")
+		require.False(t, found, "a rerun agrees with maintenance that the old call has expired")
+		reaped, err := h.ReapProgramTool(t.Context(), young)
+		require.NoError(t, err)
+		require.False(t, reaped)
+	})
+	state, outcome := programState(t, f, young)
+	require.Equal(t, []string{"awaiting_authorization", ""}, []string{state, outcome})
+	state, outcome = programState(t, f, old)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+	var code string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
+ JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, old).Scan(&code))
+	require.Equal(t, "expired", code)
+}

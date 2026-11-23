@@ -31,8 +31,11 @@ const (
 )
 
 // programToolNamedLifetime is how long a named call stays open once the command that made it has
-// ended and no server is running it. Until then a rerun with its key picks it up.
+// ended and no server is running it. Until then a rerun with its key picks it up. The database
+// measures it, so servers whose clocks disagree still end a call at the same moment.
 var programToolNamedLifetime = 24 * time.Hour
+
+func programToolNamedLifetimeMicroseconds() int64 { return programToolNamedLifetime.Microseconds() }
 
 type ProgramTool struct {
 	ID        uuid.UUID
@@ -123,7 +126,8 @@ func programToolAwaitingResult(row executiondb.ReadProgramToolRow) bool {
 
 func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (executiondb.ReadProgramToolRow, error) {
 	row, err := executiondb.New().ReadProgramTool(ctx, h.unit.DB(),
-		executiondb.ReadProgramToolParams{AgentID: h.route.AgentID, ID: id})
+		executiondb.ReadProgramToolParams{AgentID: h.route.AgentID, ID: id,
+			NamedLifetimeMicroseconds: programToolNamedLifetimeMicroseconds()})
 	if err == nil && processID != uuid.Nil && row.ProcessID != processID {
 		err = pgx.ErrNoRows
 	}
@@ -131,6 +135,11 @@ func (h *Handle) programTool(ctx context.Context, id, processID uuid.UUID) (exec
 		return row, storeerr.ErrNotFound
 	}
 	return row, err
+}
+
+func (h *Handle) programToolByKey(ctx context.Context, key string) (executiondb.ReadProgramToolByKeyRow, error) {
+	return executiondb.New().ReadProgramToolByKey(ctx, h.unit.DB(), executiondb.ReadProgramToolByKeyParams{
+		AgentID: h.route.AgentID, Key: key, NamedLifetimeMicroseconds: programToolNamedLifetimeMicroseconds()})
 }
 
 func (h *Handle) fencedProgramTool(ctx context.Context, ref ProgramToolRef) (executiondb.ReadProgramToolRow, error) {
@@ -193,8 +202,7 @@ func (h *Handle) resumeProgramTool(
 ) (ProgramTool, bool, error) {
 	processID, name, toolType := input.ProcessID, input.Name, input.Type
 	q := executiondb.New()
-	found, err := q.ReadProgramToolByKey(ctx, h.unit.DB(),
-		executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: input.Key})
+	found, err := h.programToolByKey(ctx, input.Key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProgramTool{}, false, nil
 	}
@@ -649,7 +657,7 @@ func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgra
 		return false, nil
 	case row.ProgramNamed:
 		// A named call outlives its command so a rerun can pick it up. It ends only when none did.
-		if (row.ProgramClaimID != nil && !row.ClaimExpired) || time.Since(row.CreatedAt) < programToolNamedLifetime {
+		if (row.ProgramClaimID != nil && !row.ClaimExpired) || !row.NamedExpired {
 			return false, nil
 		}
 		code, message = "expired", "No command picked this call up after the one that made it ended."
@@ -693,8 +701,7 @@ func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID
 		if err != nil {
 			return struct{}{}, err
 		}
-		found, err := executiondb.New().ReadProgramToolByKey(ctx, h.unit.DB(),
-			executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: key})
+		found, err := h.programToolByKey(ctx, key)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return struct{}{}, nil
 		}
@@ -830,7 +837,7 @@ func (c *AgentCell) ListProgramToolReapable(
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
 		rows, err = executiondb.New().ListProgramToolReapable(ctx, tx,
 			executiondb.ListProgramToolReapableParams{
-				NamedLifetimeMicroseconds: programToolNamedLifetime.Microseconds(),
+				NamedLifetimeMicroseconds: programToolNamedLifetimeMicroseconds(),
 				AfterCreatedAt:            after.CreatedAt, AfterID: after.ID, LimitCount: limit})
 		return err
 	}); err != nil {
