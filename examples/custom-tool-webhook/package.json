@@ -14,7 +14,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.6",
     "@omnara/sdk": "link:../../frontend/packages/sdk",
-    "hono": "^4.13.17"
+    "hono": "^4.13.19"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
