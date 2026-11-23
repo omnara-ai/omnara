@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS web-build
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS web-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/apps/web/package.json apps/web/package.json
@@ -11,7 +11,7 @@ COPY internal/agentconfig/generated/agent_config.schema.json /src/internal/agent
 RUN pnpm run generate:api && pnpm run typecheck && pnpm run build \
     && rm apps/web/dist/.gitkeep
 
-FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70942d32b544a8007aeb586e0237e6ad637323b81b AS web
+FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:b19233c62309c8e620732244f9d0d0008678854cb9c6c47898817e8dec93a9e3 AS web
 USER root
 RUN apk add --no-cache 'zlib>=1.4-r0' \
     && rm /usr/share/nginx/html/index.html /usr/share/nginx/html/50x.html
