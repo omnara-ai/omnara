@@ -12,8 +12,6 @@ ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'compl
 RETURNING id;
 
 -- name: CountOpenProgramTools :one
--- Named calls, and custom calls waiting for their results, outlive their command, so every open one
--- counts against each command of the agent.
 SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
  AND (parent_tool_call_id=sqlc.arg(parent_id)::uuid OR program_named OR (type='custom' AND state='ready'))
  AND state<>'completed';
@@ -26,8 +24,6 @@ SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
 SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND state<>'completed' ORDER BY id;
 
 -- name: ReadProgramTool :one
--- named_expired is decided in database time, by the same rule ListProgramToolReapable applies, so a
--- server's clock cannot end a named call before maintenance would.
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
  c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')::boolean AS named_expired,
@@ -60,8 +56,6 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
  AND c.program_claim_id IS NOT DISTINCT FROM sqlc.narg(previous_claim_id)::uuid;
 
 -- name: RenewProgramToolClaim :one
--- Renewing is the last check before a call is sent, so it also requires the agent to be active: a
--- named call outlives its command, but not its agent.
 UPDATE tool_calls c SET program_claim_expires_at=greatest(c.program_claim_expires_at,
  statement_timestamp()+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond')
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
@@ -74,7 +68,6 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
 RETURNING c.program_claim_expires_at;
 
 -- name: ListProgramToolReapable :many
--- A named call's lifetime uses the named_expired rule of ReadProgramTool.
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
@@ -86,11 +79,7 @@ WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
  AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)
 ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
 
-
 -- name: ListProgramToolRunnable :many
--- Named calls a server can pick up without the command that made them: waiting to be authorized,
--- with no server holding a claim, or approved and waiting to run. A call whose command has ended
--- counts only within its lifetime, by the named_expired rule of ReadProgramTool.
 SELECT c.id,c.agent_id,a.project_id,p.id AS process_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.program_named

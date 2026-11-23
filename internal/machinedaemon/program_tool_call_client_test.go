@@ -261,7 +261,6 @@ func TestProgramToolCallCLIExitCodesForRejectedOffers(t *testing.T) {
 	require.Len(t, daemon.recorded(), 1, "a rejected call is not retried")
 }
 
-// The daemon refuses a key in flight for another call the way the server refuses a stored one.
 func TestProgramToolCallCLIExitCodesForIdempotencyConflicts(t *testing.T) {
 	for name, handler := range map[string]func(int, fakeToolCallRequest) (int, http.Header, string){
 		"daemon": reply(http.StatusConflict,

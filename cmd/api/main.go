@@ -162,7 +162,6 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
-	// Tool calls from commands run here, so storage_search needs the same file tools as the worker.
 	if err := tools.CheckFileToolSupport(context.Background()); err != nil {
 		logent.APIFileToolsUnavailable(logpkg.WithLogger(context.Background(), log), err)
 	}
@@ -215,7 +214,6 @@ func main() {
 		)
 		apiOpts = append(apiOpts, httpapi.WithMCPRegistry(mcpRegistry))
 	}
-	// Outlives the shutdown signal so queued interaction prompts are still sent while the API drains.
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(

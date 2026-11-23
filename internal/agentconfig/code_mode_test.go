@@ -186,7 +186,6 @@ mcp:
 		{name: "code mode off", codeMode: "code_mode: {enabled: false}"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Each explicit setting is the opposite of the default, so an ignored override fails.
 			override := !test.defaultAllowed
 			contract := compileRuntimeContract(t, test.codeMode+
 				fmt.Sprintf(tools, override, override, override, override, !override, override))

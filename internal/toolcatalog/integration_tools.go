@@ -38,12 +38,10 @@ type IntegrationToolDefinition struct {
 	IntegrationKind integrationdefinition.Kind
 	Scope           IntegrationToolScope
 	Description     string
-	// CodeMode marks a tool that supports being called from commands with `omnarad call`.
-	CodeMode   bool
-	required   []string
-	properties map[string]any
-	// outputSchema is required; tooloutput builds each schema once and checks that it is valid.
-	outputSchema func() (json.RawMessage, error)
+	CodeMode        bool
+	required        []string
+	properties      map[string]any
+	outputSchema    func() (json.RawMessage, error)
 }
 
 var integrationToolDefinitions = buildIntegrationToolDefinitions()

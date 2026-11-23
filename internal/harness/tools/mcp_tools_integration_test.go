@@ -728,7 +728,6 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 	}
 }
 
-// A model's call checks the connection against the turn's config before sending, as a command's does.
 func TestMCPDispatchRefusesConnectionOfAnotherServerConfig(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-stale-config", true)
@@ -752,8 +751,6 @@ func TestMCPDispatchRefusesConnectionOfAnotherServerConfig(t *testing.T) {
 	}
 }
 
-// A connection the manager reloads to recover an expired session is checked too: the config can
-// change while the call is outstanding.
 func TestMCPDispatchRefusesReloadedConnectionOfAnotherServerConfig(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-stale-reload", true)
@@ -785,8 +782,6 @@ func TestMCPDispatchRefusesReloadedConnectionOfAnotherServerConfig(t *testing.T)
 	}
 }
 
-// bindIntegrationMCPConnection makes conn a connection reconciled for server, which a connection
-// must be to carry its credential.
 func bindIntegrationMCPConnection(
 	t *testing.T, conn *executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer,
 ) {

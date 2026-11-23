@@ -6,8 +6,6 @@ import (
 	"slices"
 )
 
-// The helpers below build JSON Schemas for results whose Go types live with the tool that returns them.
-
 func mapSchema(build func() map[string]any) func() (json.RawMessage, error) {
 	return func() (json.RawMessage, error) { return json.Marshal(build()) }
 }
@@ -20,7 +18,6 @@ func object(properties map[string]any, required ...string) map[string]any {
 	return schema
 }
 
-// extend returns a copy of an object schema with more properties.
 func extend(base map[string]any, properties map[string]any, required ...string) map[string]any {
 	baseProperties, _ := base["properties"].(map[string]any)
 	merged := maps.Clone(baseProperties)
@@ -67,7 +64,6 @@ func nullable(schema map[string]any) map[string]any {
 	return map[string]any{"anyOf": []any{schema, map[string]any{"type": "null"}}}
 }
 
-// offsetPage holds the fields of an embedded listing.OffsetPage.
 func offsetPage() map[string]any {
 	return map[string]any{
 		"has_more":    booleanType(),

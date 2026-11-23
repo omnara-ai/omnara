@@ -45,7 +45,6 @@ func (f programFixture) resumeCustom(t *testing.T, key string) (agentexecution.P
 	return tool, found
 }
 
-// authorizeCustom takes a custom call through authorization, which leaves it waiting for its result.
 func (f programFixture) authorizeCustom(
 	t *testing.T, tool agentexecution.ProgramTool,
 ) []notifications.ToolCallUpdatedCommitted {
@@ -86,8 +85,6 @@ func programResult(t *testing.T, f programFixture, id uuid.UUID) (string, int) {
 	return data, events
 }
 
-// A custom call from a command waits for the result its runner submits. The command timing out,
-// losing its connection or exiting leaves it pending, and another command picks it up by its key.
 func TestProgramCustomToolWaitsForItsResult(t *testing.T) {
 	f := newProgramFixture(t)
 	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
@@ -109,7 +106,6 @@ func TestProgramCustomToolWaitsForItsResult(t *testing.T) {
 	_, found := f.claim(t, tool.ID, uuid.New())
 	require.False(t, found, "a server never runs a custom call")
 
-	// The command stops waiting, by key or by the call it was serving.
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("ticket"), ""))
 		over, err := h.CancelProgramTool(t.Context(),
@@ -120,7 +116,6 @@ func TestProgramCustomToolWaitsForItsResult(t *testing.T) {
 	state, _ = programState(t, f, tool.ID)
 	require.Equal(t, "ready", state, "a command that stops waiting leaves the call pending")
 
-	// The command exits; the call is not reaped, even past a named call's lifetime.
 	endProgramProcess(t, f)
 	defer agentexecution.SetProgramToolNamedLifetime(0)()
 	cell := agentexecution.NewCell(f.pool, nil, nil)
@@ -184,7 +179,6 @@ func TestProgramCustomToolResultChecksTheCall(t *testing.T) {
 				"only an authorized custom call takes a submitted result")
 		})
 	}
-	// Before authorization a custom call is ended with its command, like any other unnamed call.
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("unauthorized"), ""))
 	})
@@ -248,8 +242,6 @@ func TestProgramCustomToolPermission(t *testing.T) {
 	}
 }
 
-// Canceling or archiving the agent ends its pending custom calls. Their runners may already have
-// acted, so the key keeps returning outcome_unknown instead of calling the tool again.
 func TestProgramCustomToolSettledByItsAgent(t *testing.T) {
 	for _, mode := range []string{"cancel", "archive"} {
 		t.Run(mode, func(t *testing.T) {
@@ -305,7 +297,6 @@ func TestProgramCustomToolSettledByItsAgent(t *testing.T) {
 	}
 }
 
-// Pending custom calls outlive their commands, so they count against every command's open calls.
 func TestProgramCustomToolsCountAgainstLaterCommands(t *testing.T) {
 	f := newProgramFixture(t)
 	_, err := f.pool.Exec(t.Context(), `INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,

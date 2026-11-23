@@ -12,24 +12,17 @@ import (
 )
 
 const (
-	// defaultProgramToolCapacity and defaultProgramToolPendingLimit bound a server whose options set
-	// no bound of their own.
 	defaultProgramToolCapacity     = 64
 	defaultProgramToolPendingLimit = 1024
-	// programToolRecoveryInterval is how often a server looks for named calls nothing is running: a
-	// call approved on another server, or one whose server stopped before claiming it.
-	programToolRecoveryInterval = 10 * time.Second
-	programToolRecoveryBatch    = 64
+	programToolRecoveryInterval    = 10 * time.Second
+	programToolRecoveryBatch       = 64
 )
 
-// programToolRun is this server's run of one call. A call runs at most once at a time on a server,
-// whether a served offer or the recovery poll started it.
 type programToolRun struct {
 	done chan struct{}
 	stop context.CancelFunc
 }
 
-// stoppedProgramToolRun stands in for a run a closing server never starts.
 var stoppedProgramToolRun = func() *programToolRun {
 	run := &programToolRun{done: make(chan struct{}), stop: func() {}}
 	close(run.done)
@@ -41,16 +34,10 @@ type programToolRuns struct {
 	closing bool
 	running sync.WaitGroup
 	active  map[uuid.UUID]*programToolRun
-	// slots bounds the calls running at once, async work included. It is nil when the server runs
-	// calls without a shared bound.
-	slots chan struct{}
-	// pending bounds the calls served at once across every connection, waiting or running, so the
-	// runs waiting for a slot are bounded too. It is nil when the server serves calls without a
-	// shared bound.
+	slots   chan struct{}
 	pending chan struct{}
 }
 
-// admit takes a place for one more served call, only if one is free now.
 func (r *programToolRuns) admit() bool {
 	if r.pending == nil {
 		return true
@@ -63,7 +50,6 @@ func (r *programToolRuns) admit() bool {
 	}
 }
 
-// leave frees the place a served call took.
 func (r *programToolRuns) leave() {
 	if r.pending != nil {
 		<-r.pending
@@ -84,7 +70,6 @@ func (r *programToolRuns) acquire(ctx context.Context, abandoned <-chan struct{}
 	}
 }
 
-// tryAcquire takes a slot only if one is free now.
 func (r *programToolRuns) tryAcquire() bool {
 	if r.slots == nil {
 		return true
@@ -103,7 +88,6 @@ func (r *programToolRuns) release() {
 	}
 }
 
-// free reports how many more calls could start now, up to limit.
 func (r *programToolRuns) free(limit int) int {
 	if r.slots == nil {
 		return limit
@@ -111,8 +95,6 @@ func (r *programToolRuns) free(limit int) int {
 	return min(limit, cap(r.slots)-len(r.slots))
 }
 
-// begin registers a run of a call. It returns the run already registered for the call, unstarted, or
-// nil once the server is closing.
 func (r *programToolRuns) begin(parent context.Context, id uuid.UUID) (*programToolRun, context.Context, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -150,10 +132,6 @@ func (r *programToolRuns) runs(id uuid.UUID) bool {
 	return ok
 }
 
-// stop starts no more runs and waits for every run to end, with the work it left: an async phase,
-// its claim renewer, and the persistence that records or releases the call. Their contexts are
-// canceled by then, and that persistence is bounded by its own timeouts, so the wait ends; returning
-// sooner would leave them writing to a store that is closing.
 func (r *programToolRuns) stop() {
 	r.mu.Lock()
 	r.closing = true
@@ -161,15 +139,11 @@ func (r *programToolRuns) stop() {
 	r.running.Wait()
 }
 
-// runProgramToolCall runs a call on this server, or returns the run already running it. A new run
-// waits for capacity until abandoned closes.
 func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef, abandoned <-chan struct{}) *programToolRun {
 	run, _ := s.startProgramToolRun(ref, abandoned, false)
 	return run
 }
 
-// recoverProgramToolCall runs a call no offer is serving here, only if capacity is free now. It
-// reports false when none is.
 func (s *Server) recoverProgramToolCall(ref executionstore.ProgramToolCallRef) bool {
 	if s.programToolRuns.runs(ref.ToolCallID) {
 		return true
@@ -210,8 +184,6 @@ func (s *Server) startProgramToolRun(
 	return run, true
 }
 
-// executeProgramToolCall claims a call and runs it under that claim. A server that cannot claim it
-// leaves it to whoever did.
 func (s *Server) executeProgramToolCall(
 	ctx context.Context, cancel context.CancelFunc, ref executionstore.ProgramToolCallRef,
 ) {
@@ -262,9 +234,6 @@ func (s *Server) executeProgramToolCall(
 	<-renewed
 }
 
-// programToolDriver runs named calls from what storage records, so a call keeps going without the
-// offer that made it: after its command stopped waiting, its connection closed, or another server
-// recorded its approval. Each server polls, and wakes sooner when it records an approval itself.
 type programToolDriver struct {
 	server   *Server
 	interval time.Duration
@@ -285,7 +254,6 @@ func (s *Server) startProgramToolDriver() {
 	go d.loop(ctx)
 }
 
-// wake asks the driver to look for runnable calls now.
 func (d *programToolDriver) wake() {
 	if d == nil {
 		return
@@ -308,7 +276,6 @@ func (d *programToolDriver) loop(ctx context.Context) {
 	defer close(d.done)
 	for {
 		d.recover(ctx)
-		// Jitter spreads the servers' polls apart.
 		timer := d.server.timer.Timer(d.interval + rand.N(d.interval/4+1))
 		select {
 		case <-ctx.Done():

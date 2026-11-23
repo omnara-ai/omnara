@@ -4,10 +4,8 @@ import "encoding/json"
 
 const (
 	ProgramToolCallStateAwaitingApproval = "awaiting_approval"
-	// ProgramToolCallStateAwaitingResult is a custom tool call waiting for the result its runner
-	// submits. It stays open when the command stops waiting, so the key picks it up again.
-	ProgramToolCallStateAwaitingResult = "awaiting_result"
-	ProgramToolCallStateCompleted      = "completed"
+	ProgramToolCallStateAwaitingResult   = "awaiting_result"
+	ProgramToolCallStateCompleted        = "completed"
 
 	ProgramToolCallOutcomeSucceeded = "succeeded"
 	ProgramToolCallOutcomeFailed    = "failed"
@@ -18,9 +16,8 @@ const (
 	ProgramToolCallMaxInputBytes  = MaxMessageBytes - 16*1024
 	ProgramToolCallMaxResultBytes = MaxMessageBytes - 16*1024
 	ProgramToolCallMaxKeyBytes    = 128
-	// Names are echoed in errors, so an unbounded one could push a report past the message limit.
-	ProgramToolCallMaxNameBytes  = 256
-	ProgramToolCallMaxErrorBytes = 4096
+	ProgramToolCallMaxNameBytes   = 256
+	ProgramToolCallMaxErrorBytes  = 4096
 )
 
 func ValidProgramToolCallKey(key string) bool {
@@ -36,13 +33,10 @@ func ValidProgramToolCallKey(key string) bool {
 }
 
 type ProgramToolCallRequest struct {
-	// Key identifies the call for its agent. Offering it again returns the same call.
-	Key   string          `json:"key"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
-	// KeepOnDisconnect leaves the call open when its command stops waiting or ends, so a command of
-	// the same agent can offer the key again to pick it up. Set when the command chose the key.
-	KeepOnDisconnect bool `json:"keep_on_disconnect,omitempty"`
+	Key              string          `json:"key"`
+	Name             string          `json:"name"`
+	Input            json.RawMessage `json:"input"`
+	KeepOnDisconnect bool            `json:"keep_on_disconnect,omitempty"`
 }
 
 type ProgramToolCallResult struct {
@@ -61,9 +55,7 @@ type ProgramToolCallContent struct {
 
 type ToolCallOffer struct {
 	ProcessID string `json:"process_id"`
-	// OfferID identifies this offer of the key. A key can be offered again, by a rerun or with a
-	// different input, so reports and cancels carry the offer they belong to.
-	OfferID string `json:"offer_id,omitempty"`
+	OfferID   string `json:"offer_id,omitempty"`
 	ProgramToolCallRequest
 }
 
@@ -72,12 +64,10 @@ type ToolCallReport struct {
 	Key       string `json:"key"`
 	OfferID   string `json:"offer_id,omitempty"`
 	ProgramToolCallResult
-	AckStatus AckStatus `json:"ack_status,omitempty"`
-	ErrorCode string    `json:"error_code,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	// CancelRecorded acknowledges a cancel: the server has ended the offer's call, or found nothing
-	// left to end. Until it arrives the daemon sends the cancel again on its next connection.
-	CancelRecorded bool `json:"cancel_recorded,omitempty"`
+	AckStatus      AckStatus `json:"ack_status,omitempty"`
+	ErrorCode      string    `json:"error_code,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	CancelRecorded bool      `json:"cancel_recorded,omitempty"`
 }
 
 type ToolCallCancel struct {

@@ -362,7 +362,6 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 
-	// A built-in tool has started once its handler runs; an MCP call only once it is sent.
 	call, authority, turn = waiting("mcp-handler")
 	authority.started = new(atomic.Bool)
 	turn.authority = authority
@@ -461,7 +460,6 @@ func TestProgramMCPToolCallKeepsUnknownOutcomeWhenResponseIsLost(t *testing.T) {
 	done := fixture.get(t, ctx, call.ID)
 	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
-	// Stored JSON is not byte-for-byte what was written, so compare it with whitespace removed.
 	result := strings.ReplaceAll(string(done.ResultContentParts), " ", "")
 	require.Contains(t, result, `"error_code":"outcome_unknown"`)
 	require.Contains(t, result, "upstreamclosedtheconnection", "the result keeps what came back")
@@ -472,9 +470,6 @@ func TestProgramMCPToolCallKeepsUnknownOutcomeWhenResponseIsLost(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
-// A named MCP call outlives the command that made it, but not its agent. An archive that commits
-// after the call was claimed and dispatched, but before it is sent, stops the send: the last check
-// before it renews the claim, which needs the agent to be active.
 func TestProgramMCPToolCallIsNotSentAfterItsAgentIsArchived(t *testing.T) {
 	ctx := t.Context()
 	fixture := newProgramToolFixture(t, ctx, "program-mcp-archived", true)
@@ -495,7 +490,6 @@ func TestProgramMCPToolCallIsNotSentAfterItsAgentIsArchived(t *testing.T) {
 	require.Equal(t, executionstore.ToolCallStateWaiting, authorized.State)
 	turn, err := executor.programTurn(ctx, claim, time.Minute)
 	require.NoError(t, err)
-	// The command ends: a named call keeps running without it.
 	exitCode := 0
 	_, err = execution.CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
 		Authority: fixture.Authority, ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ID: fixture.ProcessID,

@@ -32,8 +32,6 @@ const customProgramToolsYAML = `  create_ticket:
     code_mode: false
 `
 
-// A custom tool called from a command waits for the result its runner submits through the API. The
-// command can stop waiting without ending the call, and the key picks it up again.
 func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -71,7 +69,6 @@ func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, malformed.Outcome,
 		"input is checked against the tool's schema before its runner sees it")
 
-	// The first command waits for the result, then stops waiting.
 	first := f.socket()
 	offer := programToolOffer(f.process.ProcessID, "ticket", "create_ticket", `{"title":"Broken build"}`)
 	offer.OfferID = "first"
@@ -89,7 +86,6 @@ func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	first.toolCallsDone.Wait()
 	require.True(t, nextToolCallReport(t, first).CancelRecorded,
 		"the cancel is acknowledged so the daemon stops sending it")
-	// A cancel from an earlier connection is acknowledged the same way.
 	stale := f.socket()
 	cancel(stale, "earlier")
 	stale.toolCallsDone.Wait()
@@ -109,7 +105,6 @@ func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, waiting.ToolCallID, item["id"])
 
-	// A rerun with the key waits on the same call and gets the submitted result.
 	rerun := f.socket()
 	again := offer
 	again.OfferID = "rerun"
@@ -137,7 +132,6 @@ func TestDaemonSocketProgramCustomToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), waiting.ToolCallID, "the call never enters the agent's events")
 
-	// An approval waits as for any tool; once approved, the call waits for its result.
 	asking := f.socket()
 	askCtx, disconnect := context.WithCancel(ctx)
 	ask := programToolOffer(f.process.ProcessID, "close", "close_ticket", `{"id":"T-1"}`)

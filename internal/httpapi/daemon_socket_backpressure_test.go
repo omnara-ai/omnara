@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// heldWire is a websocket whose every write waits for the test to release it.
 type heldWire struct {
 	writing chan daemonprotocol.Message
 	release chan struct{}
@@ -53,8 +52,6 @@ func (w *heldWire) next(t *testing.T) daemonprotocol.Message {
 	}
 }
 
-// A burst of tool call reports bigger than the send queue, arriving while the writer is stuck on a
-// large report, waits its turn: it neither closes the socket nor holds up heartbeat acknowledgments.
 func TestDaemonSocketToolCallReportBurstLeavesControlTrafficOpen(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -83,8 +80,6 @@ func TestDaemonSocketToolCallReportBurstLeavesControlTrafficOpen(t *testing.T) {
 	require.Eventually(t, func() bool { return len(socket.toolSend) == cap(socket.toolSend) },
 		5*time.Second, time.Millisecond, "the reports fill their queue")
 
-	// The read loop is not held up either: an offer over the connection's limit is refused without
-	// waiting for room in the report queue.
 	socket.workMu.Lock()
 	socket.toolCallsActive = daemonToolCallLimit
 	socket.workMu.Unlock()

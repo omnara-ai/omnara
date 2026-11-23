@@ -641,7 +641,6 @@ func TestProgramIntegrationToolAuthorityUsesCapturedConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, f.Install.ID, access.Integration.ID)
 
-	// The model context's config still has the tool; the captured one decides.
 	without := captured
 	without.IntegrationTools = nil
 	turn.contract = &without

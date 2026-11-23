@@ -232,7 +232,6 @@ func publicToolResultFromRecord(
 		Outcome:       outcome,
 		ContentBlocks: blocks,
 	}
-	// A call a command made records no agent event: its result goes to the command.
 	if event.Event.ID == uuid.Nil {
 		if toolCall.CompletedAt == nil {
 			return openapi.ToolResult{}, fmt.Errorf("tool result %s has neither an event nor a completion time", toolCall.ID)

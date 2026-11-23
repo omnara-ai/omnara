@@ -211,8 +211,6 @@ func (m Manager) markConnectionFailed(
 	cause error,
 ) (ConnectionResult, error) {
 	if errors.Is(cause, ErrConnectionConfigChanged) {
-		// The row was reconciled for a newer config, so only this caller's config is stale. The row
-		// is left for a caller that has the newer config.
 		return ConnectionResult{}, cause
 	}
 	ctx, cancel := failureRecordContext(ctx)
@@ -380,8 +378,6 @@ func (m Manager) Connection(
 			server.ServerKey,
 		)
 	}
-	// A row reconciled for another config of the server is refused, so this config's credential is
-	// never sent to that config's endpoint or session.
 	hash, err := executionstore.MCPServerConfigHash(server)
 	if err != nil {
 		return Conn{}, executionstore.MCPServerCatalogIdentity{}, err

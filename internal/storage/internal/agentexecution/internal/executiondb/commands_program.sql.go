@@ -24,8 +24,6 @@ type CountOpenProgramToolsParams struct {
 	ParentID uuid.UUID
 }
 
-// Named calls, and custom calls waiting for their results, outlive their command, so every open one
-// counts against each command of the agent.
 func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountOpenProgramToolsParams) (int64, error) {
 	row := db.QueryRow(ctx, countOpenProgramTools, arg.AgentID, arg.ParentID)
 	var count int64
@@ -127,7 +125,6 @@ type ListProgramToolReapableRow struct {
 	CreatedAt time.Time
 }
 
-// A named call's lifetime uses the named_expired rule of ReadProgramTool.
 func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg ListProgramToolReapableParams) ([]ListProgramToolReapableRow, error) {
 	rows, err := db.Query(ctx, listProgramToolReapable,
 		arg.NamedLifetimeMicroseconds,
@@ -182,9 +179,6 @@ type ListProgramToolRunnableRow struct {
 	ProcessID uuid.UUID
 }
 
-// Named calls a server can pick up without the command that made them: waiting to be authorized,
-// with no server holding a claim, or approved and waiting to run. A call whose command has ended
-// counts only within its lifetime, by the named_expired rule of ReadProgramTool.
 func (q *Queries) ListProgramToolRunnable(ctx context.Context, db DBTX, arg ListProgramToolRunnableParams) ([]ListProgramToolRunnableRow, error) {
 	rows, err := db.Query(ctx, listProgramToolRunnable, arg.NamedLifetimeMicroseconds, arg.LimitCount)
 	if err != nil {
@@ -300,8 +294,6 @@ type ReadProgramToolRow struct {
 	CompletedAt           *time.Time
 }
 
-// named_expired is decided in database time, by the same rule ListProgramToolReapable applies, so a
-// server's clock cannot end a named call before maintenance would.
 func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramToolParams) (ReadProgramToolRow, error) {
 	row := db.QueryRow(ctx, readProgramTool, arg.NamedLifetimeMicroseconds, arg.AgentID, arg.ID)
 	var i ReadProgramToolRow
@@ -414,8 +406,6 @@ type RenewProgramToolClaimParams struct {
 	ProcessID         uuid.UUID
 }
 
-// Renewing is the last check before a call is sent, so it also requires the agent to be active: a
-// named call outlives its command, but not its agent.
 func (q *Queries) RenewProgramToolClaim(ctx context.Context, db DBTX, arg RenewProgramToolClaimParams) (*time.Time, error) {
 	row := db.QueryRow(ctx, renewProgramToolClaim,
 		arg.LeaseMicroseconds,

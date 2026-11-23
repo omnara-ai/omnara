@@ -132,12 +132,8 @@ type Entry struct {
 	DefaultPermission toolpermission.Selection
 	PermissionModes   []toolpermission.ModeDescriptor
 	InputSchema       json.RawMessage
-	// OutputSchema is the JSON Schema of the result the tool returns; error results are not part of it.
-	// Every Omnara-owned tool defines one.
-	OutputSchema json.RawMessage
-	// CodeMode marks a tool that supports being called from commands with `omnarad call`. Whether
-	// an agent's commands can call it is decided by the agent's config.
-	CodeMode bool
+	OutputSchema      json.RawMessage
+	CodeMode          bool
 }
 
 func codeMode(entry Entry, err error) (Entry, error) {

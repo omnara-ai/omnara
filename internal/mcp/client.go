@@ -385,8 +385,7 @@ type wireRequest struct {
 	requestID    int64
 	name         string
 	paramHeaders map[string]string
-	// sent, when set, is switched on once the request has been written to the server.
-	sent *atomic.Bool
+	sent         *atomic.Bool
 }
 
 func (c *httpClient) doRequest(

@@ -30,8 +30,7 @@ const (
 	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
 	programToolCallCancelTimeout = 10 * time.Second
-	// Bounds the cancels kept until the server acknowledges them.
-	programToolCallCancelLimit = 4096
+	programToolCallCancelLimit   = 4096
 )
 
 func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
@@ -48,14 +47,11 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
 		return
 	}
 	if helper.BinDir, err = c.programToolBinDir(helper.Executable); err != nil {
-		// Commands can still run "$OMNARA_BIN"; only the bare `omnarad` name is unavailable.
 		c.log.Warn("program tool call bin directory unavailable", "error", err)
 	}
 	assignment.ProgramToolHelper = helper
 }
 
-// The directory holds only a link to the daemon executable: the daemon's own directory would expose
-// whatever else is installed beside it.
 func (c *Client) programToolBinDir(executable string) (string, error) {
 	machine, err := c.machineStore()
 	if err != nil {
@@ -73,7 +69,6 @@ func (c *Client) programToolBinDir(executable string) (string, error) {
 		return "", err
 	}
 	if err := os.Symlink(executable, link); err != nil {
-		// Windows needs a privilege for symlinks; a hard link works on the same volume.
 		if linkErr := os.Link(executable, link); linkErr != nil {
 			return "", errors.Join(err, linkErr)
 		}
@@ -136,20 +131,14 @@ type programToolCallHandler struct {
 	mu       sync.Mutex
 	inFlight map[string]int
 	calls    map[string]*programToolCall
-	// Unacknowledged cancels, oldest first. Entering the send queue is not delivery, so each is
-	// sent again on every connection.
-	cancels []daemonprotocol.ToolCallCancel
+	cancels  []daemonprotocol.ToolCallCancel
 }
 
-// programToolCall is one key of one process, answered by a single offer however many requests
-// wait for it.
 type programToolCall struct {
-	offer  daemonprotocol.ToolCallOffer
-	report *daemonprotocol.ToolCallReport
-	// waiters holds one channel per waiting request, each told of every report.
+	offer   daemonprotocol.ToolCallOffer
+	report  *daemonprotocol.ToolCallReport
 	waiters map[chan struct{}]struct{}
-	// keep is set once any waiter asks for the call to outlive its command.
-	keep bool
+	keep    bool
 }
 
 func programToolCallOver(report *daemonprotocol.ToolCallReport) bool {
@@ -257,10 +246,7 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool name is too long")
 		return
 	}
-	// The server answers this request by its offer ID, never by its key alone: the key may still
-	// name an earlier request that stopped waiting.
 	offer.OfferID = uuid.NewString()
-	// Encoding escapes some characters, so an input within the raw limit can still be too large to send.
 	if encoded, err := json.Marshal(&daemonprotocol.Message{
 		Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer,
 	}); err != nil || len(encoded) > daemonprotocol.MaxMessageBytes {
@@ -282,7 +268,6 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 			"idempotency key was already used for a different tool or input")
 		return
 	default:
-		// The same call made again while it is in flight waits for the offer already made.
 		call.waiters[changed] = struct{}{}
 		call.keep = call.keep || offer.KeepOnDisconnect
 		if call.report != nil {
@@ -322,8 +307,6 @@ func sameProgramToolCallInput(a, b json.RawMessage) bool {
 	return bytes.Equal(a, b) || jsoncanonical.Equal(a, b)
 }
 
-// leave stops a request waiting for its call. The last waiter to leave an unfinished call cancels it,
-// unless one of them asked for it to stay open.
 func (h *programToolCallHandler) leave(ctx context.Context, id string, call *programToolCall, changed chan struct{}) {
 	h.mu.Lock()
 	delete(call.waiters, changed)
@@ -374,7 +357,6 @@ func (h *programToolCallHandler) resume(ctx context.Context, transport *daemonSo
 	}
 }
 
-// Cancels of ended processes are dropped: the server ends those calls itself.
 func (h *programToolCallHandler) pendingCancels(ctx context.Context) []daemonprotocol.ToolCallCancel {
 	h.mu.Lock()
 	pending := append([]daemonprotocol.ToolCallCancel(nil), h.cancels...)
@@ -435,7 +417,6 @@ func (h *programToolCallHandler) offers() []daemonprotocol.ToolCallOffer {
 	defer h.mu.Unlock()
 	offers := make([]daemonprotocol.ToolCallOffer, 0, len(h.calls))
 	for _, call := range h.calls {
-		// A finished call's waiters are leaving with its answer.
 		if !programToolCallOver(call.report) {
 			offers = append(offers, call.offer)
 		}
@@ -464,8 +445,6 @@ func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, cancel daemo
 	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel, ToolCallCancel: &cancel})
 }
 
-// enqueueWait waits for room in the tool call queue rather than fail the connection: a burst of
-// offers, as on a reconnect, is ordinary traffic, not a server that stopped reading.
 func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {
 	select {
 	case t.toolSend <- message:

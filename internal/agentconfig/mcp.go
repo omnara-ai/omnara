@@ -51,8 +51,7 @@ type RuntimeMCPTool struct {
 type RuntimeMCPToolResolution struct {
 	Permission toolpermission.Selection
 	Deferred   bool
-	// nil follows the agent default.
-	CodeMode *bool
+	CodeMode   *bool
 }
 
 // ResolveTool returns the effective permission for a remote tool and whether the

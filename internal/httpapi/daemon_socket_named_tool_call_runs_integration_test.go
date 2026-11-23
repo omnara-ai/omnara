@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countingProgramToolExecutor counts the runs of each phase of a call.
 type countingProgramToolExecutor struct {
 	ProgramToolExecutor
 	authorized, executed *atomic.Int32
@@ -38,20 +37,14 @@ func (e countingProgramToolExecutor) RunProgramToolCall(
 	return e.ProgramToolExecutor.RunProgramToolCall(ctx, claim, lease)
 }
 
-// A named call that waits for approval keeps going without the offer that made it. Its command's
-// wait times out and its connection closes, and nothing offers the key again; once the approval is
-// recorded, a server claims the original call and runs it once. A later rerun of the key gets its
-// result.
 func TestDaemonSocketNamedToolCallRunsAfterItsOfferIsGone(t *testing.T) {
 	t.Parallel()
 	for _, approval := range []struct {
-		name string
-		// recovery is how often servers poll for calls nothing runs.
+		name     string
 		recovery time.Duration
 		approve  func(t *testing.T, f *daemonProgramToolCallFixture, agentPath string, interaction uuid.UUID)
 	}{
 		{
-			// The server that records the approval runs the call right away, without waiting to poll.
 			name: "recorded here", recovery: time.Hour,
 			approve: func(t *testing.T, f *daemonProgramToolCallFixture, agentPath string, interaction uuid.UUID) {
 				t.Helper()
@@ -62,7 +55,6 @@ func TestDaemonSocketNamedToolCallRunsAfterItsOfferIsGone(t *testing.T) {
 			},
 		},
 		{
-			// Another server recorded it: this one finds the call when it next polls.
 			name: "recorded elsewhere", recovery: 100 * time.Millisecond,
 			approve: func(t *testing.T, f *daemonProgramToolCallFixture, _ string, interaction uuid.UUID) {
 				t.Helper()
@@ -95,8 +87,6 @@ func TestDaemonSocketNamedToolCallRunsAfterItsOfferIsGone(t *testing.T) {
 			require.NoError(t, waiting.handleToolCallOffer(waitCtx, daemonprotocol.Message{ToolCallOffer: &ask}))
 			report := nextToolCallReport(t, waiting)
 			require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, report.State)
-			// The command's wait times out and its connection closes. The daemon drops its waiter, so
-			// even on a new connection nothing offers the key again.
 			timeOut()
 			waiting.toolCallsDone.Wait()
 			callID, err := publicid.Decode(publicid.KindToolCall, report.ToolCallID)
@@ -119,7 +109,6 @@ func TestDaemonSocketNamedToolCallRunsAfterItsOfferIsGone(t *testing.T) {
 				require.True(t, found)
 				return done.State == executionstore.ToolCallStateCompleted
 			}, 15*time.Second, 50*time.Millisecond, "the approved call runs with no offer waiting for it")
-			// The fixture has no memory store, so the tool's own handler answers with that.
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 			require.Contains(t, string(done.ResultContentParts), "memory store is unavailable",
 				"the tool ran, rather than the call being ended without running")

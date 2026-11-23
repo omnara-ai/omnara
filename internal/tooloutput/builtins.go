@@ -94,9 +94,6 @@ var (
 	}))
 )
 
-// processOutput holds the output fields of a process observation. offset_byte is omitted when 0, and
-// omitted_offset_byte, tail_offset_byte and output_tail appear together when long output keeps only its
-// start and end.
 func processOutput() map[string]any {
 	return map[string]any{
 		"output":              stringType(),
@@ -109,7 +106,6 @@ func processOutput() map[string]any {
 	}
 }
 
-// processEnd holds the facts about how an ended process ended.
 func processEnd() map[string]any {
 	return map[string]any{
 		"exit_code":         integerType(),

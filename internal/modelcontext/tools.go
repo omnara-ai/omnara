@@ -231,8 +231,7 @@ func runtimeMCPToolSpecs(
 					Deferred:     resolution.Deferred,
 					Type:         toolcatalog.ToolTypeMCP,
 					Permission:   resolution.Permission,
-					// Every MCP tool supports code mode; the config decides which ones commands can call.
-					CodeMode: contract.CodeModeAllows(resolution.CodeMode),
+					CodeMode:     contract.CodeModeAllows(resolution.CodeMode),
 				},
 			)
 		}

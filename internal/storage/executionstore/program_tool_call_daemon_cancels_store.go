@@ -11,9 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// CancelDaemonProgramToolCall ends a call a daemon's command stopped waiting for, even one a server is
-// still running: that server loses its claim and stops. A custom call waiting for its result stays
-// pending. It reports true once nothing of the call is left to end.
 func (s *Store) CancelDaemonProgramToolCall(
 	ctx context.Context, authority DaemonRuntimeAuthority, ref ProgramToolCallRef,
 ) (bool, error) {
@@ -33,11 +30,6 @@ func (s *Store) CancelDaemonProgramToolCall(
 	return done || !found, nil
 }
 
-// CancelDaemonProgramToolCallByKey ends the call a key of a daemon's command names, for a cancel of
-// an offer made on an earlier connection. A call a later offer of the key has made or picked up since
-// is not that offer's to end. It succeeds only once nothing of the offer's call is left to end.
-// The call may still be open where no new one could start, such as after code mode is turned off,
-// so the process need only belong to the daemon's machine.
 func (s *Store) CancelDaemonProgramToolCallByKey(
 	ctx context.Context, authority DaemonRuntimeAuthority, processID uuid.UUID, key, offerID string,
 ) error {
@@ -54,10 +46,6 @@ func (s *Store) CancelDaemonProgramToolCallByKey(
 	return err
 }
 
-// daemonProgramUnit runs a daemon's change to a call of one of its machine's processes. The daemon's
-// runtime must still be able to report: a revoked token is refused with ErrDaemonRuntimeUnregistered,
-// while a runtime whose lease expired can still clean up. found is false, with nothing run, when the
-// process is not one of the machine's.
 func daemonProgramUnit[T any](
 	ctx context.Context, s *Store, operation string, authority DaemonRuntimeAuthority, processID uuid.UUID,
 	run func(*agentexecution.Handle) (T, error),

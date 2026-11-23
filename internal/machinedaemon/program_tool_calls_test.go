@@ -232,8 +232,6 @@ func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "other"})
-	// A report for another offer of this key, such as an earlier request that stopped waiting, is
-	// not this request's answer.
 	stale := completedProgramToolCall(`"stale"`)
 	stale.ProcessID, stale.Key, stale.OfferID = processID, "k-1", "an-earlier-offer"
 	handler.report(stale)
@@ -559,7 +557,6 @@ func TestProgramToolCallServerCancelsAbandonedCall(t *testing.T) {
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 }
 
-// A queued cancel may never have been written, so it is sent again until acknowledged.
 func TestProgramToolCallServerRepeatsCancelUntilAcknowledged(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	handler := client.newProgramToolCallHandler()
@@ -609,7 +606,6 @@ func TestProgramToolCallServerRefusesOffersTooLargeToSend(t *testing.T) {
 	handler := client.newProgramToolCallHandler()
 	client.programToolCalls = handler
 	for name, body := range map[string]string{
-		// Each "<" is six bytes once encoded, so this input fits the raw limit but not a message.
 		"escaped input": `{"key":"k-1","name":"storage_read","input":{"path":"` + strings.Repeat("<", 200_000) + `"}}`,
 		"long name":     `{"key":"k-1","name":"` + strings.Repeat("n", daemonprotocol.ProgramToolCallMaxNameBytes+1) + `","input":{}}`,
 	} {
@@ -650,7 +646,6 @@ func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
 	require.False(t, <-sent)
 }
 
-// heldMessageWriter is a websocket whose every write waits for the test to release it.
 type heldMessageWriter struct {
 	writing chan daemonprotocol.Message
 	release chan struct{}
@@ -679,8 +674,6 @@ func (w *heldMessageWriter) next(t *testing.T) daemonprotocol.Message {
 	}
 }
 
-// A reconnect offers every unanswered call at once. While the writer is stuck on a large message,
-// that burst waits its turn: it neither fails the connection nor holds up heartbeats.
 func TestProgramToolCallOfferBurstLeavesHeartbeatsFlowing(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
@@ -734,7 +727,6 @@ func TestProgramToolCallOfferBurstLeavesHeartbeatsFlowing(t *testing.T) {
 	}
 }
 
-// streamedProgramToolCall is a request waiting on the daemon, read report by report.
 type streamedProgramToolCall struct {
 	status  chan int
 	reports chan daemonprotocol.ToolCallReport
@@ -838,7 +830,6 @@ func TestProgramToolCallServerSharesACallInFlightBetweenWaiters(t *testing.T) {
 	handler.report(awaiting)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.next(t).State)
 
-	// The same input written differently is the same call.
 	second := streamProgramToolCall(t, server, processID,
 		`{"key":"k-1","name":"storage_list","input":{ "limit": 2.0, "prefix": "a" },"keep_on_disconnect":true}`)
 	require.Equal(t, http.StatusOK, <-second.status)
@@ -893,7 +884,6 @@ func TestProgramToolCallServerCancelsOnlyWhenTheLastWaiterLeaves(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, second.next(t).State)
 	second.ended(t)
 
-	// Once every waiter has left an unfinished call, it is canceled.
 	third := streamProgramToolCall(t, server, processID, body)
 	reoffered := nextProgramToolCallMessage(t, transport)
 	require.Equal(t, daemonprotocol.MessageToolCallOffer, reoffered.Type)

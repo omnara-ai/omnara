@@ -177,7 +177,6 @@ func TestManagerConnectionRefusesRowOfAnotherConfig(t *testing.T) {
 	}
 	rowB := executionstore.MCPConnectionRecord{ServerKey: "docs", EndpointURL: configB.URL, ConfigHash: hashB}
 
-	// Secrets is nil, so reading a credential would panic: the refusal has to come first.
 	_, _, err = Manager{}.Connection(
 		context.Background(), uuid.New(), uuid.New(), rowB, configA, "", "")
 	if !errors.Is(err, ErrConnectionConfigChanged) {

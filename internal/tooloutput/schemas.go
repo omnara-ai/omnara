@@ -1,4 +1,3 @@
-// Package tooloutput defines the result types and output JSON Schemas of Omnara-owned tools.
 package tooloutput
 
 import (
@@ -130,7 +129,6 @@ func githubReadOutputSchema() (json.RawMessage, error) {
 	)
 }
 
-// outputSchema builds a tool output schema once and checks that it is a valid JSON Schema.
 func outputSchema(build func() (json.RawMessage, error)) func() (json.RawMessage, error) {
 	return sync.OnceValues(func() (json.RawMessage, error) {
 		schema, err := build()

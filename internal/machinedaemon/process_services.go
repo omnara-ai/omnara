@@ -32,8 +32,7 @@ type processServiceHelper struct {
 	Executable string `json:"executable"`
 	Endpoint   string `json:"endpoint"`
 	Capability string `json:"capability,omitempty"`
-	// BinDir holds only a link to Executable, so adding it to PATH exposes no other command.
-	BinDir string `json:"bin_dir,omitempty"`
+	BinDir     string `json:"bin_dir,omitempty"`
 }
 
 func (s processService) capability(supervisorToken, processID string) string {

@@ -97,8 +97,6 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 			}
 			m.changed()
 		}
-		// Custom calls from commands outlive those commands and the agent's turns, so canceling the
-		// agent ends them whether or not it is working.
 		if err = h.cancelProgramToolsAwaitingResult(ctx); err != nil {
 			return result, err
 		}

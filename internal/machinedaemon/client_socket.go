@@ -55,12 +55,8 @@ type daemonSocketTransport struct {
 	runtime DaemonRuntime
 	startup localStartupState
 
-	conn *websocket.Conn
-	// send carries control traffic: heartbeats, acceptances, reports and skill reports. Its senders
-	// fail the connection when it is full, since that means the server stopped reading.
-	send chan daemonprotocol.Message
-	// toolSend carries tool call offers and cancels. Their senders wait for room, and the writer
-	// drains send first, so a burst of offers never holds up or fails the control traffic.
+	conn     *websocket.Conn
+	send     chan daemonprotocol.Message
 	toolSend chan daemonprotocol.Message
 	done     chan struct{}
 	fatal    chan error
@@ -463,10 +459,8 @@ func (c *Client) verifyProcessSupervisors(ctx context.Context) error {
 	return nil
 }
 
-// daemonToolSendQueueSize bounds the tool call offers and cancels waiting to be written.
 const daemonToolSendQueueSize = 64
 
-// messageWriter is the websocket the write loop writes to.
 type messageWriter interface {
 	Write(context.Context, daemonprotocol.Message) error
 	Ping(context.Context) error
@@ -489,7 +483,6 @@ func (t *daemonSocketTransport) writeLoop(ctx context.Context, wire messageWrite
 	defer pingTicker.Stop()
 	for {
 		var message daemonprotocol.Message
-		// Control traffic goes first, so tool call offers waiting their turn never delay it.
 		select {
 		case message = <-t.send:
 		default:

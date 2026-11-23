@@ -9,16 +9,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
-// SlackMessage is the result of posting a text-only Slack message.
 type SlackMessage struct {
 	Integration string `json:"integration"`
 	ChannelID   string `json:"channel_id"`
 	MessageTS   string `json:"message_ts"`
-	// ThreadTS is empty when the conversation is a channel or DM rather than a thread.
-	ThreadTS string `json:"thread_ts"`
+	ThreadTS    string `json:"thread_ts"`
 }
 
-// SlackFiles is the result of posting a Slack message with files; the text is the files' initial comment.
 type SlackFiles struct {
 	Integration string   `json:"integration"`
 	ChannelID   string   `json:"channel_id"`
@@ -26,16 +23,13 @@ type SlackFiles struct {
 	FileIDs     []string `json:"file_ids"`
 }
 
-// DiscordMessage is the result of posting a Discord message.
 type DiscordMessage struct {
 	Integration string `json:"integration"`
-	// ChannelID is the thread's ID when the message was posted to a thread.
-	ChannelID string `json:"channel_id"`
-	MessageID string `json:"message_id"`
-	ThreadID  string `json:"thread_id"`
+	ChannelID   string `json:"channel_id"`
+	MessageID   string `json:"message_id"`
+	ThreadID    string `json:"thread_id"`
 }
 
-// GitHubPullRequestAttachment is the result of attaching or detaching a pull request. URL is only set on attach.
 type GitHubPullRequestAttachment struct {
 	RepositoryID int64  `json:"repository_id"`
 	PullRequest  int    `json:"pull_request"`

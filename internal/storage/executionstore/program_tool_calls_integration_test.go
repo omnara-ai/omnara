@@ -219,8 +219,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 	reaped, err := execution.ReapProgramToolCalls(ctx, 10)
 	require.NoError(t, err)
 	require.Equal(t, 1, reaped)
-	// The built-in call was claimed to run, so it may have taken effect: it fails rather than being
-	// canceled for its key to run again.
 	ended, err := execution.GetToolCall(ctx, testProjectID, fixture.AgentID, third.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, ended.Outcome)

@@ -38,7 +38,6 @@ type daemonProgramToolCallFixture struct {
 	pool    *pgxpool.Pool
 }
 
-// storage_read is deferred and asks for approval.
 func programToolAgentYAML(codeMode bool, enabled ...string) string {
 	var tools strings.Builder
 	for _, name := range enabled {
@@ -64,7 +63,6 @@ tools:
 `
 }
 
-// programToolFixtureOption sets a server option that needs the fixture's store.
 type programToolFixtureOption func(*storage.Store) Option
 
 func newDaemonProgramToolCallFixture(t *testing.T, opts ...programToolFixtureOption) *daemonProgramToolCallFixture {
@@ -371,7 +369,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Empty(t, interactions["data"], "the canceled call's approval prompt is closed")
 	require.NoError(t, abandoned.handleToolCallCancel(ctx, cancel))
 	abandoned.toolCallsDone.Wait()
-	acknowledged(abandoned, 1) // a cancel for a finished call is acknowledged, so it is not sent again
+	acknowledged(abandoned, 1)
 
 	retried := f.socket()
 	again := programToolOffer(f.process.ProcessID, "again", toolcatalog.ToolNameStorageRead,
@@ -440,7 +438,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, releasedRef.ToolCallID), rerun.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
 
-	// A cancel ends a call a server is still running. It had started, so it fails as outcome_unknown.
 	heldRef := orphan("held", time.Minute)
 	holding := f.socket()
 	held := programToolOffer(f.process.ProcessID, "held", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
@@ -457,7 +454,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.ErrorIs(t, execution.RenewProgramToolCallClaim(ctx, heldRef, time.Minute),
 		storeerr.ErrProgramToolCallClaimLost, "the server running a canceled call stops at its next renewal")
 
-	// A cancel reaches a connection that never served its call.
 	elsewhere := f.socket()
 	away := programToolOffer(f.process.ProcessID, "away", toolcatalog.ToolNameStorageRead,
 		`{"path":"/memory/engineering/notes.md"}`)
@@ -479,7 +475,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	require.Equal(t, []any{"completed", "canceled"}, []any{stopped["state"], stopped["outcome"]})
 
-	// Fields echoed in a rejection are bounded, so the report always fits a message.
 	longName := f.socket()
 	long := programToolOffer(f.process.ProcessID, "long", strings.Repeat(`"`, 300_000), `{}`)
 	require.NoError(t, longName.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &long}))
@@ -488,7 +483,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.LessOrEqual(t, len(tooLong.Error), daemonprotocol.ProgramToolCallMaxErrorBytes)
 	longName.toolCallsDone.Wait()
 
-	// A connection whose runtime is not online cannot start calls, even for a process of its machine.
 	offline := newDaemonSocket(f.server, nil, uuid.New(), f.process.OrgUUID, f.process.MachineUUID,
 		uuid.New(), f.process.TokenUUID, false)
 	unauthorized := programToolOffer(f.process.ProcessID, "offline", toolcatalog.ToolNameStorageList, `{}`)
@@ -505,14 +499,12 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	f.changeConfig(t, programToolAgentYAML(false, "storage_list", "storage_read"))
 	f.rejected(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	// A key that already names a call still reaches it, and its run fails under the current config.
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Empty(t, resumed.AckStatus, resumed.Error)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, resumed.Outcome)
 	f.changeConfig(t, programToolAgentYAML(true, "storage_list", "storage_read"))
 
-	// A tool's own code_mode setting keeps commands from calling it while code mode stays on.
 	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list", "storage_read"),
 		"  storage_list:\n", "  storage_list:\n    code_mode: false\n", 1))
 	f.rejected(t, "tool-denied", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
@@ -552,7 +544,6 @@ func (f *daemonProgramToolCallFixture) acceptProcess(t *testing.T) {
 	require.True(t, found)
 }
 
-// An offer of an open key for a different input gets a conflict, never the first call's result.
 func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -566,7 +557,6 @@ func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
 		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
 		return offer
 	}
-	// The first request stops waiting while its call is held open, here by an approval.
 	offer("first", "/memory/engineering/notes.md")
 	first := nextToolCallReport(t, socket)
 	require.Equal(t, "first", first.OfferID)
@@ -607,7 +597,6 @@ func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
 	socket.toolCallsDone.Wait()
 	require.Empty(t, socket.toolSend)
 
-	// The finished call answers the same way: its result for the same input, a conflict otherwise.
 	offer("after", "/memory/engineering/notes.md")
 	after := nextToolCallReport(t, socket)
 	require.Equal(t, []string{"after", first.ToolCallID}, []string{after.OfferID, after.ToolCallID})
@@ -618,7 +607,6 @@ func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
 	socket.toolCallsDone.Wait()
 }
 
-// Canceled calls still blocked in storage count against the connection's limit.
 func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -673,7 +661,6 @@ func TestDaemonSocketToolCallLimitCountsCanceledCalls(t *testing.T) {
 	socket.toolCallsDone.Wait()
 }
 
-// An approval wait survives a re-offer after a config change, then fails under the current config.
 func TestDaemonSocketProgramToolCallReattachesAfterConfigChange(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -722,8 +709,6 @@ func TestDaemonSocketProgramToolCallReattachesAfterConfigChange(t *testing.T) {
 	reconnected.toolCallsDone.Wait()
 }
 
-// Turning code mode off stops new calls, but a command that offers a key it already used, after
-// reconnecting, still reaches that call: an approval it is waiting on, or a result already recorded.
 func TestDaemonSocketProgramToolCallReattachesAfterCodeModeIsOff(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)

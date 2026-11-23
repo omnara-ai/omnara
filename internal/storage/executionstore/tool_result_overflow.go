@@ -161,7 +161,6 @@ func (s *Store) prepareToolResult(
 	if err != nil {
 		return nil, err
 	}
-	// A call a command made returns its whole result to that command, never to the model's context.
 	if call.State == ToolCallStateCompleted || call.Caller == "program" || !shouldOffloadToolResult(call.Type, call.Name) {
 		return canonical, nil
 	}

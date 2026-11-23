@@ -57,8 +57,7 @@ type RuntimeTool struct {
 	Description  string
 	InputSchema  json.RawMessage
 	OutputSchema json.RawMessage
-	// CodeMode is whether commands can call the tool, not whether the model can.
-	CodeMode bool
+	CodeMode     bool
 }
 
 type RuntimeMachine struct {

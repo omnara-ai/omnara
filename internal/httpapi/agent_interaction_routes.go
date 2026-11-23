@@ -391,8 +391,6 @@ func timePtrFromZero(value time.Time) *time.Time {
 	return &value
 }
 
-// interactionResolved follows a resolution this server recorded. An approved call from a command may
-// now run, and this server runs it rather than waiting for its next poll.
 func (s *Server) interactionResolved(ctx context.Context, record executionstore.AgentInteractionRecord) {
 	if record.ToolCallID != uuid.Nil {
 		s.programToolDriver.wake()

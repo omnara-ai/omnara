@@ -30,9 +30,6 @@ const (
 	MaxProgramToolKeyBytes = 128
 )
 
-// programToolNamedLifetime is how long a named call stays open once the command that made it has
-// ended and no server is running it. Until then a rerun with its key picks it up. The database
-// measures it, so servers whose clocks disagree still end a call at the same moment.
 var programToolNamedLifetime = 24 * time.Hour
 
 func programToolNamedLifetimeMicroseconds() int64 { return programToolNamedLifetime.Microseconds() }
@@ -55,17 +52,12 @@ type ProgramToolRef struct {
 
 type CreateProgramToolInput struct {
 	ProcessID uuid.UUID
-	// Key identifies the call across the agent's commands. Reusing it returns the earlier call.
-	Key string
-	// Named is set when the command chose the key. A named call outlives the command that made it,
-	// so a rerun gets the same execution, approval or result.
-	Named bool
-	Name  string
-	Type  string
-	Input json.RawMessage
-	// OfferID names the daemon offer this request answers. The call keeps the latest offer to make or
-	// pick it up, so a late cancel of an earlier offer of its key cannot end it.
-	OfferID string
+	Key       string
+	Named     bool
+	Name      string
+	Type      string
+	Input     json.RawMessage
+	OfferID   string
 }
 
 func programToolRecord(row executiondb.ReadProgramToolRow) ProgramTool {
@@ -97,7 +89,6 @@ func (h *Handle) lockProgram(ctx context.Context, processID uuid.UUID) (executio
 	return row, err
 }
 
-// fenceProgram requires a running command: only one can make calls.
 func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executiondb.LockProgramProcessRow, error) {
 	row, err := h.lockProgram(ctx, processID)
 	if err != nil {
@@ -109,17 +100,10 @@ func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executi
 	return row, nil
 }
 
-// programToolOpen reports whether a call can still make progress. A named call, or a custom call
-// waiting for its result, needs only its agent to be active; any other call ends with the command
-// that made it.
 func (h *Handle) programToolOpen(process executiondb.LockProgramProcessRow, row executiondb.ReadProgramToolRow) bool {
 	return h.identity.State == "active" && (process.Live || row.ProgramNamed || programToolAwaitingResult(row))
 }
 
-// programToolAwaitingResult reports whether a custom call has been authorized and waits for the
-// result its runner submits. Like a named call it then outlives the command that made it, but it
-// never expires: a command's timeout, lost connection or exit leaves it pending, and only its
-// result, a cancel of its agent, or its agent ending settles it.
 func programToolAwaitingResult(row executiondb.ReadProgramToolRow) bool {
 	return row.Type == toolcatalog.ToolTypeCustom && row.State == "ready"
 }
@@ -176,8 +160,6 @@ func (h *Handle) programToolNotification(
 		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
 }
 
-// readyProgramToolNotification carries a custom call's name and input, as for a model's call, so
-// its runner can pick the call up from the update alone.
 func (h *Handle) readyProgramToolNotification(
 	row executiondb.ReadProgramToolRow, interaction *notifications.AgentInteractionUpdate,
 ) {
@@ -193,10 +175,6 @@ func validProgramToolKey(key string) bool {
 	return key != "" && len(key) <= MaxProgramToolKeyBytes && dbsafe.Text(key) == nil
 }
 
-// resumeProgramTool finds the call a key already names. It reports false when the key is new, or when
-// its last call was canceled before it could take effect, so the caller may start another attempt.
-// input.Type is checked only when the caller has resolved it. An open call it finds now answers
-// input.OfferID.
 func (h *Handle) resumeProgramTool(
 	ctx context.Context, input CreateProgramToolInput, callInput json.RawMessage,
 ) (ProgramTool, bool, error) {
@@ -214,9 +192,6 @@ func (h *Handle) resumeProgramTool(
 		return ProgramTool{}, false, storeerr.ErrIdempotencyConflict
 	}
 	if row.State != "completed" && row.ProcessID != processID {
-		// Another command made this call. A named call is picked up as it is, running or waiting for
-		// approval. Any other call ended with its command, so settle it now rather than attaching to
-		// one the reaper is about to end.
 		reaped, err := h.reapProgramTool(ctx, row)
 		if err != nil {
 			return ProgramTool{}, false, err
@@ -251,8 +226,6 @@ func programToolInput(input CreateProgramToolInput) (json.RawMessage, error) {
 	return callInput, nil
 }
 
-// ResumeProgramTool checks only that the calling process may make calls, so a finished call is
-// returned even when a new one could no longer be started.
 func (h *Handle) ResumeProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, bool, error) {
 	type resumed struct {
 		tool  ProgramTool
@@ -355,7 +328,6 @@ func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, l
 		}
 		row.State, row.ProgramClaimID = "ready", nil
 		if row.Type == toolcatalog.ToolTypeCustom {
-			// Nothing here runs a custom tool: the call waits for the result its runner submits.
 			h.readyProgramToolNotification(row, nil)
 			return true, nil
 		}
@@ -525,8 +497,6 @@ func (h *Handle) CompleteProgramTool(
 	})
 }
 
-// CompleteProgramCustomTool records the result a custom tool's runner submits for a call a command
-// made. Whoever is waiting on the call, in that command or a later one with its key, gets it.
 func (h *Handle) CompleteProgramCustomTool(
 	ctx context.Context, id uuid.UUID, outcome string, content []Content,
 ) (ProgramTool, error) {
@@ -545,9 +515,6 @@ func (h *Handle) CompleteProgramCustomTool(
 	})
 }
 
-// cancelProgramToolsAwaitingResult ends the agent's custom calls still waiting for their results
-// when the agent is canceled. Their runners may have acted on them, so their keys keep returning
-// outcome_unknown rather than calling the tool again.
 func (h *Handle) cancelProgramToolsAwaitingResult(ctx context.Context) error {
 	ids, err := executiondb.New().ListProgramToolsAwaitingResult(ctx, h.unit.DB(),
 		executiondb.ListProgramToolsAwaitingResultParams{AgentID: h.route.AgentID})
@@ -558,9 +525,6 @@ func (h *Handle) cancelProgramToolsAwaitingResult(ctx context.Context) error {
 		"The agent was canceled before this call's result was submitted.")
 }
 
-// stopProgramToolsOfArchivedAgent ends every open call the agent's commands made. Named calls and
-// custom calls outlive their commands, but not their agent, so nothing is left for a rerun or a
-// runner to pick up, and a server running one loses its claim before it sends anything more.
 func (h *Handle) stopProgramToolsOfArchivedAgent(ctx context.Context) error {
 	ids, err := executiondb.New().ListOpenProgramTools(ctx, h.unit.DB(),
 		executiondb.ListOpenProgramToolsParams{AgentID: h.route.AgentID})
@@ -647,10 +611,6 @@ func (h *Handle) completeProgramTool(
 	return record, nil
 }
 
-// programToolStopped is the result of a call that is ended without finishing. A call that never
-// started is canceled, so its key can run it again. A call that had started, of any tool type, or a
-// custom call handed to its runner, is failed as outcome_unknown, because it may have taken effect,
-// and its key keeps returning that result, as a model's call would.
 func programToolStopped(row executiondb.ReadProgramToolRow, code, message string) (string, json.RawMessage, error) {
 	outcome := "canceled"
 	if row.State == "waiting" || programToolAwaitingResult(row) {
@@ -676,7 +636,6 @@ func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgra
 	case process.Live, programToolAwaitingResult(row):
 		return false, nil
 	case row.ProgramNamed:
-		// A named call outlives its command so a rerun can pick it up. It ends only when none did.
 		if (row.ProgramClaimID != nil && !row.ClaimExpired) || !row.NamedExpired {
 			return false, nil
 		}
@@ -700,8 +659,6 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 	})
 }
 
-// CancelProgramTool also ends a call a server is still running: that server loses its claim and stops.
-// A custom call waiting for its result stays pending: only the command stopped waiting for it.
 func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.fencedProgramTool(ctx, ref)
@@ -712,9 +669,6 @@ func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (boo
 	})
 }
 
-// CancelProgramToolByKey ends the call a key names for a cancel of offerID, unless a later offer has
-// made or picked it up since. An empty offerID ends it whatever offer it answers. It leaves a named
-// call alone: it outlives the command that stopped waiting.
 func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID, key, offerID string) error {
 	_, err := programCommand(h, func() (struct{}, error) {
 		process, err := h.lockProgram(ctx, processID)
@@ -878,8 +832,6 @@ type RunnableProgramTool struct {
 	ProcessID uuid.UUID
 }
 
-// ListProgramToolRunnable lists the oldest named calls a server can claim and run, whether or not
-// the command that made them still waits for them.
 func (c *AgentCell) ListProgramToolRunnable(ctx context.Context, limit int32) ([]RunnableProgramTool, error) {
 	var rows []executiondb.ListProgramToolRunnableRow
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {

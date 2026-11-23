@@ -21,7 +21,6 @@ import (
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-// daemonSocketWire is the websocket a daemonSocket reads and writes.
 type daemonSocketWire interface {
 	Read(context.Context) (daemonprotocol.Message, error)
 	Write(context.Context, daemonprotocol.Message) error
@@ -30,37 +29,27 @@ type daemonSocketWire interface {
 }
 
 type daemonSocket struct {
-	server       *Server
-	wire         daemonSocketWire
-	connectionID uuid.UUID
-	orgID        uuid.UUID
-	machineID    uuid.UUID
-	runtimeID    uuid.UUID
-	tokenID      uuid.UUID
-	// send carries control traffic: heartbeat and report acknowledgments, process and action work,
-	// and errors. A full send queue means the daemon stopped reading, so it closes the socket.
-	send chan daemonSocketOutbound
-	// toolSend carries tool call reports. Their senders wait for room, and the writer drains send
-	// first, so a burst of reports never holds up or closes the control traffic.
-	toolSend chan daemonSocketOutbound
-	// toolCallReplies bounds the reports the read loop hands off rather than waits to queue.
-	toolCallReplies   chan struct{}
-	workMu            sync.Mutex
-	drainQueued       bool
-	drainRunning      bool
-	drainDone         chan struct{}
-	drain             func()
-	acceptedProcesses map[uuid.UUID]struct{}
-	acceptedActions   map[uuid.UUID]struct{}
-	// A canceled call moves from toolCalls to toolCallsCanceling until its serving loop ends, so an
-	// offer that reuses its key waits for the cancel. toolCallsActive counts serving goroutines,
-	// canceled ones included.
-	toolCalls          map[string]*servedToolCall
-	toolCallsCanceling map[string]*servedToolCall
-	toolCallsActive    int
-	toolCallsDone      sync.WaitGroup
-	// Cancels of stored calls that arrived while every slot was taken, oldest first. Each runs when a
-	// slot frees, so the daemon need not send it again.
+	server                *Server
+	wire                  daemonSocketWire
+	connectionID          uuid.UUID
+	orgID                 uuid.UUID
+	machineID             uuid.UUID
+	runtimeID             uuid.UUID
+	tokenID               uuid.UUID
+	send                  chan daemonSocketOutbound
+	toolSend              chan daemonSocketOutbound
+	toolCallReplies       chan struct{}
+	workMu                sync.Mutex
+	drainQueued           bool
+	drainRunning          bool
+	drainDone             chan struct{}
+	drain                 func()
+	acceptedProcesses     map[uuid.UUID]struct{}
+	acceptedActions       map[uuid.UUID]struct{}
+	toolCalls             map[string]*servedToolCall
+	toolCallsCanceling    map[string]*servedToolCall
+	toolCallsActive       int
+	toolCallsDone         sync.WaitGroup
 	toolCallCancelsQueued []daemonprotocol.ToolCallCancel
 	leaseRenewAfter       time.Time
 	observedPlatform      string
@@ -273,7 +262,6 @@ func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	defer pingTicker.Stop()
 	for {
 		var outbound daemonSocketOutbound
-		// Control traffic goes first, so tool call reports waiting their turn never delay it.
 		select {
 		case outbound = <-s.send:
 		default:

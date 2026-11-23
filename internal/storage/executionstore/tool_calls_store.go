@@ -45,9 +45,7 @@ type CompleteCustomToolCallInput struct {
 }
 
 type CompleteCustomToolCallResult struct {
-	ToolCall ToolCallRecord
-	// Event is zero for a call a command made: its result goes to the command, not to the agent's
-	// events.
+	ToolCall      ToolCallRecord
 	Event         TypedAgentEventRecord
 	ContentBlocks json.RawMessage
 }

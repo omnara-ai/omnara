@@ -47,10 +47,8 @@ type daemonSocketHub struct {
 	byMachine             map[uuid.UUID]*daemonSocket
 	byRuntime             map[uuid.UUID]*daemonSocket
 	subs                  []notifications.Subscription
-	// serving counts the sockets still running, so Close can wait for each to end with the tool
-	// calls it serves. closed, guarded by mu, admits no more once Close has begun.
-	serving sync.WaitGroup
-	closed  bool
+	serving               sync.WaitGroup
+	closed                bool
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending
@@ -173,7 +171,6 @@ func (h *daemonSocketHub) sweepPendingSkillReports(ctx context.Context) {
 	}
 }
 
-// Close closes every socket and waits for each to end, with the tool calls it was serving.
 func (h *daemonSocketHub) Close() {
 	if h == nil {
 		return
@@ -195,7 +192,6 @@ func (h *daemonSocketHub) Close() {
 	h.serving.Wait()
 }
 
-// enter admits a socket to run, until Close begins. Each admitted socket calls leave once it ends.
 func (h *daemonSocketHub) enter() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A built-in call whose server stopped while running it is not run again when its key is offered:
-// like a model's call, it may have taken effect, so the reaper fails it and the offer gets that.
 func TestDaemonSocketProgramToolCallDoesNotRerunALostBuiltInCall(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -26,7 +24,6 @@ func TestDaemonSocketProgramToolCallDoesNotRerunALostBuiltInCall(t *testing.T) {
 		ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
 		Key: offer.Key, Name: offer.Name, Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{}`)})
 	require.NoError(t, err)
-	// Another server claimed the call and started running it, then stopped.
 	ref := executionstore.ProgramToolCallRef{ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID,
 		ProcessID: f.process.ProcessUUID, ToolCallID: record.ID, ClaimID: uuid.New()}
 	_, found, err := store.Execution().ClaimProgramToolCall(ctx, ref, time.Minute)

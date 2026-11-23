@@ -31,7 +31,6 @@ export function AgentConfigCodeModeField({
             onChange({ ...value, enabled: true })
             return
           }
-          // Keep the rest of the policy so turning code mode back on can't widen command access.
           const hasPolicy = Object.keys(value ?? {}).some((key) => key !== 'enabled')
           onChange(hasPolicy ? { ...value, enabled: false } : undefined)
         }}

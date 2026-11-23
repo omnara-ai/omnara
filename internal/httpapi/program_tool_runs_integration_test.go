@@ -18,14 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The calls a server serves are bounded across all its connections, not just per connection.
 func TestDaemonSocketProgramToolCallsShareOnePendingLimit(t *testing.T) {
 	t.Parallel()
 	const limit = 4
 	f := newDaemonProgramToolCallFixture(t, func(*storage.Store) Option { return WithProgramToolPendingLimit(limit) })
 	f.acceptProcess(t)
 	ctx := t.Context()
-	// Hold every admitted call in storage, so none finishes while the limit is checked.
 	blocked, err := f.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = blocked.Rollback(context.WithoutCancel(ctx)) }()
@@ -80,8 +78,6 @@ func TestDaemonSocketProgramToolCallsShareOnePendingLimit(t *testing.T) {
 	first.toolCallsDone.Wait()
 }
 
-// heldProgramToolExecutor starts an async phase that outlives the run's cancellation: it records
-// its result only once the test releases it, as a slow persistence cleanup would.
 type heldProgramToolExecutor struct {
 	started  chan struct{}
 	release  chan struct{}
@@ -108,8 +104,6 @@ func (e *heldProgramToolExecutor) RunProgramToolCall(
 	return nil
 }
 
-// Closing the server cancels its runs and waits for each to end, with the async work it left,
-// before returning, so none of it writes to a store that is closing.
 func TestServerCloseJoinsProgramToolRunsAndTheirCleanup(t *testing.T) {
 	t.Parallel()
 	executor := &heldProgramToolExecutor{started: make(chan struct{}), release: make(chan struct{})}

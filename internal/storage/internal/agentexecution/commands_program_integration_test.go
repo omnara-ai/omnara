@@ -476,7 +476,6 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	f.try(t, func(h *agentexecution.Handle) {
 		require.ErrorIs(t, h.ReleaseProgramTool(t.Context(), ref), storeerr.ErrProgramToolCallClaimLost)
 	})
-	// A server that releases its claim before running the call lets another run it.
 	ref.ClaimID = execute
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		require.NoError(t, h.ReleaseProgramTool(t.Context(), ref))
@@ -492,8 +491,6 @@ func TestProgramToolClaimLeases(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// A built-in call whose server stopped while running it is not run again, as for a model's call:
-	// it may have taken effect.
 	builtIn := f.create(t, "built-in-lost")
 	builtInRef := agentexecution.ProgramToolRef{ID: builtIn.ID, ProcessID: f.process, ClaimID: uuid.New()}
 	_, found = f.claim(t, builtIn.ID, builtInRef.ClaimID)
@@ -521,8 +518,6 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	requireProgramToolLostByServer(t, f, mcp.ID)
 }
 
-// requireProgramToolLostByServer expires the claim of a call that was running: no server can claim
-// it again, and the reaper fails it as outcome_unknown, since it had started.
 func requireProgramToolLostByServer(t *testing.T, f programFixture, id uuid.UUID) {
 	t.Helper()
 	_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls
@@ -676,8 +671,6 @@ func TestProgramToolKeyResumesAcrossCommands(t *testing.T) {
 	require.Equal(t, retry.ID, replay.ID)
 }
 
-// A named call keeps running, or waiting for approval, after its command ends, and a rerun picks it
-// up.
 func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	f := newProgramFixture(t)
 	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
@@ -739,7 +732,6 @@ func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	require.NoError(t, cell.RenewProgramTool(t.Context(), f.agent, runRef, time.Minute),
 		"the server running a named call keeps its claim after the command ends")
 
-	// A rerun from another command gets the live execution, not an unknown outcome.
 	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		tool, found := resume(h, "running")
 		require.True(t, found)
@@ -758,7 +750,6 @@ func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	state, outcome := programState(t, f, running.ID)
 	require.Equal(t, []string{"completed", "succeeded"}, []string{state, outcome})
 
-	// A rerun gets the original approval wait, and that approval still releases the call.
 	second.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		tool, found := resume(h, "asking")
 		require.True(t, found)
@@ -782,7 +773,6 @@ func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 		require.Equal(t, agentexecution.ProgramToolExecute, phase)
 	})
 
-	// A named call nothing picks up is ended once its lifetime has passed, and its key is free again.
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		reaped, err := h.ReapProgramTool(t.Context(), idle.ID)
 		require.NoError(t, err)
@@ -804,8 +794,6 @@ func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	require.True(t, retry.Created)
 }
 
-// A cancel names the offer it ends. A late cancel of an earlier offer, whose call was already ended
-// and retried under the same key, leaves the retry alone.
 func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 	f := newProgramFixture(t)
 	offer := func(offerID string) agentexecution.ProgramTool {
@@ -837,7 +825,6 @@ func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 	state, _ = programState(t, f, retry.ID)
 	require.Equal(t, "awaiting_authorization", state, "a late cancel of the first attempt must not end the retry")
 
-	// An offer that picks up the open call takes it over from the offer that made it.
 	again := offer("c")
 	require.Equal(t, retry.ID, again.ID)
 	require.False(t, again.Created)
@@ -848,7 +835,6 @@ func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 	state, outcome = programState(t, f, retry.ID)
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
 
-	// A cancel that names no offer ends the call whatever offer it answers.
 	unnamed := offer("d")
 	cancel("")
 	state, _ = programState(t, f, unnamed.ID)
@@ -862,12 +848,9 @@ func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
 	})
 }
 
-// A named call's lifetime is measured in database time, by one rule for a rerun and for maintenance:
-// a server whose clock runs ahead of the database cannot end it before maintenance would.
 func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
 	f := newProgramFixture(t)
 	second := programFixtureFor(t, f.executionFixture, f.agent, f.lease)
-	// created_at cannot be changed once written, so each call is written with the age it needs.
 	aged := func(key, age string) uuid.UUID {
 		t.Helper()
 		var id uuid.UUID
@@ -878,7 +861,6 @@ func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
 			f.parent, programKey(key), age).Scan(&id))
 		return id
 	}
-	// Two minutes short of its lifetime: a server two minutes ahead would have seen it as expired.
 	young := aged("young", "23 hours 58 minutes")
 	old := aged("old", "24 hours 1 second")
 	_, err := f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
@@ -922,9 +904,6 @@ func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
 	require.Equal(t, "expired", code)
 }
 
-// Archiving an agent ends every call its commands left open. A named call, running or waiting for
-// approval, outlives its command but not its agent: its server cannot renew its claim, so it sends
-// nothing more.
 func TestProgramToolArchiveEndsOpenCalls(t *testing.T) {
 	f := newProgramFixture(t)
 	named := func(key string) agentexecution.ProgramTool {
@@ -990,8 +969,6 @@ func TestProgramToolArchiveEndsOpenCalls(t *testing.T) {
 	}), "nothing is left for maintenance to end")
 }
 
-// Renewing a claim is the last check before a call is sent, so it fails once the agent is no longer
-// active even if the call itself is still open.
 func TestProgramToolRenewRequiresActiveAgent(t *testing.T) {
 	f := newProgramFixture(t)
 	var tool agentexecution.ProgramTool
@@ -1015,7 +992,6 @@ func TestProgramToolRenewRequiresActiveAgent(t *testing.T) {
 	cell := agentexecution.NewCell(f.pool, nil, nil)
 	require.NoError(t, cell.RenewProgramTool(t.Context(), f.agent, ref, time.Minute),
 		"a named call keeps its claim after its command ends")
-	// The agent row alone changes, as a concurrent archive does before it reaches the agent's calls.
 	_, err = f.pool.Exec(t.Context(), `UPDATE agents SET state='archived',archived_at=statement_timestamp()
  WHERE id=$1`, f.agent)
 	require.NoError(t, err)
@@ -1023,10 +999,6 @@ func TestProgramToolRenewRequiresActiveAgent(t *testing.T) {
 		storeerr.ErrProgramToolCallClaimLost)
 }
 
-// A server runs named calls from what storage records: those waiting to be authorized with no live
-// claim, and approved ones waiting to run. Calls a server holds, custom calls waiting for their
-// runner, unnamed calls, which end with their command, and named calls past their lifetime are
-// left alone.
 func TestProgramToolRunnableListsNamedCallsNoServerHolds(t *testing.T) {
 	f := newProgramFixture(t)
 	cell := agentexecution.NewCell(f.pool, nil, nil)

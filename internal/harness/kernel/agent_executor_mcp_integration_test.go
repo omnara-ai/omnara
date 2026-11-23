@@ -1566,7 +1566,6 @@ mcp:
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
-		// The connection is for a config whose secret no longer exists.
 		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: uuid.New()}
 		hash, err := executionstore.MCPServerConfigHash(server)
 		if err != nil {
@@ -1580,8 +1579,6 @@ mcp:
 	})
 }
 
-// launchedMCPServer is the docs server as a config declares it: a connection serves only the config
-// it was reconciled for.
 func launchedMCPServer(
 	t *testing.T, ctx context.Context, fixture kernelFixture, configID uuid.UUID,
 ) agentconfig.RuntimeMCPServer {

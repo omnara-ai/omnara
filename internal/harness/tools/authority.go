@@ -116,9 +116,6 @@ type programClaimAuthority struct {
 	ref     executionstore.ProgramToolCallRef
 	lease   time.Duration
 	stopped <-chan struct{}
-	// started is set once the call may have taken effect: when an MCP call is sent, or when a
-	// built-in tool's handler begins. A call interrupted before then is released to run again; one
-	// interrupted after it fails, as a model's call does.
 	started *atomic.Bool
 	builtIn bool
 }

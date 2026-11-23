@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// storedCall is a call an offer named key made on an earlier connection.
 func (f *daemonProgramToolCallFixture) storedCall(t *testing.T, key string) (
 	daemonprotocol.ToolCallOffer, executionstore.ProgramToolCallRecord,
 ) {
@@ -42,8 +41,6 @@ func (f *daemonProgramToolCallFixture) toolCallState(t *testing.T, id string) (s
 	return state, outcome
 }
 
-// A cancel that arrives while every slot is taken waits for one on the server, then ends its call
-// and is acknowledged, without the daemon sending it again.
 func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -83,7 +80,6 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 			require.Equal(t, []string{storedCancel.Key, storedCancel.OfferID}, []string{report.Key, report.OfferID})
 			acknowledged++
 		case report.State == daemonprotocol.ProgramToolCallStateCompleted,
-			// The stored call counts against the command's limit too.
 			report.ErrorCode == daemonprotocol.ErrorCodeToolCallLimitReached:
 			completed++
 		default:
@@ -102,7 +98,6 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
 }
 
-// awaitingApproval leaves a call waiting for approval, offered on a connection that has since gone.
 func (f *daemonProgramToolCallFixture) awaitingApproval(t *testing.T, key string) daemonprotocol.ToolCallReport {
 	t.Helper()
 	offer := programToolOffer(f.process.ProcessID, key, toolcatalog.ToolNameStorageRead,
@@ -135,8 +130,6 @@ func requireNoToolCallReport(t *testing.T, socket *daemonSocket) {
 	}
 }
 
-// A socket whose token was revoked cannot cancel calls, whether it is serving the call or the call
-// was offered on an earlier connection. The call keeps going, and the cancel is not acknowledged.
 func TestDaemonSocketToolCallCancelRequiresAnUnrevokedToken(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -167,7 +160,6 @@ func TestDaemonSocketToolCallCancelRequiresAnUnrevokedToken(t *testing.T) {
 	}
 }
 
-// A daemon whose lease expired can no longer start calls, but can still clean up the ones it made.
 func TestDaemonSocketToolCallCancelAllowsAnExpiredLease(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -184,8 +176,6 @@ func TestDaemonSocketToolCallCancelAllowsAnExpiredLease(t *testing.T) {
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
 }
 
-// A cancel ends a call that is waiting for approval after code mode was turned off, and only then
-// is acknowledged: the call is still open even though no new one could start.
 func TestDaemonSocketToolCallCancelEndsACallAfterCodeModeIsOff(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -208,8 +198,6 @@ func TestDaemonSocketToolCallCancelEndsACallAfterCodeModeIsOff(t *testing.T) {
 	require.Zero(t, open, "the call's approval is closed with it")
 }
 
-// A cancel whose acknowledgment was lost is sent again on the next connection. By then the command
-// may have retried the key, starting a new attempt, which the late cancel must leave alone.
 func TestDaemonSocketToolCallLateCancelLeavesARetryAlone(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)

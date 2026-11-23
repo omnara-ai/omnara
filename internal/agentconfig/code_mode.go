@@ -7,7 +7,6 @@ type CodeModeSource struct {
 	DefaultAllowed *bool `json:"default_allowed,omitempty"`
 }
 
-// CodeModeCompiled is present only when code mode is on. DefaultAllowed is set only when false.
 type CodeModeCompiled struct {
 	Enabled        bool  `json:"enabled"`
 	DefaultAllowed *bool `json:"default_allowed,omitempty"`
@@ -43,7 +42,6 @@ func validateCompiledCodeMode(compiled *CodeModeCompiled) error {
 	return nil
 }
 
-// A nil override falls back to the agent default.
 func (compiled *CodeModeCompiled) allows(override *bool) bool {
 	if compiled == nil || !compiled.Enabled {
 		return false

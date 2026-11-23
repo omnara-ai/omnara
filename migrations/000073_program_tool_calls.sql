@@ -6,12 +6,7 @@ ALTER TABLE tool_calls
     ADD COLUMN parent_tool_call_id uuid,
     ADD COLUMN program_claim_id uuid,
     ADD COLUMN program_claim_expires_at timestamptz,
-    -- A named call was given its key by the command. It belongs to its agent and key rather than to
-    -- the command that made it, so it outlives that command; parent_tool_call_id records where it
-    -- came from.
     ADD COLUMN program_named boolean NOT NULL DEFAULT false,
-    -- The latest daemon offer to make or pick up the call. A cancel names the offer it ends, so a
-    -- late cancel of an earlier offer of the key cannot end a later attempt.
     ADD COLUMN program_offer_id text,
     ADD CONSTRAINT tool_calls_caller_shape CHECK (
         (caller = 'model' AND model_output_id IS NOT NULL AND parent_tool_call_id IS NULL

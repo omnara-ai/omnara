@@ -40,10 +40,9 @@ const (
 )
 
 type ProgramToolCallOptions struct {
-	Tool   string
-	Input  string
-	Output ProgramToolCallOutput
-	// IdempotencyKey names the call so a later run can pick it up. Empty generates one for this run.
+	Tool           string
+	Input          string
+	Output         ProgramToolCallOutput
 	IdempotencyKey string
 	Timeout        time.Duration
 }
@@ -160,7 +159,6 @@ func newProgramToolCaller(endpoint, processID string) *programToolCaller {
 		CheckRedirect: noRedirects}}
 }
 
-// waiting is told each state the call enters before it completes.
 func (c *programToolCaller) call(
 	ctx context.Context, body []byte, waiting func(state string),
 ) (daemonprotocol.ProgramToolCallResult, error) {
@@ -275,7 +273,6 @@ func reportProgramToolCallError(
 		}
 		return ProgramToolCallExitTransport
 	case ctx.Err() != nil && last.State == daemonprotocol.ProgramToolCallStateAwaitingResult && !resumable:
-		// A custom call stays open after its command stops waiting, under the key this run made up.
 		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: stopped waiting; tool call %s is still waiting for its "+
 			"result, so run it again with --idempotency-key %s to pick it up\n", tool, last.ToolCallID, key)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) && resumable:

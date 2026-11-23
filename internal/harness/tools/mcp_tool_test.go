@@ -230,7 +230,6 @@ func TestMCPToolResultContentPutsStructuredContentFirstForProgramCalls(t *testin
 	}
 }
 
-// Model and program calls alike refuse a connection reconciled for another config of the server.
 func TestMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
 	server := func(url string) agentconfig.RuntimeMCPServer {
 		return agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: url,

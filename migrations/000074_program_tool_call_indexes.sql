@@ -1,12 +1,6 @@
 -- +goose NO TRANSACTION
 -- +goose Up
 
--- Runs outside a transaction so the index builds do not block tool calls. Every statement can be
--- repeated, so a run interrupted partway is finished by running the migration again: a failed
--- concurrent build leaves an invalid index, which is dropped and rebuilt.
-
--- A key names one call across an agent's commands: at most one open call per key, and
--- a later attempt may follow one that was canceled before it ran.
 DROP INDEX CONCURRENTLY IF EXISTS tool_calls_program_open_key_idx;
 
 CREATE UNIQUE INDEX CONCURRENTLY tool_calls_program_open_key_idx

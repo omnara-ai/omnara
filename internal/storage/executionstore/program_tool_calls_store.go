@@ -16,12 +16,10 @@ import (
 )
 
 type ProgramToolScope struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	ProcessID     uuid.UUID
-	AgentConfigID uuid.UUID
-	// CodeModeEnabled is whether the agent's current config lets commands start new tool calls. A
-	// process its original config let call tools keeps its scope, so calls already made still resolve.
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	ProcessID       uuid.UUID
+	AgentConfigID   uuid.UUID
 	CodeModeEnabled bool
 }
 
@@ -79,9 +77,7 @@ type CreateProgramToolCallInput struct {
 	Name      string
 	Type      string
 	Input     json.RawMessage
-	// OfferID names the daemon offer this request answers, so a cancel of another offer of the key
-	// cannot end the call this one makes or picks up.
-	OfferID string
+	OfferID   string
 }
 
 type CompleteProgramToolCallInput struct {
@@ -161,9 +157,6 @@ func (s *Store) CreateProgramToolCall(
 		})
 }
 
-// ResumeProgramToolCall returns the call the key already names for this agent, in any of its
-// commands. It reports false when a new call should be started. The record's ProcessID is the
-// process that made the call, which may not be input.ProcessID.
 func (s *Store) ResumeProgramToolCall(
 	ctx context.Context, input CreateProgramToolCallInput,
 ) (ProgramToolCallRecord, bool, error) {
@@ -342,8 +335,6 @@ func getProgramToolCallTx(ctx context.Context, tx dbsqlc.DBTX, ref ProgramToolCa
 	return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: ref.ProcessID}, nil
 }
 
-// ListRunnableProgramToolCalls lists the oldest named calls waiting for a server to authorize or run
-// them. A server claims each before running it, so servers listing the same calls run each once.
 func (s *Store) ListRunnableProgramToolCalls(ctx context.Context, limit int) ([]ProgramToolCallRef, error) {
 	if limit <= 0 {
 		return nil, errors.New("limit must be positive")

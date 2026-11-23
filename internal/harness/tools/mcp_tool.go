@@ -128,9 +128,6 @@ func (e Executor) runtimeMCPServerForTool(
 	)
 }
 
-// mcpConnectionServes refuses a connection reconciled for another config of the server, which the
-// agent's config can change to while a call is outstanding: its session and endpoint must not be
-// paired with this config's credential. The manager checks the rows it reloads to recover the same way.
 func mcpConnectionServes(conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer) error {
 	hash, err := executionstore.MCPServerConfigHash(server)
 	if err != nil {

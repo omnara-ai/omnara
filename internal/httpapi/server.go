@@ -570,7 +570,6 @@ func (s *Server) Close() {
 		}
 		s.programToolDriver.close()
 		if s.daemonHub != nil {
-			// The sockets' serving loops end first, so nothing starts a run once the runs are joined.
 			s.daemonHub.Close()
 			s.programToolRuns.stop()
 		}
