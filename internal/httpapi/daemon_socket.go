@@ -44,6 +44,9 @@ type daemonSocket struct {
 	toolCallsCanceling map[string]*servedToolCall
 	toolCallsActive    int
 	toolCallsDone      sync.WaitGroup
+	// Cancels of stored calls that arrived while every slot was taken, oldest first. Each runs when a
+	// slot frees, so the daemon need not send it again.
+	toolCallCancelsQueued []daemonprotocol.ToolCallCancel
 	leaseRenewAfter    time.Time
 	observedPlatform   string
 	drainAfterRenewal  bool

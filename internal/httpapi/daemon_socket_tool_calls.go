@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,7 +24,10 @@ import (
 )
 
 const (
-	daemonToolCallLimit         = 128
+	daemonToolCallLimit = 128
+	// Bounds the cancels a connection holds for a free slot. Past it a cancel goes unacknowledged,
+	// and the daemon sends it again on its next connection.
+	daemonToolCallCancelQueueLimit = 1024
 	programToolCallLease        = time.Minute
 	programToolCallPoll         = 2 * time.Second
 	programToolCallFallbackPoll = 250 * time.Millisecond
@@ -129,7 +133,7 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			if s.toolCallsCanceling[id] == call {
 				delete(s.toolCallsCanceling, id)
 			}
-			s.toolCallsActive--
+			queued := s.releaseToolCallSlotLocked()
 			next := call.next
 			call.next = nil
 			s.workMu.Unlock()
@@ -138,6 +142,7 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			if next != nil && ctx.Err() == nil {
 				_ = s.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: next})
 			}
+			s.runQueuedToolCallCancel(ctx, queued)
 		}()
 		if canceling != nil {
 			select {
@@ -155,7 +160,11 @@ func (s *daemonSocket) handleToolCallCancel(ctx context.Context, msg daemonproto
 	if msg.ToolCallCancel == nil {
 		return errors.New("tool_call_cancel payload is required")
 	}
-	cancel := *msg.ToolCallCancel
+	s.cancelToolCall(ctx, *msg.ToolCallCancel)
+	return nil
+}
+
+func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
 	id := cancel.ProcessID + "\x00" + cancel.Key
 	s.workMu.Lock()
 	call, serving := s.toolCalls[id]
@@ -175,7 +184,8 @@ func (s *daemonSocket) handleToolCallCancel(ctx context.Context, msg daemonproto
 		s.workMu.Unlock()
 		s.reportToolCallCanceled(ctx, cancel)
 	case s.toolCallsActive >= daemonToolCallLimit:
-		// No acknowledgment, so the daemon sends the cancel again on its next connection.
+		// Held until a slot frees. Unacknowledged, it is sent again on the next connection.
+		s.queueToolCallCancelLocked(cancel)
 		s.workMu.Unlock()
 	default:
 		// The offer was made on an earlier connection. The cancel still has to end the stored call.
@@ -184,15 +194,40 @@ func (s *daemonSocket) handleToolCallCancel(ctx context.Context, msg daemonproto
 		s.workMu.Unlock()
 		go func() {
 			defer s.toolCallsDone.Done()
-			defer func() {
-				s.workMu.Lock()
-				s.toolCallsActive--
-				s.workMu.Unlock()
-			}()
 			s.cancelStoredToolCall(ctx, cancel)
+			s.workMu.Lock()
+			queued := s.releaseToolCallSlotLocked()
+			s.workMu.Unlock()
+			s.runQueuedToolCallCancel(ctx, queued)
 		}()
 	}
-	return nil
+}
+
+func (s *daemonSocket) queueToolCallCancelLocked(cancel daemonprotocol.ToolCallCancel) {
+	if len(s.toolCallCancelsQueued) >= daemonToolCallCancelQueueLimit ||
+		slices.Contains(s.toolCallCancelsQueued, cancel) {
+		return
+	}
+	s.toolCallCancelsQueued = append(s.toolCallCancelsQueued, cancel)
+}
+
+// releaseToolCallSlotLocked frees a slot and hands back the oldest cancel waiting for one.
+func (s *daemonSocket) releaseToolCallSlotLocked() *daemonprotocol.ToolCallCancel {
+	s.toolCallsActive--
+	if len(s.toolCallCancelsQueued) == 0 {
+		return nil
+	}
+	cancel := s.toolCallCancelsQueued[0]
+	s.toolCallCancelsQueued = slices.Delete(s.toolCallCancelsQueued, 0, 1)
+	return &cancel
+}
+
+// runQueuedToolCallCancel handles a queued cancel afresh, since what its key is serving may have
+// changed while it waited.
+func (s *daemonSocket) runQueuedToolCallCancel(ctx context.Context, cancel *daemonprotocol.ToolCallCancel) {
+	if cancel != nil && ctx.Err() == nil {
+		s.cancelToolCall(ctx, *cancel)
+	}
 }
 
 func (s *daemonSocket) cancelStoredToolCall(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
