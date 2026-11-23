@@ -78,7 +78,7 @@ WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
   AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
   OR (c.created_at<=statement_timestamp()-$1::bigint*interval '1 microsecond'
    AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
- OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
+ OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
  AND (c.created_at,c.id)>($2::timestamptz,$3::uuid)
 ORDER BY c.created_at,c.id LIMIT $4
 `

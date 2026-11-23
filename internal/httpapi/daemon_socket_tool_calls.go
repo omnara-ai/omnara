@@ -334,7 +334,6 @@ func (s *daemonSocket) serveToolCall(
 	canceled := call.canceled
 	var running <-chan struct{}
 	claim, awaitingApproval, awaitingResult, canceling := true, false, false, false
-	var reclaimAfter time.Time
 	for {
 		record, found, err := server.store.Execution().GetProgramToolCall(
 			ctx, ref.ProjectID, ref.AgentID, ref.ProcessID, ref.ToolCallID)
@@ -397,14 +396,9 @@ func (s *daemonSocket) serveToolCall(
 				//nolint:contextcheck // the run outlives this socket's context
 				running = server.runProgramToolCall(ref, abandoned, stopRun)
 			}
-		case executionstore.ToolCallStateWaiting:
-			if claim && running == nil && !canceling && record.Type == toolcatalog.ToolTypeBuiltIn &&
-				!time.Now().Before(reclaimAfter) {
-				reclaimAfter = time.Now().Add(programToolCallLease / 3)
-				//nolint:contextcheck // the run outlives this socket's context
-				running = server.runProgramToolCall(ref, abandoned, stopRun)
-			}
-		case executionstore.ToolCallStateRunning:
+		case executionstore.ToolCallStateWaiting, executionstore.ToolCallStateRunning:
+			// A call another run started is never run again: if that run stops before it completes,
+			// the reaper ends the call as outcome_unknown.
 		}
 		claim = true
 		timer := time.NewTimer(poll)
@@ -441,7 +435,7 @@ func (s *daemonSocket) serveToolCall(
 				if nextRef.ToolCallID != ref.ToolCallID {
 					ref = nextRef
 					watching.Store(ref.ToolCallID)
-					running, claim, reclaimAfter = nil, true, time.Time{}
+					running, claim = nil, true
 				}
 			}
 		case <-timer.C:

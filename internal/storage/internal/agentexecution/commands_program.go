@@ -421,7 +421,6 @@ func (h *Handle) ClaimProgramTool(
 		next, phase := "waiting", ProgramToolExecute
 		switch {
 		case row.State == "ready" && row.Type != toolcatalog.ToolTypeCustom:
-		case row.State == "waiting" && row.ClaimExpired && row.Type == "built_in":
 		case row.State == "awaiting_authorization" && (row.ProgramClaimID == nil || row.ClaimExpired):
 			next, phase = row.State, ProgramToolAuthorize
 		default:
@@ -607,12 +606,12 @@ func (h *Handle) completeProgramTool(
 }
 
 // programToolStopped is the result of a call that is ended without finishing. A call that never
-// started, or a built-in read that is safe to repeat, is canceled, so its key can run it again. An
-// external call that had started, or a custom call handed to its runner, is failed as
-// outcome_unknown, because it may have taken effect, and its key keeps returning that result.
+// started is canceled, so its key can run it again. A call that had started, of any tool type, or a
+// custom call handed to its runner, is failed as outcome_unknown, because it may have taken effect,
+// and its key keeps returning that result, as a model's call would.
 func programToolStopped(row executiondb.ReadProgramToolRow, code, message string) (string, json.RawMessage, error) {
 	outcome := "canceled"
-	if row.State == "waiting" && row.Type != "built_in" || programToolAwaitingResult(row) {
+	if row.State == "waiting" || programToolAwaitingResult(row) {
 		outcome, code = "failed", "outcome_unknown"
 		message += " The call had started, so it may or may not have taken effect."
 	}
@@ -630,7 +629,7 @@ func (h *Handle) reapProgramTool(ctx context.Context, row executiondb.ReadProgra
 	switch {
 	case h.identity.State != "active":
 		code, message = "agent_inactive", "The agent is no longer active."
-	case (process.Live || row.ProgramNamed) && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
+	case (process.Live || row.ProgramNamed) && row.State == "waiting" && row.ClaimExpired:
 		code, message = "server_lost", "The server running this call stopped before it completed."
 	case process.Live, programToolAwaitingResult(row):
 		return false, nil

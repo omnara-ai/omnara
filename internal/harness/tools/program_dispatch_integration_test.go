@@ -361,6 +361,25 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
+
+	// A built-in tool has started once its handler runs; an MCP call only once it is sent.
+	call, authority, turn = waiting("mcp-handler")
+	authority.started = new(atomic.Bool)
+	turn.authority = authority
+	turn.markHandlerStarted()
+	released, err = authority.completeRunning(ctx, executor, turn, call.ID, failure, failed)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateReady, released.State)
+
+	call, authority, turn = waiting("built-in-handler")
+	authority.started, authority.builtIn = new(atomic.Bool), true
+	turn.authority = authority
+	turn.markHandlerStarted()
+	done, err = authority.completeRunning(ctx, executor, turn, call.ID, failure, failed)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, done.State,
+		"a built-in tool interrupted while running fails, as a model's call does, rather than running again")
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 }
 
 func TestToolSearchLoadsDeferredToolsInCodeMode(t *testing.T) {

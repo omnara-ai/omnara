@@ -443,6 +443,7 @@ func (e Executor) executeAsyncTool(
 		}
 		return e.persistAsyncToolFailure(ctx, call, err)
 	}
+	call.Turn.markHandlerStarted()
 	result, runErr := handler.Async(executionCtx, call)
 	if runErr != nil {
 		return e.persistAsyncToolFailure(ctx, call, runErr)

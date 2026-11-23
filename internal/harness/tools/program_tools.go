@@ -143,10 +143,8 @@ func (e Executor) runProgramPhase(ctx context.Context, turn Turn, claim executio
 func (e Executor) programTurn(
 	ctx context.Context, claim executionstore.ProgramToolCallClaim, lease time.Duration,
 ) (Turn, error) {
-	authority := programClaimAuthority{ref: claim.Ref(), lease: lease, stopped: ctx.Done()}
-	if claim.Type != toolcatalog.ToolTypeBuiltIn {
-		authority.started = new(atomic.Bool)
-	}
+	authority := programClaimAuthority{ref: claim.Ref(), lease: lease, stopped: ctx.Done(), started: new(atomic.Bool),
+		builtIn: claim.Type == toolcatalog.ToolTypeBuiltIn}
 	turn := Turn{ProjectID: claim.ProjectID, AgentID: claim.AgentID, SourceEventID: claim.SourceEventID,
 		ModelCallContextID: claim.ModelCallContextID, authority: authority}
 	contextRecord, found, err := e.Store.Execution().

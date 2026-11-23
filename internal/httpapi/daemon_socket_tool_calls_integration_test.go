@@ -427,12 +427,8 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	rerun := f.offer(t, "released", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, releasedRef.ToolCallID), rerun.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
-	lostRef := orphan("lost", time.Microsecond)
-	rerun = f.offer(t, "lost", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
-	require.Equal(t, testPublicID(t, publicid.KindToolCall, lostRef.ToolCallID), rerun.ToolCallID)
-	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
 
-	// A cancel ends a call a server is still running.
+	// A cancel ends a call a server is still running. It had started, so it fails as outcome_unknown.
 	heldRef := orphan("held", time.Minute)
 	holding := f.socket()
 	held := programToolOffer(f.process.ProcessID, "held", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
@@ -445,7 +441,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	stopped := requestJSONWithHeaders(t, f.handler, http.MethodGet,
 		agentPath+"/tool-calls/"+testPublicID(t, publicid.KindToolCall, heldRef.ToolCallID), "", "", http.StatusOK,
 		authHeaders(f.project.AdminToken))
-	require.Equal(t, []any{"completed", "canceled"}, []any{stopped["state"], stopped["outcome"]})
+	require.Equal(t, []any{"completed", "failed"}, []any{stopped["state"], stopped["outcome"]})
 	require.ErrorIs(t, execution.RenewProgramToolCallClaim(ctx, heldRef, time.Minute),
 		storeerr.ErrProgramToolCallClaimLost, "the server running a canceled call stops at its next renewal")
 

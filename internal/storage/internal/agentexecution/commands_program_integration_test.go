@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -467,17 +468,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	execute := second
 	_, found = f.claim(t, tool.ID, uuid.New())
 	require.False(t, found)
-	expire()
-	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		reaped, err := h.ReapProgramTool(t.Context(), tool.ID)
-		require.NoError(t, err)
-		require.False(t, reaped)
-	})
-	takeover := uuid.New()
-	phase, found = f.claim(t, tool.ID, takeover)
-	require.True(t, found)
-	require.Equal(t, agentexecution.ProgramToolExecute, phase)
-	ref.ClaimID = execute
+	ref.ClaimID = uuid.New()
 	f.try(t, func(h *agentexecution.Handle) {
 		_, err := h.DispatchProgramTool(t.Context(), ref)
 		require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
@@ -485,7 +476,8 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	f.try(t, func(h *agentexecution.Handle) {
 		require.ErrorIs(t, h.ReleaseProgramTool(t.Context(), ref), storeerr.ErrProgramToolCallClaimLost)
 	})
-	ref.ClaimID = takeover
+	// A server that releases its claim before running the call lets another run it.
+	ref.ClaimID = execute
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		require.NoError(t, h.ReleaseProgramTool(t.Context(), ref))
 	})
@@ -499,6 +491,18 @@ func TestProgramToolClaimLeases(t *testing.T) {
 		_, err := h.CompleteProgramTool(t.Context(), ref, "succeeded", nil)
 		require.NoError(t, err)
 	})
+
+	// A built-in call whose server stopped while running it is not run again, as for a model's call:
+	// it may have taken effect.
+	builtIn := f.create(t, "built-in-lost")
+	builtInRef := agentexecution.ProgramToolRef{ID: builtIn.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found = f.claim(t, builtIn.ID, builtInRef.ClaimID)
+	require.True(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), builtInRef, time.Minute)
+		require.NoError(t, err)
+	})
+	requireProgramToolLostByServer(t, f, builtIn.ID)
 
 	var mcp agentexecution.ProgramTool
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
@@ -514,22 +518,35 @@ func TestProgramToolClaimLeases(t *testing.T) {
 		_, err := h.AuthorizeProgramTool(t.Context(), mcpRef, time.Minute)
 		require.NoError(t, err)
 	})
-	_, err = f.pool.Exec(t.Context(), `UPDATE tool_calls
-		SET program_claim_expires_at=statement_timestamp()-interval '1 second' WHERE id=$1`, mcp.ID)
+	requireProgramToolLostByServer(t, f, mcp.ID)
+}
+
+// requireProgramToolLostByServer expires the claim of a call that was running: no server can claim
+// it again, and the reaper fails it as outcome_unknown, since it had started.
+func requireProgramToolLostByServer(t *testing.T, f programFixture, id uuid.UUID) {
+	t.Helper()
+	_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls
+		SET program_claim_expires_at=statement_timestamp()-interval '1 second' WHERE id=$1`, id)
 	require.NoError(t, err)
-	_, found = f.claim(t, mcp.ID, uuid.New())
-	require.False(t, found)
+	_, found := f.claim(t, id, uuid.New())
+	require.False(t, found, "a call that had started is not run again")
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	reapable, err := cell.ListProgramToolReapable(t.Context(), agentexecution.ReapableProgramTool{}, 100)
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(reapable, func(tool agentexecution.ReapableProgramTool) bool {
+		return tool.ID == id
+	}), "the reaper finds a call whose server stopped running it")
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		reaped, err := h.ReapProgramTool(t.Context(), mcp.ID)
+		reaped, err := h.ReapProgramTool(t.Context(), id)
 		require.NoError(t, err)
 		require.True(t, reaped)
 	})
-	state, outcome := programState(t, f, mcp.ID)
+	state, outcome := programState(t, f, id)
 	require.Equal(t, []string{"completed", "failed"}, []string{state, outcome})
 	var code string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
- JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, mcp.ID).Scan(&code))
-	require.Equal(t, "outcome_unknown", code, "an external call that had started may have taken effect")
+ JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, id).Scan(&code))
+	require.Equal(t, "outcome_unknown", code, "a call that had started may have taken effect")
 }
 
 func TestProgramToolCreateLimitsOpenCallsPerCommand(t *testing.T) {

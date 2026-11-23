@@ -181,7 +181,7 @@ Results go only to the command, never into the model's context, so an agent can 
 
 `--idempotency-key <key>` names a call. Running it again with the same key, tool and input, from any command of the same agent, even while another run of it is still waiting, returns that call instead of making another: its result if it finished, its approval prompt if it is waiting for one, or the execution still in progress. A named call keeps going after the command that made it stops waiting or exits, so a script that timed out or was restarted can pick up where it left off. Reusing a key with a different tool or input fails with `idempotency_conflict`. A named call that no command picks up is canceled 24 hours after it was made.
 
-A call that fails with `error_code: "outcome_unknown"` was sent but never answered, for example because an MCP server's connection dropped or a gateway returned an error in its place. It may have taken effect, so it is not run again under its key; the result's `error` holds what came back, so the script or the model can decide what to check.
+A call that fails with `error_code: "outcome_unknown"` started but never finished, for example because an MCP server's connection dropped, a gateway returned an error in its place, or the Omnara server running it stopped. It may have taken effect, so it is not run again under its key; the result's `error` holds what came back, so the script or the model can decide what to check.
 
 To find tools and their schemas, call `tool_search` with a case-insensitive regular expression. It returns every matching tool the command can call, unless `max_results` limits it:
 
