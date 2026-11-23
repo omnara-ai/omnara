@@ -42,7 +42,7 @@ func TestDaemonSocketProgramToolCallDoesNotRerunALostBuiltInCall(t *testing.T) {
 	socket := f.socket()
 	require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
 	select {
-	case outbound := <-socket.send:
+	case outbound := <-socket.toolSend:
 		t.Fatalf("the lost call was answered before it was settled: %+v", outbound.msg.ToolCallReport)
 	case <-time.After(4 * programToolCallFallbackPoll):
 	}

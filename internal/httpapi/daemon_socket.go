@@ -21,15 +21,30 @@ import (
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
+// daemonSocketWire is the websocket a daemonSocket reads and writes.
+type daemonSocketWire interface {
+	Read(context.Context) (daemonprotocol.Message, error)
+	Write(context.Context, daemonprotocol.Message) error
+	Ping(context.Context) error
+	Close(websocket.StatusCode, string) error
+}
+
 type daemonSocket struct {
-	server            *Server
-	wire              *daemonprotocol.BackendSocket
-	connectionID      uuid.UUID
-	orgID             uuid.UUID
-	machineID         uuid.UUID
-	runtimeID         uuid.UUID
-	tokenID           uuid.UUID
-	send              chan daemonSocketOutbound
+	server       *Server
+	wire         daemonSocketWire
+	connectionID uuid.UUID
+	orgID        uuid.UUID
+	machineID    uuid.UUID
+	runtimeID    uuid.UUID
+	tokenID      uuid.UUID
+	// send carries control traffic: heartbeat and report acknowledgments, process and action work,
+	// and errors. A full send queue means the daemon stopped reading, so it closes the socket.
+	send chan daemonSocketOutbound
+	// toolSend carries tool call reports. Their senders wait for room, and the writer drains send
+	// first, so a burst of reports never holds up or closes the control traffic.
+	toolSend chan daemonSocketOutbound
+	// toolCallReplies bounds the reports the read loop hands off rather than waits to queue.
+	toolCallReplies   chan struct{}
 	workMu            sync.Mutex
 	drainQueued       bool
 	drainRunning      bool
@@ -47,12 +62,12 @@ type daemonSocket struct {
 	// Cancels of stored calls that arrived while every slot was taken, oldest first. Each runs when a
 	// slot frees, so the daemon need not send it again.
 	toolCallCancelsQueued []daemonprotocol.ToolCallCancel
-	leaseRenewAfter    time.Time
-	observedPlatform   string
-	drainAfterRenewal  bool
-	done               chan struct{}
-	closeOnce          sync.Once
-	closeCode          websocket.StatusCode
+	leaseRenewAfter       time.Time
+	observedPlatform      string
+	drainAfterRenewal     bool
+	done                  chan struct{}
+	closeOnce             sync.Once
+	closeCode             websocket.StatusCode
 }
 
 type daemonSocketOutbound struct {
@@ -73,7 +88,7 @@ const (
 
 func newDaemonSocket(
 	server *Server,
-	wire *daemonprotocol.BackendSocket,
+	wire daemonSocketWire,
 	connectionID uuid.UUID,
 	orgID, machineID, runtimeID, tokenID uuid.UUID,
 	drainAfterRenewal bool,
@@ -87,6 +102,8 @@ func newDaemonSocket(
 		runtimeID:          runtimeID,
 		tokenID:            tokenID,
 		send:               make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		toolSend:           make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		toolCallReplies:    make(chan struct{}, daemonToolCallLimit),
 		done:               make(chan struct{}),
 		acceptedProcesses:  map[uuid.UUID]struct{}{},
 		acceptedActions:    map[uuid.UUID]struct{}{},
@@ -250,27 +267,35 @@ func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	pingTicker := time.NewTicker(20 * time.Second)
 	defer pingTicker.Stop()
 	for {
+		var outbound daemonSocketOutbound
+		// Control traffic goes first, so tool call reports waiting their turn never delay it.
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-pingTicker.C:
-			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := s.wire.Ping(pingCtx)
-			cancel()
-			if err != nil {
-				return err
+		case outbound = <-s.send:
+		default:
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-pingTicker.C:
+				pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				err := s.wire.Ping(pingCtx)
+				cancel()
+				if err != nil {
+					return err
+				}
+				continue
+			case outbound = <-s.send:
+			case outbound = <-s.toolSend:
 			}
-		case outbound := <-s.send:
-			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := s.wire.Write(writeCtx, outbound.msg)
-			cancel()
-			if err != nil {
-				return err
-			}
-			if outbound.closeCode != 0 {
-				s.close(outbound.closeCode, outbound.closeReason)
-				return nil
-			}
+		}
+		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := s.wire.Write(writeCtx, outbound.msg)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if outbound.closeCode != 0 {
+			s.close(outbound.closeCode, outbound.closeReason)
+			return nil
 		}
 	}
 }

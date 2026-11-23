@@ -179,7 +179,7 @@ func programToolOffer(processID, key, name, input string) daemonprotocol.ToolCal
 func nextToolCallReport(t *testing.T, socket *daemonSocket) daemonprotocol.ToolCallReport {
 	t.Helper()
 	select {
-	case outbound := <-socket.send:
+	case outbound := <-socket.toolSend:
 		require.Equal(t, daemonprotocol.MessageToolCallReport, outbound.msg.Type)
 		return *outbound.msg.ToolCallReport
 	case <-time.After(15 * time.Second):
@@ -319,7 +319,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.NotEmpty(t, waiting.ToolCallID)
 	stopAsking()
 	asking.toolCallsDone.Wait()
-	require.Empty(t, asking.send, "a call reports its approval wait once")
+	require.Empty(t, asking.toolSend, "a call reports its approval wait once")
 	reconnected := f.socket()
 	require.NoError(t, reconnected.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &ask}))
 	require.Equal(t, waiting.ProgramToolCallResult, nextToolCallReport(t, reconnected).ProgramToolCallResult)
@@ -354,7 +354,7 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	abandoned.toolCallsDone.Wait()
 	acknowledged := func(socket *daemonSocket, want int) {
 		t.Helper()
-		require.Len(t, socket.send, want)
+		require.Len(t, socket.toolSend, want)
 		for range want {
 			report := nextToolCallReport(t, socket)
 			require.True(t, report.CancelRecorded, "a canceled call reports only that its cancel was recorded")
@@ -397,21 +397,25 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Empty(t, retried.toolCallsCanceling)
 
 	busy := f.socket()
-	for range cap(busy.send) {
-		busy.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}
+	for range cap(busy.toolSend) {
+		busy.toolSend <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageToolCallReport,
+			ToolCallReport: &daemonprotocol.ToolCallReport{}}}
 	}
 	queued := programToolOffer(f.process.ProcessID, "queued", toolcatalog.ToolNameToolSearch, `{"pattern":"storage"}`)
 	require.NoError(t, busy.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &queued}))
 	//nolint:omnaralint // nothing signals that the report is waiting on the full queue
 	time.Sleep(200 * time.Millisecond)
-	for range cap(busy.send) {
-		require.Equal(t, daemonprotocol.MessageHeartbeatAck, (<-busy.send).msg.Type)
+	require.True(t, busy.enqueueOrClose(daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}),
+		"control traffic has room while tool reports wait")
+	require.Equal(t, daemonprotocol.MessageHeartbeatAck, (<-busy.send).msg.Type)
+	for range cap(busy.toolSend) {
+		require.Empty(t, nextToolCallReport(t, busy).State)
 	}
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, nextToolCallReport(t, busy).State)
 	busy.toolCallsDone.Wait()
 	select {
 	case <-busy.done:
-		t.Fatal("a full send queue closed the socket")
+		t.Fatal("a full report queue closed the socket")
 	default:
 	}
 
@@ -601,7 +605,7 @@ func TestDaemonSocketProgramToolCallAnswersEachOffer(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
 	require.Equal(t, first.ToolCallID, done.ToolCallID)
 	socket.toolCallsDone.Wait()
-	require.Empty(t, socket.send)
+	require.Empty(t, socket.toolSend)
 
 	// The finished call answers the same way: its result for the same input, a conflict otherwise.
 	offer("after", "/memory/engineering/notes.md")

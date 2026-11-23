@@ -72,7 +72,7 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	socket.workMu.Unlock()
 	require.Equal(t, daemonToolCallLimit, active)
 	require.Equal(t, 1, queued, "a cancel sent again while it waits is held once")
-	require.Empty(t, socket.send, "a held cancel is not acknowledged yet")
+	require.Empty(t, socket.toolSend, "a held cancel is not acknowledged yet")
 
 	require.NoError(t, blocked.Rollback(ctx))
 	acknowledged := 0
@@ -92,7 +92,7 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	}
 	socket.toolCallsDone.Wait()
 	require.Equal(t, 1, acknowledged)
-	require.Empty(t, socket.send)
+	require.Empty(t, socket.toolSend)
 	socket.workMu.Lock()
 	active, queued = socket.toolCallsActive, len(socket.toolCallCancelsQueued)
 	socket.workMu.Unlock()
@@ -129,7 +129,7 @@ func requireNoToolCallReport(t *testing.T, socket *daemonSocket) {
 	t.Helper()
 	socket.toolCallsDone.Wait()
 	select {
-	case outbound := <-socket.send:
+	case outbound := <-socket.toolSend:
 		t.Fatalf("unexpected report %+v", outbound.msg.ToolCallReport)
 	default:
 	}

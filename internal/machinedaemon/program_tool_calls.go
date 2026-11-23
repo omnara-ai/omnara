@@ -464,9 +464,11 @@ func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, cancel daemo
 	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel, ToolCallCancel: &cancel})
 }
 
+// enqueueWait waits for room in the tool call queue rather than fail the connection: a burst of
+// offers, as on a reconnect, is ordinary traffic, not a server that stopped reading.
 func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {
 	select {
-	case t.send <- message:
+	case t.toolSend <- message:
 		return true
 	case <-t.done:
 		return false

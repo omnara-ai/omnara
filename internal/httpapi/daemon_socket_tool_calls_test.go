@@ -17,7 +17,7 @@ func TestDaemonSocketToolCallCancelQueueIsBounded(t *testing.T) {
 	}
 	require.Len(t, socket.toolCallCancelsQueued, daemonToolCallCancelQueueLimit,
 		"past the bound a cancel is left for the daemon to send again")
-	require.Empty(t, socket.send)
+	require.Empty(t, socket.toolSend)
 
 	// A freed slot hands over the oldest held cancel.
 	next := socket.releaseToolCallSlotLocked()

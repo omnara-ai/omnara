@@ -26,9 +26,9 @@ const (
 	// Bounds the cancels a connection holds for a free slot. Past it a cancel goes unacknowledged,
 	// and the daemon sends it again on its next connection.
 	daemonToolCallCancelQueueLimit = 1024
-	programToolCallLease        = time.Minute
-	programToolCallPoll         = 2 * time.Second
-	programToolCallFallbackPoll = 250 * time.Millisecond
+	programToolCallLease           = time.Minute
+	programToolCallPoll            = 2 * time.Second
+	programToolCallFallbackPoll    = 250 * time.Millisecond
 
 	programToolCallResultTooLarge = `{"error_code":"result_too_large",` +
 		`"error":"The tool result is too large for a tool call from a command."}`
@@ -108,7 +108,7 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 	}
 	if s.toolCallsActive >= daemonToolCallLimit {
 		s.workMu.Unlock()
-		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
+		s.replyToolCall(ctx, offer, daemonprotocol.ToolCallReport{
 			AckStatus: daemonprotocol.AckStatusTransientError, ErrorCode: daemonprotocol.ErrorCodeToolCallLimitReached,
 			Error: "this machine has too many tool calls in flight; wait for one to finish"})
 		return nil
@@ -170,7 +170,7 @@ func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol
 	case serving && call.next != nil && call.next.OfferID == cancel.OfferID:
 		call.next = nil
 		s.workMu.Unlock()
-		s.reportToolCallCanceled(ctx, cancel)
+		s.replyToolCallCanceled(ctx, cancel)
 	case serving && (cancel.OfferID == "" || cancel.OfferID == call.offerID):
 		// The serving goroutine acknowledges the cancel once the call has ended.
 		close(call.canceled)
@@ -180,7 +180,7 @@ func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol
 	case serving:
 		// A cancel for an offer this key no longer answers: nothing of it is left.
 		s.workMu.Unlock()
-		s.reportToolCallCanceled(ctx, cancel)
+		s.replyToolCallCanceled(ctx, cancel)
 	case s.toolCallsActive >= daemonToolCallLimit:
 		// Held until a slot frees. Unacknowledged, it is sent again on the next connection.
 		s.queueToolCallCancelLocked(cancel)
@@ -265,9 +265,39 @@ func (s *daemonSocket) cancelStoredToolCall(ctx context.Context, cancel daemonpr
 }
 
 func (s *daemonSocket) reportToolCallCanceled(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
+	s.reportToolCall(ctx, canceledToolCallOffer(cancel), daemonprotocol.ToolCallReport{CancelRecorded: true})
+}
+
+func (s *daemonSocket) replyToolCallCanceled(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
+	s.replyToolCall(ctx, canceledToolCallOffer(cancel), daemonprotocol.ToolCallReport{CancelRecorded: true})
+}
+
+func canceledToolCallOffer(cancel daemonprotocol.ToolCallCancel) daemonprotocol.ToolCallOffer {
 	offer := daemonprotocol.ToolCallOffer{ProcessID: cancel.ProcessID, OfferID: cancel.OfferID}
 	offer.Key = cancel.Key
-	s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{CancelRecorded: true})
+	return offer
+}
+
+// replyToolCall sends a report the read loop decided on without making the read loop wait for room
+// in the report queue, so heartbeats and process reports keep being read while reports back up.
+// Once daemonToolCallLimit replies are waiting, the read loop waits for one to go out, which slows
+// the daemon's offers rather than dropping their answers.
+func (s *daemonSocket) replyToolCall(
+	ctx context.Context, offer daemonprotocol.ToolCallOffer, report daemonprotocol.ToolCallReport,
+) {
+	select {
+	case s.toolCallReplies <- struct{}{}:
+	case <-s.done:
+		return
+	case <-ctx.Done():
+		return
+	}
+	s.toolCallsDone.Add(1)
+	go func() {
+		defer s.toolCallsDone.Done()
+		defer func() { <-s.toolCallReplies }()
+		s.reportToolCall(ctx, offer, report)
+	}()
 }
 
 func (s *daemonSocket) reportToolCall(
@@ -287,8 +317,10 @@ func (s *daemonSocket) reportToolCall(
 			}}
 		}
 	}
+	// Reports wait for room rather than close the socket: a burst of calls finishing at once is
+	// ordinary traffic, not a daemon that stopped reading.
 	select {
-	case s.send <- daemonSocketOutbound{msg: msg}:
+	case s.toolSend <- daemonSocketOutbound{msg: msg}:
 		s.recordSocketEvent("tool_call_report", report.State, string(report.AckStatus))
 	case <-s.done:
 	case <-ctx.Done():

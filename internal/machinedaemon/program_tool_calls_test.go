@@ -85,7 +85,7 @@ func answerProgramToolCallOffers(
 			select {
 			case <-t.Context().Done():
 				return
-			case message := <-transport.send:
+			case message := <-transport.toolSend:
 				if !assert.Equal(t, daemonprotocol.MessageToolCallOffer, message.Type) {
 					return
 				}
@@ -531,7 +531,7 @@ func startAbandonedProgramToolCall(
 func nextProgramToolCallMessage(t *testing.T, transport *daemonSocketTransport) daemonprotocol.Message {
 	t.Helper()
 	select {
-	case message := <-transport.send:
+	case message := <-transport.toolSend:
 		return message
 	case <-time.After(5 * time.Second):
 		t.Fatal("no message was sent")
@@ -586,7 +586,7 @@ func TestProgramToolCallServerRepeatsCancelUntilAcknowledged(t *testing.T) {
 		again := nextProgramToolCallMessage(t, transport)
 		require.Equal(t, daemonprotocol.MessageToolCallCancel, again.Type, "the call is not offered again")
 		require.Equal(t, *sent.ToolCallCancel, *again.ToolCallCancel)
-		require.Empty(t, transport.send)
+		require.Empty(t, transport.toolSend)
 		require.Equal(t, 1, pending())
 	}
 
@@ -625,8 +625,8 @@ func TestProgramToolCallServerRefusesOffersTooLargeToSend(t *testing.T) {
 func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
-	for range cap(transport.send) {
-		transport.send <- daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeat}
+	for range cap(transport.toolSend) {
+		transport.toolSend <- daemonprotocol.Message{Type: daemonprotocol.MessageToolCallOffer}
 	}
 	sent := make(chan bool, 1)
 	go func() {
@@ -637,7 +637,9 @@ func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
 		t.Fatal("offer did not wait for room")
 	case <-time.After(50 * time.Millisecond):
 	}
-	<-transport.send
+	require.True(t, transport.enqueue(daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeat}),
+		"a heartbeat has room while offers wait")
+	<-transport.toolSend
 	require.True(t, <-sent)
 	require.Empty(t, transport.fatal, "a full queue must not fail the websocket")
 
@@ -646,6 +648,90 @@ func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
 	}()
 	close(transport.done)
 	require.False(t, <-sent)
+}
+
+// heldMessageWriter is a websocket whose every write waits for the test to release it.
+type heldMessageWriter struct {
+	writing chan daemonprotocol.Message
+	release chan struct{}
+}
+
+func (w *heldMessageWriter) Write(ctx context.Context, message daemonprotocol.Message) error {
+	w.writing <- message
+	select {
+	case <-w.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *heldMessageWriter) Ping(context.Context) error { return nil }
+
+func (w *heldMessageWriter) next(t *testing.T) daemonprotocol.Message {
+	t.Helper()
+	select {
+	case message := <-w.writing:
+		return message
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was written")
+		return daemonprotocol.Message{}
+	}
+}
+
+// A reconnect offers every unanswered call at once. While the writer is stuck on a large message,
+// that burst waits its turn: it neither fails the connection nor holds up heartbeats.
+func TestProgramToolCallOfferBurstLeavesHeartbeatsFlowing(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	wire := &heldMessageWriter{writing: make(chan daemonprotocol.Message, 1024), release: make(chan struct{})}
+	ctx := t.Context()
+	writer := make(chan error, 1)
+	go func() { writer <- transport.writeLoop(ctx, wire) }()
+
+	require.True(t, transport.enqueue(daemonprotocol.Message{Type: daemonprotocol.MessageReport}))
+	require.Equal(t, daemonprotocol.MessageReport, wire.next(t).Type, "the writer is stuck on a large report")
+
+	const burst = 5 * 16
+	require.Greater(t, burst, daemonToolSendQueueSize)
+	var offers sync.WaitGroup
+	for i := range burst {
+		offers.Go(func() {
+			offer := daemonprotocol.ToolCallOffer{ProcessID: processID, OfferID: strconv.Itoa(i)}
+			offer.Key = strconv.Itoa(i)
+			assert.True(t, transport.offerToolCall(ctx, offer))
+		})
+	}
+	require.Eventually(t, func() bool { return len(transport.toolSend) == cap(transport.toolSend) },
+		5*time.Second, time.Millisecond, "the offers fill their queue")
+	const heartbeats = 3
+	for range heartbeats {
+		require.True(t, transport.enqueue(daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeat}),
+			"a heartbeat still has room")
+	}
+	require.Empty(t, transport.fatal, "a burst of offers must not fail the websocket")
+
+	wire.release <- struct{}{}
+	for range heartbeats {
+		require.Equal(t, daemonprotocol.MessageHeartbeat, wire.next(t).Type,
+			"heartbeats are written before the offers ahead of them")
+		wire.release <- struct{}{}
+	}
+	close(wire.release)
+	offered := map[string]bool{}
+	for range burst {
+		message := wire.next(t)
+		require.Equal(t, daemonprotocol.MessageToolCallOffer, message.Type)
+		offered[message.ToolCallOffer.OfferID] = true
+	}
+	require.Len(t, offered, burst, "every offer is written once")
+	offers.Wait()
+	require.Empty(t, transport.fatal)
+	select {
+	case err := <-writer:
+		t.Fatalf("the writer stopped: %v", err)
+	default:
+	}
 }
 
 // streamedProgramToolCall is a request waiting on the daemon, read report by report.
@@ -761,7 +847,7 @@ func TestProgramToolCallServerSharesACallInFlightBetweenWaiters(t *testing.T) {
 		"a waiter that attaches late is told the state the call is already in")
 	require.Equal(t, "tc_1", replayed.ToolCallID)
 	require.Equal(t, 2, programToolCallWaiters(handler, processID, "k-1"))
-	require.Empty(t, transport.send, "the call is offered once however many requests wait for it")
+	require.Empty(t, transport.toolSend, "the call is offered once however many requests wait for it")
 	require.Len(t, handler.offers(), 1)
 
 	done := completedProgramToolCall(`{"files":["a/1"]}`)
@@ -776,7 +862,7 @@ func TestProgramToolCallServerSharesACallInFlightBetweenWaiters(t *testing.T) {
 	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 0 },
 		5*time.Second, 10*time.Millisecond)
 	require.Empty(t, handler.offers())
-	require.Empty(t, transport.send, "a finished call is not canceled")
+	require.Empty(t, transport.toolSend, "a finished call is not canceled")
 	require.True(t, handler.acquire(processID), "slots must be released")
 }
 
@@ -795,7 +881,7 @@ func TestProgramToolCallServerCancelsOnlyWhenTheLastWaiterLeaves(t *testing.T) {
 	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 1 },
 		5*time.Second, 10*time.Millisecond)
 	select {
-	case message := <-transport.send:
+	case message := <-transport.toolSend:
 		t.Fatalf("a waiter leaving canceled the call another still waits for: %+v", message)
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -823,7 +909,7 @@ func TestProgramToolCallServerCancelsOnlyWhenTheLastWaiterLeaves(t *testing.T) {
 	require.Equal(t, reoffered.ToolCallOffer.OfferID, cancel.ToolCallCancel.OfferID)
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 	select {
-	case message := <-transport.send:
+	case message := <-transport.toolSend:
 		t.Fatalf("the call was canceled more than once: %+v", message)
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -843,7 +929,7 @@ func TestProgramToolCallServerKeepsACallAnyWaiterAskedToKeep(t *testing.T) {
 	first.stop()
 	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
 	select {
-	case message := <-transport.send:
+	case message := <-transport.toolSend:
 		t.Fatalf("a call a waiter asked to keep was canceled: %+v", message)
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -868,7 +954,7 @@ func TestProgramToolCallServerRefusesAKeyInFlightForAnotherCall(t *testing.T) {
 		})
 	}
 	require.Equal(t, 1, programToolCallWaiters(handler, processID, "k-1"))
-	require.Empty(t, transport.send, "a refused request neither offers nor cancels")
+	require.Empty(t, transport.toolSend, "a refused request neither offers nor cancels")
 	done := completedProgramToolCall(`"a"`)
 	done.ProcessID, done.Key, done.OfferID = processID, "k-1", offered.ToolCallOffer.OfferID
 	handler.report(done)
