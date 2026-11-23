@@ -95,8 +95,8 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
       lucide-react:
-        specifier: ^1.70.0
-        version: 1.70.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^1.73.0
+        version: 1.73.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       modern-tar:
         specifier: ^0.8.6
         version: 0.8.6
@@ -3629,8 +3629,8 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react@1.70.0:
-    resolution: {integrity: sha512-gCTPPN1MlQUBtUgdsUv+0CAUj+X8hifRUiRBw4E5v7lvDIOIpx0EZezdGQMSimS8pKA6esvullJub4GYr0mCHA==}
+  lucide-react@1.73.0:
+    resolution: {integrity: sha512-fVOzGviL9mTfHenG1PbCfIceavyGlnpYNSYr+aGZHLRymAJ7DTP6KHuqt0uBkCKAoenr1UVkwSbDIYt2xIesEQ==}
     peerDependencies:
       '@types/react': '*'
       react: 19.3.0-canary-eb8feb71-20260814
@@ -7661,7 +7661,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@1.70.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814):
+  lucide-react@1.73.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814):
     dependencies:
       react: 19.3.0-canary-eb8feb71-20260814
     optionalDependencies:
