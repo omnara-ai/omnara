@@ -554,16 +554,36 @@ func (h *Handle) cancelProgramToolsAwaitingResult(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return h.stopProgramTools(ctx, ids, programToolAwaitingResult, "agent_canceled",
+		"The agent was canceled before this call's result was submitted.")
+}
+
+// stopProgramToolsOfArchivedAgent ends every open call the agent's commands made. Named calls and
+// custom calls outlive their commands, but not their agent, so nothing is left for a rerun or a
+// runner to pick up, and a server running one loses its claim before it sends anything more.
+func (h *Handle) stopProgramToolsOfArchivedAgent(ctx context.Context) error {
+	ids, err := executiondb.New().ListOpenProgramTools(ctx, h.unit.DB(),
+		executiondb.ListOpenProgramToolsParams{AgentID: h.route.AgentID})
+	if err != nil {
+		return err
+	}
+	return h.stopProgramTools(ctx, ids, func(row executiondb.ReadProgramToolRow) bool {
+		return row.State != "completed"
+	}, "agent_archived", "The agent was archived before this call completed.")
+}
+
+func (h *Handle) stopProgramTools(
+	ctx context.Context, ids []uuid.UUID, open func(executiondb.ReadProgramToolRow) bool, code, message string,
+) error {
 	for _, id := range ids {
 		row, err := h.programTool(ctx, id, uuid.Nil)
 		if err != nil {
 			return err
 		}
-		if !programToolAwaitingResult(row) {
+		if !open(row) {
 			continue
 		}
-		outcome, body, err := programToolStopped(row, "agent_canceled",
-			"The agent was canceled before this call's result was submitted.")
+		outcome, body, err := programToolStopped(row, code, message)
 		if err != nil {
 			return err
 		}

@@ -22,6 +22,9 @@ SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='pr
 SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND type='custom'
  AND state='ready' ORDER BY id;
 
+-- name: ListOpenProgramTools :many
+SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND state<>'completed' ORDER BY id;
+
 -- name: ReadProgramTool :one
 -- named_expired is decided in database time, by the same rule ListProgramToolReapable applies, so a
 -- server's clock cannot end a named call before maintenance would.
@@ -57,11 +60,14 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
  AND c.program_claim_id IS NOT DISTINCT FROM sqlc.narg(previous_claim_id)::uuid;
 
 -- name: RenewProgramToolClaim :one
+-- Renewing is the last check before a call is sent, so it also requires the agent to be active: a
+-- named call outlives its command, but not its agent.
 UPDATE tool_calls c SET program_claim_expires_at=greatest(c.program_claim_expires_at,
  statement_timestamp()+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond')
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
  AND c.state IN ('awaiting_authorization','waiting') AND c.program_claim_id=sqlc.arg(claim_id)
  AND c.program_claim_expires_at>statement_timestamp()
+ AND EXISTS(SELECT 1 FROM agents a WHERE a.id=c.agent_id AND a.state='active')
  AND EXISTS(SELECT 1 FROM processes p WHERE p.agent_id=c.agent_id AND p.id=sqlc.arg(process_id)
  AND p.tool_call_id=c.parent_tool_call_id
  AND (c.program_named OR (p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))))

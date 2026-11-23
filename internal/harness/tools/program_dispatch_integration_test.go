@@ -471,3 +471,48 @@ func TestProgramMCPToolCallKeepsUnknownOutcomeWhenResponseIsLost(t *testing.T) {
 	require.Equal(t, call.ID, again.ID, "a call whose outcome is unknown is not run again")
 	require.Equal(t, 1, calls)
 }
+
+// A named MCP call outlives the command that made it, but not its agent. An archive that commits
+// after the call was claimed and dispatched, but before it is sent, stops the send: the last check
+// before it renews the claim, which needs the agent to be active.
+func TestProgramMCPToolCallIsNotSentAfterItsAgentIsArchived(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProgramToolFixture(t, ctx, "program-mcp-archived", true)
+	client := &ownedMCPToolClient{callTool: func(context.Context) (*sdkmcp.CallToolResult, error) {
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "sent"}}}, nil
+	}}
+	executor := Executor{Store: fixture.Store, MCP: client}
+	name := toolcatalog.MCPRuntimeToolName("docs", "greet")
+	execution := fixture.Store.Execution()
+	record, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
+		ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ProcessID: fixture.ProcessID,
+		Key: programKey("archived"), Named: true, Name: name, Type: toolcatalog.ToolTypeMCP,
+		Input: json.RawMessage(`{"name":"Ada"}`)})
+	require.NoError(t, err)
+	claim := fixture.claim(t, ctx, record.ID, executionstore.ProgramToolCallPhaseAuthorize)
+	authorized, err := execution.AuthorizeProgramToolCall(ctx, claim.Ref(), time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateWaiting, authorized.State)
+	turn, err := executor.programTurn(ctx, claim, time.Minute)
+	require.NoError(t, err)
+	// The command ends: a named call keeps running without it.
+	exitCode := 0
+	_, err = execution.CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+		Authority: fixture.Authority, ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ID: fixture.ProcessID,
+		State: executionstore.ProcessStateExited, ExitCode: &exitCode, Result: json.RawMessage(`{"output":""}`),
+		SourceEndedAt: fixture.Now.Add(time.Minute)})
+	require.NoError(t, err)
+	require.NoError(t, execution.RenewProgramToolCallClaim(ctx, claim.Ref(), time.Minute))
+
+	_, _, err = execution.ArchiveAgent(ctx, toolsTestProjectID, fixture.Agent.ID, toolsTestUserPrincipal(fixture.User.ID))
+	require.NoError(t, err)
+	_, err = executor.dispatchMCPTool(ctx, turn, record.ID, model.ToolCall{ID: record.ID.String(), Name: name,
+		Input: json.RawMessage(`{"name":"Ada"}`)})
+	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+	require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
+	require.Zero(t, client.callToolCount.Load(), "no MCP request is sent for an archived agent")
+	done := fixture.get(t, ctx, record.ID)
+	require.Equal(t, executionstore.ToolCallStateCompleted, done.State, "archiving the agent ended the call")
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
+	require.Contains(t, string(done.ResultContentParts), "The agent was archived")
+}

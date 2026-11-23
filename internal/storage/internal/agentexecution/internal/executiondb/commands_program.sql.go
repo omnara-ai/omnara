@@ -72,6 +72,34 @@ func (q *Queries) InsertProgramTool(ctx context.Context, db DBTX, arg InsertProg
 	return id, err
 }
 
+const listOpenProgramTools = `-- name: ListOpenProgramTools :many
+SELECT id FROM tool_calls WHERE agent_id=$1 AND caller='program' AND state<>'completed' ORDER BY id
+`
+
+type ListOpenProgramToolsParams struct {
+	AgentID uuid.UUID
+}
+
+func (q *Queries) ListOpenProgramTools(ctx context.Context, db DBTX, arg ListOpenProgramToolsParams) ([]uuid.UUID, error) {
+	rows, err := db.Query(ctx, listOpenProgramTools, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProgramToolReapable = `-- name: ListProgramToolReapable :many
 SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
@@ -319,6 +347,7 @@ UPDATE tool_calls c SET program_claim_expires_at=greatest(c.program_claim_expire
 WHERE c.agent_id=$2 AND c.id=$3 AND c.caller='program'
  AND c.state IN ('awaiting_authorization','waiting') AND c.program_claim_id=$4
  AND c.program_claim_expires_at>statement_timestamp()
+ AND EXISTS(SELECT 1 FROM agents a WHERE a.id=c.agent_id AND a.state='active')
  AND EXISTS(SELECT 1 FROM processes p WHERE p.agent_id=c.agent_id AND p.id=$5
  AND p.tool_call_id=c.parent_tool_call_id
  AND (c.program_named OR (p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))))
@@ -333,6 +362,8 @@ type RenewProgramToolClaimParams struct {
 	ProcessID         uuid.UUID
 }
 
+// Renewing is the last check before a call is sent, so it also requires the agent to be active: a
+// named call outlives its command, but not its agent.
 func (q *Queries) RenewProgramToolClaim(ctx context.Context, db DBTX, arg RenewProgramToolClaimParams) (*time.Time, error) {
 	row := db.QueryRow(ctx, renewProgramToolClaim,
 		arg.LeaseMicroseconds,

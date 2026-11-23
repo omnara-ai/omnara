@@ -921,3 +921,104 @@ func TestProgramToolNamedLifetimeUsesDatabaseTime(t *testing.T) {
  JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, old).Scan(&code))
 	require.Equal(t, "expired", code)
 }
+
+// Archiving an agent ends every call its commands left open. A named call, running or waiting for
+// approval, outlives its command but not its agent: its server cannot renew its claim, so it sends
+// nothing more.
+func TestProgramToolArchiveEndsOpenCalls(t *testing.T) {
+	f := newProgramFixture(t)
+	named := func(key string) agentexecution.ProgramTool {
+		t.Helper()
+		var tool agentexecution.ProgramTool
+		f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+			var err error
+			tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+				ProcessID: f.process, Key: programKey(key), Named: true, Name: "storage_read", Type: "mcp",
+				Input: json.RawMessage(`{"path":"a"}`)})
+			require.NoError(t, err)
+		})
+		return tool
+	}
+	running, asking, ready := named("running"), named("asking"), named("ready")
+	pending := f.create(t, "pending")
+	runRef := agentexecution.ProgramToolRef{ID: running.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found := f.claim(t, running.ID, runRef.ClaimID)
+	require.True(t, found)
+	askRef := agentexecution.ProgramToolRef{ID: asking.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found = f.claim(t, asking.ID, askRef.ClaimID)
+	require.True(t, found)
+	var interaction agentexecution.Interaction
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), runRef, time.Minute)
+		require.NoError(t, err)
+		interaction, err = h.OpenProgramPermission(t.Context(), askRef, programPermission(t), nil)
+		require.NoError(t, err)
+	})
+	readyRef := agentexecution.ProgramToolRef{ID: ready.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found = f.claim(t, ready.ID, readyRef.ClaimID)
+	require.True(t, found)
+	_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls SET state='ready',program_claim_id=NULL,
+ program_claim_expires_at=NULL WHERE id=$1`, ready.ID)
+	require.NoError(t, err)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	require.NoError(t, cell.RenewProgramTool(t.Context(), f.agent, runRef, time.Minute))
+
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		archived, err := h.Archive(t.Context(), uuid.Nil)
+		require.NoError(t, err)
+		require.True(t, archived)
+	})
+	require.ErrorIs(t, cell.RenewProgramTool(t.Context(), f.agent, runRef, time.Minute),
+		storeerr.ErrProgramToolCallClaimLost, "the server running a call of an archived agent loses its claim")
+	for _, want := range []struct {
+		id      uuid.UUID
+		outcome string
+	}{
+		{running.ID, "failed"}, {asking.ID, "canceled"}, {ready.ID, "canceled"}, {pending.ID, "canceled"},
+	} {
+		state, outcome := programState(t, f, want.id)
+		require.Equal(t, []string{"completed", want.outcome}, []string{state, outcome})
+	}
+	var interactionState string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT state FROM agent_interactions WHERE id=$1`,
+		interaction.ID).Scan(&interactionState))
+	require.NotEqual(t, "open", interactionState, "the approval closes with its call")
+	reapable, err := cell.ListProgramToolReapable(t.Context(), agentexecution.ReapableProgramTool{}, 1000)
+	require.NoError(t, err)
+	require.False(t, slices.ContainsFunc(reapable, func(tool agentexecution.ReapableProgramTool) bool {
+		return tool.AgentID == f.agent
+	}), "nothing is left for maintenance to end")
+}
+
+// Renewing a claim is the last check before a call is sent, so it fails once the agent is no longer
+// active even if the call itself is still open.
+func TestProgramToolRenewRequiresActiveAgent(t *testing.T) {
+	f := newProgramFixture(t)
+	var tool agentexecution.ProgramTool
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		var err error
+		tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: f.process, Key: programKey("named"), Named: true, Name: "storage_read", Type: "mcp",
+			Input: json.RawMessage(`{"path":"a"}`)})
+		require.NoError(t, err)
+	})
+	ref := agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found := f.claim(t, tool.ID, ref.ClaimID)
+	require.True(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
+		require.NoError(t, err)
+	})
+	_, err := f.pool.Exec(t.Context(), `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
+ exit_code=0 WHERE id=$1`, f.process)
+	require.NoError(t, err)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	require.NoError(t, cell.RenewProgramTool(t.Context(), f.agent, ref, time.Minute),
+		"a named call keeps its claim after its command ends")
+	// The agent row alone changes, as a concurrent archive does before it reaches the agent's calls.
+	_, err = f.pool.Exec(t.Context(), `UPDATE agents SET state='archived',archived_at=statement_timestamp()
+ WHERE id=$1`, f.agent)
+	require.NoError(t, err)
+	require.ErrorIs(t, cell.RenewProgramTool(t.Context(), f.agent, ref, time.Minute),
+		storeerr.ErrProgramToolCallClaimLost)
+}
