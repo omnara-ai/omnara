@@ -35,16 +35,19 @@ func (e httpStatusError) code() string {
 	return body.Code
 }
 
-func (e httpStatusError) machineTokenNotInjected() bool {
-	return e.StatusCode == http.StatusUnauthorized &&
-		e.code() == daemonprotocol.ErrorCodeMachineTokenNotInjected
+func (e httpStatusError) retryableUnauthorized() bool {
+	if e.StatusCode != http.StatusUnauthorized {
+		return false
+	}
+	code := e.code()
+	return code == "" || code == daemonprotocol.ErrorCodeMachineTokenNotInjected
 }
 
 func IsAuthenticationRejected(err error) bool {
 	var statusErr httpStatusError
 	return errors.As(err, &statusErr) &&
 		(statusErr.StatusCode == http.StatusUnauthorized || statusErr.StatusCode == http.StatusForbidden) &&
-		!statusErr.machineTokenNotInjected()
+		!statusErr.retryableUnauthorized()
 }
 
 func isTerminalDaemonRequestError(err error) bool {

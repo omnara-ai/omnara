@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -196,11 +197,17 @@ func TestWebSocketMachineTokenNotInjectedIsNotRevocation(t *testing.T) {
 
 	for name, test := range map[string]struct {
 		code    string
+		cutOff  bool
 		want    error
 		notWant error
 	}{
 		"machine token not injected": {
 			code:    daemonprotocol.ErrorCodeMachineTokenNotInjected,
+			want:    errDaemonRuntimeUnregistered,
+			notWant: errDaemonAuthorizationRevoked,
+		},
+		"cut-off response": {
+			cutOff:  true,
 			want:    errDaemonRuntimeUnregistered,
 			notWant: errDaemonAuthorizationRevoked,
 		},
@@ -214,6 +221,10 @@ func TestWebSocketMachineTokenNotInjectedIsNotRevocation(t *testing.T) {
 			t.Parallel()
 			server := httptest.NewServer(http.HandlerFunc(
 				func(w http.ResponseWriter, _ *http.Request) {
+					if test.cutOff {
+						writeCutOffUnauthorized(w)
+						return
+					}
 					http.Error(w, `{"code":"`+test.code+`"}`, http.StatusUnauthorized)
 				},
 			))
@@ -238,6 +249,44 @@ func TestWebSocketMachineTokenNotInjectedIsNotRevocation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBootstrapRetriesCutOffUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			if requests.Add(1) <= 2 {
+				writeCutOffUnauthorized(w)
+				return
+			}
+			_, _ = w.Write([]byte(`{"installation_id":"ins_cut_off","machine_id":"mch_cut_off"}`))
+		},
+	))
+	t.Cleanup(server.Close)
+	client := New(
+		Config{
+			APIURL:        server.URL,
+			MachineToken:  daemonprotocol.ProviderInjectedMachineToken,
+			RetryInterval: time.Millisecond,
+		},
+		server.Client(),
+		nil,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bootstrap, err := client.bootstrapWithRetry(ctx)
+	if err != nil || bootstrap.MachineID != "mch_cut_off" || requests.Load() != 3 {
+		t.Fatalf("bootstrap = %+v, %v after %d requests; want success after 3", bootstrap, err, requests.Load())
+	}
+}
+
+func writeCutOffUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", "200")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"code":"machine_token_not`))
 }
 
 func TestHeartbeatAcknowledgementMarksConnectionHealthy(t *testing.T) {

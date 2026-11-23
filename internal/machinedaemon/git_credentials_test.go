@@ -44,7 +44,8 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 		assert.Equal(t, "/daemon/processes/"+processID+"/git-credentials", r.URL.Path)
 		assert.Equal(t, "Bearer machine-secret", r.Header.Get("Authorization"))
 		if status := permanentFailure.Load(); status != 0 {
-			http.Error(w, "do-not-echo-upstream-body", int(status))
+			code := strings.ToLower(http.StatusText(int(status)))
+			http.Error(w, `{"code":"`+code+`","error":"do-not-echo-upstream-body"}`, int(status))
 			return
 		}
 		if transientFailures.Add(-1) >= 0 {

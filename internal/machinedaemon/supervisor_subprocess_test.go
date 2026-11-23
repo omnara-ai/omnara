@@ -657,7 +657,7 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 
 	rejectingServer := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "machine token rejected", http.StatusUnauthorized)
+			http.Error(w, `{"code":"unauthorized","error":"machine token rejected"}`, http.StatusUnauthorized)
 		},
 	))
 	defer rejectingServer.Close()

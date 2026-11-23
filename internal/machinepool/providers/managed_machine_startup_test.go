@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -158,10 +159,23 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 		OutputTail    []byte
 	}
 	reports := make(chan failureReport, 1)
+	var attempts atomic.Int32
+	var rateLimitedAt, retriedAt atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 			r.Header.Get("Content-Type") != "text/plain" {
 			http.NotFound(w, r)
+			return
+		}
+		switch attempts.Add(1) {
+		case 1:
+			rateLimitedAt.Store(time.Now().UnixNano())
+			w.Header().Set("Retry-After", "2")
+			http.Error(w, `{"code":"rate_limited"}`, http.StatusTooManyRequests)
+			return
+		case 2:
+			retriedAt.Store(time.Now().UnixNano())
+			http.Error(w, `{"code":"machine_token_not_injected"}`, http.StatusUnauthorized)
 			return
 		}
 		exitStatus, err := strconv.Atoi(r.URL.Query().Get("exit_status"))
@@ -214,6 +228,12 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	}
 	if strings.Contains(output, "daemon-started") {
 		t.Fatalf("launcher output = %q, want daemon not to start", output)
+	}
+	if attempts.Load() != 3 {
+		t.Fatalf("failure report attempts = %d, want 3", attempts.Load())
+	}
+	if wait := time.Duration(retriedAt.Load() - rateLimitedAt.Load()); wait < 2*time.Second {
+		t.Fatalf("failure report retried %s after a 429, want at least its 2s Retry-After", wait)
 	}
 	select {
 	case report := <-reports:
