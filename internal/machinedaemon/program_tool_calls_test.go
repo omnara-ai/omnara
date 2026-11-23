@@ -647,3 +647,232 @@ func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
 	close(transport.done)
 	require.False(t, <-sent)
 }
+
+// streamedProgramToolCall is a request waiting on the daemon, read report by report.
+type streamedProgramToolCall struct {
+	status  chan int
+	reports chan daemonprotocol.ToolCallReport
+	body    chan string
+	stop    context.CancelFunc
+}
+
+func streamProgramToolCall(t *testing.T, server *httptest.Server, processID, body string) *streamedProgramToolCall {
+	t.Helper()
+	ctx, stop := context.WithCancel(t.Context())
+	t.Cleanup(stop)
+	call := &streamedProgramToolCall{status: make(chan int, 1), reports: make(chan daemonprotocol.ToolCallReport, 16),
+		body: make(chan string, 1), stop: stop}
+	go func() {
+		defer close(call.reports)
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/tool-calls/"+processID,
+			strings.NewReader(body))
+		if !assert.NoError(t, err) {
+			return
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		call.status <- response.StatusCode
+		if response.StatusCode != http.StatusOK {
+			data, _ := io.ReadAll(response.Body)
+			call.body <- string(data)
+			return
+		}
+		decoder := json.NewDecoder(response.Body)
+		for {
+			var report daemonprotocol.ToolCallReport
+			if decoder.Decode(&report) != nil {
+				return
+			}
+			call.reports <- report
+		}
+	}()
+	return call
+}
+
+func (c *streamedProgramToolCall) next(t *testing.T) daemonprotocol.ToolCallReport {
+	t.Helper()
+	select {
+	case report, ok := <-c.reports:
+		require.True(t, ok, "the request ended without another report")
+		return report
+	case <-time.After(5 * time.Second):
+		t.Fatal("no report arrived")
+		return daemonprotocol.ToolCallReport{}
+	}
+}
+
+func (c *streamedProgramToolCall) ended(t *testing.T) {
+	t.Helper()
+	select {
+	case report, ok := <-c.reports:
+		require.False(t, ok, "unexpected report %+v", report)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not end")
+	}
+}
+
+func programToolCallWaiters(handler *programToolCallHandler, processID, key string) int {
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	call, ok := handler.calls[processID+"\x00"+key]
+	if !ok {
+		return 0
+	}
+	return len(call.waiters)
+}
+
+func newProgramToolCallWaiterTest(
+	t *testing.T,
+) (*programToolCallHandler, *daemonSocketTransport, *httptest.Server, string) {
+	t.Helper()
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	client.programToolCalls = handler
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	client.setTransport(transport)
+	t.Cleanup(func() { client.clearTransport(transport) })
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	return handler, transport, server, processID
+}
+
+func TestProgramToolCallServerSharesACallInFlightBetweenWaiters(t *testing.T) {
+	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
+	first := streamProgramToolCall(t, server, processID,
+		`{"key":"k-1","name":"storage_list","input":{"prefix":"a","limit":2},"keep_on_disconnect":true}`)
+	offered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, offered.Type)
+	require.Equal(t, http.StatusOK, <-first.status)
+	awaiting := daemonprotocol.ToolCallReport{ProcessID: processID, Key: "k-1",
+		OfferID: offered.ToolCallOffer.OfferID, ProgramToolCallResult: daemonprotocol.ProgramToolCallResult{
+			ToolCallID: "tc_1", State: daemonprotocol.ProgramToolCallStateAwaitingApproval}}
+	handler.report(awaiting)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, first.next(t).State)
+
+	// The same input written differently is the same call.
+	second := streamProgramToolCall(t, server, processID,
+		`{"key":"k-1","name":"storage_list","input":{ "limit": 2.0, "prefix": "a" },"keep_on_disconnect":true}`)
+	require.Equal(t, http.StatusOK, <-second.status)
+	replayed := second.next(t)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, replayed.State,
+		"a waiter that attaches late is told the state the call is already in")
+	require.Equal(t, "tc_1", replayed.ToolCallID)
+	require.Equal(t, 2, programToolCallWaiters(handler, processID, "k-1"))
+	require.Empty(t, transport.send, "the call is offered once however many requests wait for it")
+	require.Len(t, handler.offers(), 1)
+
+	done := completedProgramToolCall(`{"files":["a/1"]}`)
+	done.ProcessID, done.Key, done.OfferID = processID, "k-1", offered.ToolCallOffer.OfferID
+	handler.report(done)
+	for _, waiter := range []*streamedProgramToolCall{first, second} {
+		report := waiter.next(t)
+		require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, report.State)
+		require.JSONEq(t, `{"files":["a/1"]}`, string(report.Content[0].Value))
+		waiter.ended(t)
+	}
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 0 },
+		5*time.Second, 10*time.Millisecond)
+	require.Empty(t, handler.offers())
+	require.Empty(t, transport.send, "a finished call is not canceled")
+	require.True(t, handler.acquire(processID), "slots must be released")
+}
+
+func TestProgramToolCallServerCancelsOnlyWhenTheLastWaiterLeaves(t *testing.T) {
+	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
+	body := `{"key":"k-1","name":"storage_list","input":{}}`
+	first := streamProgramToolCall(t, server, processID, body)
+	offered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, http.StatusOK, <-first.status)
+	second := streamProgramToolCall(t, server, processID, body)
+	require.Equal(t, http.StatusOK, <-second.status)
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 2 },
+		5*time.Second, 10*time.Millisecond)
+
+	first.stop()
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 1 },
+		5*time.Second, 10*time.Millisecond)
+	select {
+	case message := <-transport.send:
+		t.Fatalf("a waiter leaving canceled the call another still waits for: %+v", message)
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.Len(t, handler.offers(), 1, "the call stays offered for the remaining waiter")
+
+	done := completedProgramToolCall(`1`)
+	done.ProcessID, done.Key, done.OfferID = processID, "k-1", offered.ToolCallOffer.OfferID
+	handler.report(done)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, second.next(t).State)
+	second.ended(t)
+
+	// Once every waiter has left an unfinished call, it is canceled.
+	third := streamProgramToolCall(t, server, processID, body)
+	reoffered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, reoffered.Type)
+	require.Equal(t, http.StatusOK, <-third.status)
+	fourth := streamProgramToolCall(t, server, processID, body)
+	require.Equal(t, http.StatusOK, <-fourth.status)
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 2 },
+		5*time.Second, 10*time.Millisecond)
+	third.stop()
+	fourth.stop()
+	cancel := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallCancel, cancel.Type)
+	require.Equal(t, reoffered.ToolCallOffer.OfferID, cancel.ToolCallCancel.OfferID)
+	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
+	select {
+	case message := <-transport.send:
+		t.Fatalf("the call was canceled more than once: %+v", message)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestProgramToolCallServerKeepsACallAnyWaiterAskedToKeep(t *testing.T) {
+	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
+	first := streamProgramToolCall(t, server, processID, `{"key":"k-1","name":"storage_list","input":{}}`)
+	nextProgramToolCallMessage(t, transport)
+	require.Equal(t, http.StatusOK, <-first.status)
+	second := streamProgramToolCall(t, server, processID,
+		`{"key":"k-1","name":"storage_list","input":{},"keep_on_disconnect":true}`)
+	require.Equal(t, http.StatusOK, <-second.status)
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 2 },
+		5*time.Second, 10*time.Millisecond)
+	second.stop()
+	first.stop()
+	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
+	select {
+	case message := <-transport.send:
+		t.Fatalf("a call a waiter asked to keep was canceled: %+v", message)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestProgramToolCallServerRefusesAKeyInFlightForAnotherCall(t *testing.T) {
+	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
+	first := streamProgramToolCall(t, server, processID, `{"key":"k-1","name":"storage_list","input":{"prefix":"a"}}`)
+	offered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, http.StatusOK, <-first.status)
+	for name, body := range map[string]string{
+		"another tool":  `{"key":"k-1","name":"storage_read","input":{"prefix":"a"}}`,
+		"another input": `{"key":"k-1","name":"storage_list","input":{"prefix":"b"}}`,
+		"a wider input": `{"key":"k-1","name":"storage_list","input":{"prefix":"a","limit":1}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			conflict := streamProgramToolCall(t, server, processID, body)
+			require.Equal(t, http.StatusConflict, <-conflict.status)
+			var apiError programToolCallError
+			require.NoError(t, json.Unmarshal([]byte(<-conflict.body), &apiError))
+			require.Equal(t, daemonprotocol.ErrorCodeIdempotencyConflict, apiError.Code)
+		})
+	}
+	require.Equal(t, 1, programToolCallWaiters(handler, processID, "k-1"))
+	require.Empty(t, transport.send, "a refused request neither offers nor cancels")
+	done := completedProgramToolCall(`"a"`)
+	done.ProcessID, done.Key, done.OfferID = processID, "k-1", offered.ToolCallOffer.OfferID
+	handler.report(done)
+	report := first.next(t)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, report.State)
+	require.JSONEq(t, `"a"`, string(report.Content[0].Value))
+}

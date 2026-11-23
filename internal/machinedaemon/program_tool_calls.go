@@ -1,6 +1,7 @@
 package machinedaemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -139,10 +141,19 @@ type programToolCallHandler struct {
 	cancels []daemonprotocol.ToolCallCancel
 }
 
+// programToolCall is one key of one process, answered by a single offer however many requests
+// wait for it.
 type programToolCall struct {
-	offer   daemonprotocol.ToolCallOffer
-	report  *daemonprotocol.ToolCallReport
-	changed chan struct{}
+	offer  daemonprotocol.ToolCallOffer
+	report *daemonprotocol.ToolCallReport
+	// waiters holds one channel per waiting request, each told of every report.
+	waiters map[chan struct{}]struct{}
+	// keep is set once any waiter asks for the call to outlive its command.
+	keep bool
+}
+
+func programToolCallOver(report *daemonprotocol.ToolCallReport) bool {
+	return report != nil && (report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted)
 }
 
 func (c *Client) newProgramToolCallHandler() *programToolCallHandler {
@@ -257,24 +268,32 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	id := processID + "\x00" + offer.Key
-	call := &programToolCall{offer: offer, changed: make(chan struct{}, 1)}
+	changed := make(chan struct{}, 1)
 	h.mu.Lock()
-	_, duplicate := h.calls[id]
-	if !duplicate {
+	call, attached := h.calls[id]
+	switch {
+	case !attached:
+		call = &programToolCall{offer: offer, keep: offer.KeepOnDisconnect,
+			waiters: map[chan struct{}]struct{}{changed: {}}}
 		h.calls[id] = call
+	case call.offer.Name != offer.Name || !sameProgramToolCallInput(call.offer.Input, offer.Input):
+		h.mu.Unlock()
+		h.writeError(w, http.StatusConflict, daemonprotocol.ErrorCodeIdempotencyConflict,
+			"idempotency key was already used for a different tool or input")
+		return
+	default:
+		// The same call made again while it is in flight waits for the offer already made.
+		call.waiters[changed] = struct{}{}
+		call.keep = call.keep || offer.KeepOnDisconnect
+		if call.report != nil {
+			changed <- struct{}{}
+		}
 	}
 	h.mu.Unlock()
-	if duplicate {
-		w.Header().Set("Retry-After", "1")
-		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable", "tool call is already in flight")
-		return
+	defer h.leave(r.Context(), id, call, changed)
+	if !attached {
+		h.client.sendToolCallOffer(r.Context(), offer)
 	}
-	defer func() {
-		h.mu.Lock()
-		delete(h.calls, id)
-		h.mu.Unlock()
-	}()
-	h.client.sendToolCallOffer(r.Context(), offer)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 	flusher := http.NewResponseController(w)
@@ -283,26 +302,39 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	for {
 		select {
 		case <-r.Context().Done():
-			if !offer.KeepOnDisconnect {
-				h.abandon(r.Context(), offer)
-			}
 			return
-		case <-call.changed:
+		case <-changed:
 		}
 		h.mu.Lock()
 		report := *call.report
 		h.mu.Unlock()
-		over := report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted
 		err := encoder.Encode(report)
 		if err == nil {
 			err = flusher.Flush()
 		}
-		if err != nil && !over && !offer.KeepOnDisconnect {
-			h.abandon(r.Context(), offer)
-		}
-		if err != nil || over {
+		if err != nil || programToolCallOver(&report) {
 			return
 		}
+	}
+}
+
+func sameProgramToolCallInput(a, b json.RawMessage) bool {
+	return bytes.Equal(a, b) || jsoncanonical.Equal(a, b)
+}
+
+// leave stops a request waiting for its call. The last waiter to leave an unfinished call cancels it,
+// unless one of them asked for it to stay open.
+func (h *programToolCallHandler) leave(ctx context.Context, id string, call *programToolCall, changed chan struct{}) {
+	h.mu.Lock()
+	delete(call.waiters, changed)
+	last := len(call.waiters) == 0
+	if last && h.calls[id] == call {
+		delete(h.calls, id)
+	}
+	abandon := last && !call.keep && !programToolCallOver(call.report)
+	h.mu.Unlock()
+	if abandon {
+		h.abandon(ctx, call.offer)
 	}
 }
 
@@ -387,9 +419,11 @@ func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 		return
 	}
 	call.report = &report
-	select {
-	case call.changed <- struct{}{}:
-	default:
+	for changed := range call.waiters {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -401,7 +435,10 @@ func (h *programToolCallHandler) offers() []daemonprotocol.ToolCallOffer {
 	defer h.mu.Unlock()
 	offers := make([]daemonprotocol.ToolCallOffer, 0, len(h.calls))
 	for _, call := range h.calls {
-		offers = append(offers, call.offer)
+		// A finished call's waiters are leaving with its answer.
+		if !programToolCallOver(call.report) {
+			offers = append(offers, call.offer)
+		}
 	}
 	return offers
 }

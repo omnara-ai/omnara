@@ -269,7 +269,7 @@ func reportProgramToolCallError(
 	case errors.As(err, &status):
 		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s\n", tool, status.Body)
 		switch status.StatusCode {
-		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusGone,
+		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusGone,
 			http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
 			return ProgramToolCallExitUnavailable
 		}

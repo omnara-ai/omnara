@@ -236,7 +236,7 @@ func TestProgramToolCallCLIExitCodesForDaemonErrors(t *testing.T) {
 		{http.StatusForbidden, ProgramToolCallExitUnavailable},
 		{http.StatusNotFound, ProgramToolCallExitUnavailable},
 		{http.StatusUnprocessableEntity, ProgramToolCallExitUnavailable},
-		{http.StatusConflict, ProgramToolCallExitTransport},
+		{http.StatusConflict, ProgramToolCallExitUnavailable},
 		{http.StatusInternalServerError, ProgramToolCallExitTransport},
 	} {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
@@ -259,6 +259,27 @@ func TestProgramToolCallCLIExitCodesForRejectedOffers(t *testing.T) {
 	require.Empty(t, stdout)
 	require.Contains(t, stderr, "spawn_agent: tool is not callable (tool_call_unavailable)")
 	require.Len(t, daemon.recorded(), 1, "a rejected call is not retried")
+}
+
+// The daemon refuses a key in flight for another call the way the server refuses a stored one.
+func TestProgramToolCallCLIExitCodesForIdempotencyConflicts(t *testing.T) {
+	for name, handler := range map[string]func(int, fakeToolCallRequest) (int, http.Header, string){
+		"daemon": reply(http.StatusConflict,
+			`{"error":"idempotency key was already used for a different tool or input","code":"idempotency_conflict"}`),
+		"server": reply(http.StatusOK, `{"ack_status":"permanent_reject","error_code":"idempotency_conflict",`+
+			`"error":"idempotency key was already used for a different tool or input"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			daemon := startFakeToolCallDaemon(t, handler)
+			code, stdout, stderr := runToolCallCLI(t,
+				ProgramToolCallOptions{Tool: "storage_list", IdempotencyKey: "k-1"}, "")
+			require.Equal(t, ProgramToolCallExitUnavailable, code)
+			require.Empty(t, stdout)
+			require.Contains(t, stderr, "storage_list: idempotency key was already used for a different tool or "+
+				"input (idempotency_conflict)")
+			require.Len(t, daemon.recorded(), 1, "a conflict is not retried")
+		})
+	}
 }
 
 func TestProgramToolCallCLIRetriesWithTheSameKey(t *testing.T) {
