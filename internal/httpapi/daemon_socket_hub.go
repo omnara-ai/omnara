@@ -47,6 +47,10 @@ type daemonSocketHub struct {
 	byMachine             map[uuid.UUID]*daemonSocket
 	byRuntime             map[uuid.UUID]*daemonSocket
 	subs                  []notifications.Subscription
+	// serving counts the sockets still running, so Close can wait for each to end with the tool
+	// calls it serves. closed, guarded by mu, admits no more once Close has begun.
+	serving sync.WaitGroup
+	closed  bool
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending
@@ -169,6 +173,7 @@ func (h *daemonSocketHub) sweepPendingSkillReports(ctx context.Context) {
 	}
 }
 
+// Close closes every socket and waits for each to end, with the tool calls it was serving.
 func (h *daemonSocketHub) Close() {
 	if h == nil {
 		return
@@ -177,15 +182,32 @@ func (h *daemonSocketHub) Close() {
 	for _, sub := range h.subs {
 		_ = sub.Unsubscribe()
 	}
-	h.mu.RLock()
+	h.mu.Lock()
+	h.closed = true
 	sockets := make([]*daemonSocket, 0, len(h.byRuntime))
 	for _, socket := range h.byRuntime {
 		sockets = append(sockets, socket)
 	}
-	h.mu.RUnlock()
+	h.mu.Unlock()
 	for _, socket := range sockets {
 		socket.close(websocket.StatusNormalClosure, "api shutting down")
 	}
+	h.serving.Wait()
+}
+
+// enter admits a socket to run, until Close begins. Each admitted socket calls leave once it ends.
+func (h *daemonSocketHub) enter() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return false
+	}
+	h.serving.Add(1)
+	return true
+}
+
+func (h *daemonSocketHub) leave() {
+	h.serving.Done()
 }
 
 func (h *daemonSocketHub) register(socket *daemonSocket) {

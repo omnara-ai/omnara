@@ -193,6 +193,11 @@ func (s *daemonSocket) close(code websocket.StatusCode, reason string) {
 }
 
 func (s *daemonSocket) run(ctx context.Context) {
+	if !s.server.daemonHub.enter() {
+		s.close(websocket.StatusGoingAway, "api shutting down")
+		return
+	}
+	defer s.server.daemonHub.leave()
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	s.drain = func() { s.drainLoop(runCtx) }

@@ -231,7 +231,8 @@ func main() {
 		os.Exit(1)
 	}
 	apiOpts = append(apiOpts, httpapi.WithProgramToolExecutor(programTools),
-		httpapi.WithProgramToolCapacity(cfg.APIProgramToolCapacity))
+		httpapi.WithProgramToolCapacity(cfg.APIProgramToolCapacity),
+		httpapi.WithProgramToolPendingLimit(cfg.APIProgramToolPendingLimit))
 	apiServer, err := httpapi.New(log, store, apiOpts...)
 	if err != nil {
 		log.Error("create api server", "error", err)

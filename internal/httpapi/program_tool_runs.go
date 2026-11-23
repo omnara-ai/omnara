@@ -12,7 +12,10 @@ import (
 )
 
 const (
-	programToolRunStopGrace = 10 * time.Second
+	// defaultProgramToolCapacity and defaultProgramToolPendingLimit bound a server whose options set
+	// no bound of their own.
+	defaultProgramToolCapacity     = 64
+	defaultProgramToolPendingLimit = 1024
 	// programToolRecoveryInterval is how often a server looks for named calls nothing is running: a
 	// call approved on another server, or one whose server stopped before claiming it.
 	programToolRecoveryInterval = 10 * time.Second
@@ -38,8 +41,33 @@ type programToolRuns struct {
 	closing bool
 	running sync.WaitGroup
 	active  map[uuid.UUID]*programToolRun
-	// slots is nil when the server runs calls without a shared bound.
+	// slots bounds the calls running at once, async work included. It is nil when the server runs
+	// calls without a shared bound.
 	slots chan struct{}
+	// pending bounds the calls served at once across every connection, waiting or running, so the
+	// runs waiting for a slot are bounded too. It is nil when the server serves calls without a
+	// shared bound.
+	pending chan struct{}
+}
+
+// admit takes a place for one more served call, only if one is free now.
+func (r *programToolRuns) admit() bool {
+	if r.pending == nil {
+		return true
+	}
+	select {
+	case r.pending <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// leave frees the place a served call took.
+func (r *programToolRuns) leave() {
+	if r.pending != nil {
+		<-r.pending
+	}
 }
 
 func (r *programToolRuns) acquire(ctx context.Context, abandoned <-chan struct{}) bool {
@@ -122,19 +150,15 @@ func (r *programToolRuns) runs(id uuid.UUID) bool {
 	return ok
 }
 
-func (r *programToolRuns) stop(grace time.Duration) {
+// stop starts no more runs and waits for every run to end, with the work it left: an async phase,
+// its claim renewer, and the persistence that records or releases the call. Their contexts are
+// canceled by then, and that persistence is bounded by its own timeouts, so the wait ends; returning
+// sooner would leave them writing to a store that is closing.
+func (r *programToolRuns) stop() {
 	r.mu.Lock()
 	r.closing = true
 	r.mu.Unlock()
-	idle := make(chan struct{})
-	go func() {
-		r.running.Wait()
-		close(idle)
-	}()
-	select {
-	case <-idle:
-	case <-time.After(grace):
-	}
+	r.running.Wait()
 }
 
 // runProgramToolCall runs a call on this server, or returns the run already running it. A new run

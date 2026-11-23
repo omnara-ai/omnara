@@ -436,6 +436,12 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	for _, opt := range opts {
 		opt(server)
 	}
+	if server.programToolRuns.slots == nil {
+		WithProgramToolCapacity(defaultProgramToolCapacity)(server)
+	}
+	if server.programToolRuns.pending == nil {
+		WithProgramToolPendingLimit(defaultProgramToolPendingLimit)(server)
+	}
 	server.agentConfigOptions.EndpointAllowlist = server.endpointAllowlist
 	if server.modelDiscoverer == nil {
 		server.modelDiscoverer = modelprovider.NewDiscoverer(
@@ -564,8 +570,9 @@ func (s *Server) Close() {
 		}
 		s.programToolDriver.close()
 		if s.daemonHub != nil {
+			// The sockets' serving loops end first, so nothing starts a run once the runs are joined.
 			s.daemonHub.Close()
-			s.programToolRuns.stop(programToolRunStopGrace)
+			s.programToolRuns.stop()
 		}
 	})
 }

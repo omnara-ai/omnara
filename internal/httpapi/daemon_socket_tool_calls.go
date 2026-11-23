@@ -54,6 +54,16 @@ func WithProgramToolCapacity(capacity int) Option {
 	}
 }
 
+// WithProgramToolPendingLimit bounds the tool calls from commands this server serves at once,
+// across every machine connection: those running and those waiting to run or for approval.
+func WithProgramToolPendingLimit(limit int) Option {
+	return func(s *Server) {
+		if limit > 0 {
+			s.programToolRuns.pending = make(chan struct{}, limit)
+		}
+	}
+}
+
 type toolCallRejectedError struct {
 	status  daemonprotocol.AckStatus
 	code    string
@@ -113,6 +123,14 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			Error: "this machine has too many tool calls in flight; wait for one to finish"})
 		return nil
 	}
+	runs := &s.server.programToolRuns
+	if !runs.admit() {
+		s.workMu.Unlock()
+		s.replyToolCall(ctx, offer, daemonprotocol.ToolCallReport{
+			AckStatus: daemonprotocol.AckStatusTransientError, ErrorCode: daemonprotocol.ErrorCodeToolCallLimitReached,
+			Error: "the server has too many tool calls in flight; wait for one to finish"})
+		return nil
+	}
 	call := newServedToolCall(offer)
 	// The same key offered again after a cancel: let that cancel finish first, so this offer sees
 	// what it left.
@@ -124,6 +142,7 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 	go func() {
 		defer s.toolCallsDone.Done()
 		defer func() {
+			runs.leave()
 			s.workMu.Lock()
 			if s.toolCalls[id] == call {
 				delete(s.toolCalls, id)

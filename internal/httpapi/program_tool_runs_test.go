@@ -65,8 +65,83 @@ func TestProgramToolRunsRunACallOnceAtATime(t *testing.T) {
 	require.True(t, started, "a call can run again once its last run ended")
 	runs.end(id, next)
 
-	runs.stop(time.Second)
+	runs.stop()
 	closed, _, started := runs.begin(t.Context(), uuid.New())
 	require.Nil(t, closed, "a closing server starts no runs")
 	require.False(t, started)
+}
+
+func TestProgramToolRunsBoundPendingCalls(t *testing.T) {
+	t.Parallel()
+	server := &Server{}
+	WithProgramToolPendingLimit(2)(server)
+	runs := &server.programToolRuns
+	require.True(t, runs.admit())
+	require.True(t, runs.admit())
+	require.False(t, runs.admit(), "a call over the limit is refused, not queued")
+	runs.leave()
+	require.True(t, runs.admit(), "a finished call frees its place")
+
+	unbounded := &programToolRuns{}
+	for range 100 {
+		require.True(t, unbounded.admit())
+	}
+}
+
+func TestProgramToolRunsStopWaitsForEveryRun(t *testing.T) {
+	t.Parallel()
+	runs := &programToolRuns{}
+	id := uuid.New()
+	run, _, started := runs.begin(t.Context(), id)
+	require.True(t, started)
+	stopped := make(chan struct{})
+	go func() {
+		runs.stop()
+		close(stopped)
+	}()
+	require.Eventually(t, func() bool {
+		runs.mu.Lock()
+		defer runs.mu.Unlock()
+		return runs.closing
+	}, 5*time.Second, time.Millisecond)
+	closed, _, started := runs.begin(t.Context(), uuid.New())
+	require.Nil(t, closed, "stopping refuses new runs at once")
+	require.False(t, started)
+	select {
+	case <-stopped:
+		t.Fatal("stop returned while a run was still going")
+	case <-time.After(100 * time.Millisecond):
+	}
+	runs.end(id, run)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not return once the run ended")
+	}
+}
+
+func TestDaemonSocketHubCloseWaitsForItsSockets(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	hub := &daemonSocketHub{ctx: ctx, cancel: cancel, byMachine: map[uuid.UUID]*daemonSocket{},
+		byRuntime: map[uuid.UUID]*daemonSocket{}}
+	require.True(t, hub.enter())
+	closed := make(chan struct{})
+	go func() {
+		hub.Close()
+		close(closed)
+	}()
+	require.Eventually(t, func() bool { return ctx.Err() != nil }, 5*time.Second, time.Millisecond)
+	select {
+	case <-closed:
+		t.Fatal("the hub closed while a socket was still serving")
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.False(t, hub.enter(), "a closing hub admits no socket")
+	hub.leave()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hub did not close once its socket ended")
+	}
 }
