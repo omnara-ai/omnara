@@ -674,7 +674,6 @@ it.each([false, true])(
       returnPath: window.location.pathname,
       serverId: server.id,
       agentName: null,
-      budget: null,
       draft: { ...baseline, savedSource: customFixture, instruction: 'Pending edit.' },
     })
     window.history.replaceState(
@@ -724,7 +723,6 @@ it.each(['yaml', 'oauth'])(
         returnPath: window.location.pathname,
         serverId: 'example-server',
         agentName: null,
-        budget: null,
         draft,
       })
       window.history.replaceState(

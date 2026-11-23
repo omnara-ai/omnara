@@ -39,6 +39,16 @@ func TestChatResponseRecordsTierAndXAICost(t *testing.T) {
 	require.Equal(t, modelenvelope.ProviderReportedCostUSD("0"), zero.ProviderReportedCostUSD)
 }
 
+func TestChatResponseRecordsInputAudioTokens(t *testing.T) {
+	resp := parseChatBody(t,
+		`"usage":{"prompt_tokens":500,"completion_tokens":2,"prompt_tokens_details":{"audio_tokens":400}}`)
+	require.Equal(t, 400, resp.ProviderMetadata.OpenAI.InputAudioTokens)
+
+	unreadable := parseChatBody(t,
+		`"usage":{"prompt_tokens":500,"completion_tokens":2,"prompt_tokens_details":{"audio_tokens":"400"}}`)
+	require.Zero(t, unreadable.ProviderMetadata.OpenAI.InputAudioTokens)
+}
+
 func TestChatUsageCountsThinkingFromTotalTokens(t *testing.T) {
 	tests := []struct {
 		name      string

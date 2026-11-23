@@ -23,7 +23,8 @@ type AnthropicMetadata struct {
 }
 
 type OpenAIMetadata struct {
-	ServiceTier string `json:"service_tier,omitempty"`
+	ServiceTier      string `json:"service_tier,omitempty"`
+	InputAudioTokens int    `json:"input_audio_tokens,omitempty"`
 }
 
 func (m *ProviderMetadata) UnmarshalJSON(data []byte) error {
@@ -50,6 +51,7 @@ func (m ProviderMetadata) MarshalJSON() ([]byte, error) {
 		m.Anthropic.CacheWrite1hInputTokens = nil
 	}
 	m.OpenAI.ServiceTier = boundedMetadataText(m.OpenAI.ServiceTier, maxRateClassBytes)
+	m.OpenAI.InputAudioTokens = max(m.OpenAI.InputAudioTokens, 0)
 	type plain ProviderMetadata
 	return json.Marshal(plain(m))
 }

@@ -27,14 +27,14 @@ export interface PendingMcpBuilderOAuth {
   returnPath: string
   serverId: string
   agentName: string | null
-  budget: BudgetDraft | null
+  budget?: BudgetDraft | null
   draft: BasicConfig
 }
 
 export interface McpBuilderOAuthRestore {
   draft: BasicConfig
   agentName: string | null
-  budget: BudgetDraft | null
+  budget?: BudgetDraft | null
 }
 
 export function savePendingMcpBuilderOAuth(record: PendingMcpBuilderOAuth) {

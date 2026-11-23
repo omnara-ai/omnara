@@ -162,6 +162,7 @@ func (p protocol) chatResponseEvidence(
 		Usage:                   usageFromResponse(response.Usage),
 	}
 	out.ProviderMetadata.OpenAI.ServiceTier = string(response.ServiceTier)
+	out.ProviderMetadata.OpenAI.InputAudioTokens = response.Usage.PromptTokensDetails.AudioTokens.count
 	cost, valid := modelenvelope.ProviderReportedCostFromTicks(response.Usage.CostInUSDTicks)
 	if !valid {
 		logent.ModelResponseProviderCostInvalid(ctx)
@@ -334,6 +335,7 @@ type chatTokenDetails struct {
 	CachedTokens     modelenvelope.ReportedCount `json:"cached_tokens,omitzero"`
 	CacheWriteTokens int                         `json:"cache_write_tokens"`
 	ReasoningTokens  int                         `json:"reasoning_tokens"`
+	AudioTokens      lenientCount                `json:"audio_tokens,omitzero"`
 }
 
 func textFromChatContent(raw json.RawMessage) (string, error) {

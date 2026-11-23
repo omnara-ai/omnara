@@ -275,6 +275,16 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 			result.Assumption = "cache_write_split_missing_priced_as_1h"
 		}
 	}
+	if audio := min(input.Metadata.OpenAI.InputAudioTokens, usage.InputTokens); audio > 0 {
+		cachedAudio := max(audio-usage.UncachedInputTokens, 0)
+		cachedAudioRead := min(cachedAudio, usage.CacheReadTokens)
+		request.Usage[genai.UsageInputAudioTokens] = float64(audio)
+		request.Usage[genai.UsageCacheAudioReadTokens] = float64(cachedAudioRead)
+		request.Usage[genai.UsageCacheAudioWriteTokens] = float64(cachedAudio - cachedAudioRead)
+		if usage.CacheReadTokens+usage.CacheWriteTokens > 0 {
+			result.Assumption = "cache_audio_split_missing_priced_as_uncached"
+		}
+	}
 
 	reason := "unknown_model"
 	for _, name := range candidateNames(input) {
