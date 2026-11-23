@@ -3,6 +3,7 @@ package integrationstore
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,49 +14,131 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+var ErrAgentConfigChanged = errors.New("agent config changed")
+
+func (s *Store) ListAgentIntegrationSubscriptions(
+	ctx context.Context, projectID, agentID, integrationID uuid.UUID, attachedByToolCall *uuid.UUID,
+) ([]ConversationAddress, error) {
+	rows, err := s.q.ListAgentIntegrationSubscriptions(ctx, dbsqlc.ListAgentIntegrationSubscriptionsParams{
+		ProjectID: projectID, AgentID: agentID, IntegrationID: integrationID, ToolCallID: attachedByToolCall,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list agent integration subscriptions: %w", err)
+	}
+	addresses := make([]ConversationAddress, 0, len(rows))
+	for _, row := range rows {
+		addresses = append(addresses, ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef})
+	}
+	return addresses, nil
+}
+
 func (s *Store) CreateIntegrationSubscription(
 	ctx context.Context, input CreateIntegrationSubscriptionInput,
 ) (IntegrationSubscriptionRecord, error) {
+	var record IntegrationSubscriptionRecord
+	err := s.withConversationTx(ctx, input, false, func(tx pgx.Tx, prepared RegisterIntegrationSubscriptionInput) error {
+		var err error
+		record, err = RegisterIntegrationSubscriptionTx(ctx, tx, prepared)
+		return err
+	})
+	return record, err
+}
+
+func (s *Store) AttachAgentConversation(ctx context.Context, input AgentConversationInput) error {
+	return s.withConversationTx(ctx, input.CreateIntegrationSubscriptionInput, true,
+		func(tx pgx.Tx, prepared RegisterIntegrationSubscriptionInput) error {
+			if err := checkAgentToolAuthorityTx(ctx, dbsqlc.New(tx), input); err != nil {
+				return err
+			}
+			_, err := RegisterIntegrationSubscriptionTx(ctx, tx, prepared)
+			return err
+		})
+}
+
+func (s *Store) DetachAgentConversation(ctx context.Context, input AgentConversationInput) error {
+	return s.withConversationTx(ctx, input.CreateIntegrationSubscriptionInput, false,
+		func(tx pgx.Tx, prepared RegisterIntegrationSubscriptionInput) error {
+			q := dbsqlc.New(tx)
+			if err := checkAgentToolAuthorityTx(ctx, q, input); err != nil {
+				return err
+			}
+			assigned, found, err := getAgentIntegrationConversation(
+				ctx, q, input.ProjectID, input.AgentID, input.IntegrationID,
+			)
+			if err != nil {
+				return err
+			}
+			if found && assigned == prepared.Address {
+				return storeerr.InvalidRequest(errors.New("an agent can't detach the conversation it was launched for"))
+			}
+			return q.DeleteAgentIntegrationSubscription(ctx,
+				dbsqlc.DeleteAgentIntegrationSubscriptionParams{
+					ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
+					ScopeKind: prepared.Address.Kind, ScopeRef: prepared.Address.Ref,
+				})
+		})
+}
+
+func checkAgentToolAuthorityTx(ctx context.Context, q *dbsqlc.Queries, input AgentConversationInput) error {
+	authority, err := q.GetAgentToolAuthority(ctx, dbsqlc.GetAgentToolAuthorityParams{
+		ConfigID: input.ExpectedConfigID, RuntimeLockID: input.RuntimeLockID,
+		ProjectID: input.ProjectID, AgentID: input.AgentID,
+	})
+	if err != nil {
+		return err
+	}
+	if !authority.RuntimeActive {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	if !authority.ConfigCurrent {
+		return ErrAgentConfigChanged
+	}
+	return nil
+}
+
+func (s *Store) withConversationTx(
+	ctx context.Context, input CreateIntegrationSubscriptionInput, lockCredential bool,
+	fn func(pgx.Tx, RegisterIntegrationSubscriptionInput) error,
+) error {
 	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil ||
 		input.IntegrationID == uuid.Nil || input.AgentID == uuid.Nil {
-		return IntegrationSubscriptionRecord{}, storeerr.InvalidRequest(
-			errors.New("organization, project, integration and agent are required"),
-		)
+		return storeerr.InvalidRequest(errors.New("organization, project, integration and agent are required"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
 	}
 	if err := LockIntegrationsTx(ctx, tx, input.ProjectID, nil, input.IntegrationID); err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
+	}
+	if lockCredential {
+		if err := LockIntegrationCredentialAccessTx(ctx, tx, input.ProjectID, input.IntegrationID); err != nil {
+			return err
+		}
 	}
 	prepared, err := PrepareIntegrationSubscriptionTx(ctx, tx, input.ProjectID, IntegrationSubscriptionAttachment{
 		IntegrationID: input.IntegrationID, Conversation: input.Conversation,
 	})
 	if err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
 	}
 	prepared.AgentID = input.AgentID
 	if err := LockConversationTx(ctx, tx, input.ProjectID, input.IntegrationID, prepared.Address); err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
 	}
 	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{
 		{ProjectID: input.ProjectID, AgentID: input.AgentID},
 	}); err != nil {
-		return IntegrationSubscriptionRecord{}, err
+		return err
 	}
-	record, err := RegisterIntegrationSubscriptionTx(ctx, tx, prepared)
-	if err != nil {
-		return IntegrationSubscriptionRecord{}, err
+	if err := fn(tx, prepared); err != nil {
+		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return IntegrationSubscriptionRecord{}, err
-	}
-	return record, nil
+	return tx.Commit(ctx)
 }
 
 func (s *Store) DeleteIntegrationSubscription(

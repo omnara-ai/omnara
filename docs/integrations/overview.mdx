@@ -40,8 +40,7 @@ profile choices use `ipc_` IDs, while agent interactions keep `int_` IDs.
 A saved integration starts disconnected. Connecting verifies its provider identity and
 saves a reference to encrypted credentials. Add profiles and a launcher when
 provider events should start agents. Schedules and interaction handlers can be used
-without an event launcher. The shipped thread and PR tools require the conversation
-assigned by their integration when launching an agent.
+without an event launcher.
 Two integrations configured
 with the same bot remain independent setups, with separate credential updates
 and lifecycle. Avoid overlapping launchers for the same conversation: duplicate
@@ -98,11 +97,12 @@ The catalog exposes the static argument schema in
 `capabilities.interaction_handler.input_schema`.
 
 A provider or scheduled launch records one immutable conversation for that integration
-and agent. Slack and Discord tools use that conversation; GitHub tools use that pull
-request. Calls contain only the action and pagination arguments, such as
+and agent. Slack and Discord tools use that conversation; GitHub tools also use
+[pull requests attached to the agent](/integrations/github#select-pr-tools).
+Calls otherwise contain only the action and pagination arguments, such as
 `{"text":"Update"}` or `{"section":"files","page":2}`. These tools fail before contacting
-the provider if the agent has no assigned conversation. Adding a subscription or
-selecting an interaction handler does not establish or change sending context.
+the provider if the agent has no such conversation. Selecting an interaction handler does
+not establish or change sending context.
 
 Integrations can also define standalone tools that use the integration's credentials without a
 launcher, subscription or assigned conversation. The tool's implementation defines
@@ -160,15 +160,14 @@ creation and deletion require project management permission.
 
 Open the integration's **Connected conversations** section and choose **Stop forwarding**, or call
 `DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}`.
-This stops future incoming forwarding for that subscription. The agent, sending tools,
-interaction handlers and history remain. Explicitly attach the conversation
+This stops future incoming forwarding for that subscription. Explicitly attach the conversation
 again through the API to resume forwarding. Already accepted chooser handoffs are not canceled by this deletion.
 
 Repeating an active attachment returns the same subscription. A fresh attachment
 after deletion receives a new ID, so retrying an old DELETE cannot remove the new attachment. Integration disconnection preserves subscriptions;
 integration deletion or agent archival removes them.
 
-Sending and receiving are independent. Posting a message does not create or
+Posting a message does not create or
 restore subscriptions. To start a fresh scheduled agent in a new thread, configure
 an integration schedule; the launch assigns its sending conversation and reply subscription.
 

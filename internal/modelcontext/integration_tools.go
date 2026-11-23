@@ -31,6 +31,9 @@ func describeIntegrationToolConversations(ctx context.Context, store Integration
 				return fmt.Errorf("load integration tool conversation: %w", err)
 			}
 			description = "No conversation is assigned to this agent; this tool cannot run."
+			if kind == integrationdefinition.GitHubPR {
+				description = "No pull request is assigned to this agent; this tool acts on attached pull requests."
+			}
 			if found {
 				integration, _ := integrationdefinition.Lookup(kind)
 				scope, err := integrationdefinition.ParseConversation(integration.Provider, address.Kind, address.Ref)
@@ -43,6 +46,10 @@ func describeIntegrationToolConversations(ctx context.Context, store Integration
 				}
 				description = "Assigned conversation: " + string(conversation) +
 					". Messages from other subscriptions do not change this tool's destination."
+				if kind == integrationdefinition.GitHubPR {
+					description = "Assigned pull request: " + string(conversation) +
+						"; this tool also acts on attached pull requests."
+				}
 			}
 			descriptions[id] = description
 		}

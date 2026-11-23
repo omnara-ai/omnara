@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -13,9 +14,33 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
+
+func trackSubscribedGitHubCheck(
+	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, integrationID uuid.UUID, pullRequest int,
+) {
+	t.Helper()
+	ctx := t.Context()
+	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: Review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: ids.ProjectID, LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+		AgentConfigID: config.ID,
+	})
+	require.NoError(t, err)
+	integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
+	require.NoError(t, err)
+	createTestIntegrationSubscription(t, store, integration, launched.Agent.ID,
+		fmt.Sprintf(`{"repository_id":1001,"pull_request":%d}`, pullRequest))
+	require.NoError(t, store.Integrations().MarkGitHubCheckRun(ctx, ids.ProjectID, integrationID, launched.Agent.ID,
+		integrationstore.ConversationAddress{Kind: "pull_request", Ref: fmt.Sprintf("1001#%d", pullRequest)}, false))
+}
 
 func TestGitHubCheckReconcilerReadsOnePagePerTick(t *testing.T) {
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
@@ -64,8 +89,7 @@ func TestGitHubCheckReconcilerRepublishesUnfinishedFinishedChecks(t *testing.T) 
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
 	ctx := t.Context()
 	integrations := store.Integrations()
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
-	require.NoError(t, integrations.MarkGitHubCheckRun(ctx, ids.ProjectID, integrationID, uuid.New(), address, false))
+	trackSubscribedGitHubCheck(t, store, ids, integrationID, 42)
 	tracked := func(claim uuid.UUID) integrationstore.GitHubCheckRun {
 		t.Helper()
 		runs, err := integrations.ListGitHubCheckRuns(ctx, claim, uuid.Nil, 10)
@@ -96,14 +120,8 @@ func TestGitHubCheckReconcilerRepublishesUnfinishedFinishedChecks(t *testing.T) 
 func TestGitHubCheckReconcilerPausesRateLimitedInstallations(t *testing.T) {
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
 	ctx := t.Context()
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
-	track := func(integrationID uuid.UUID) {
-		t.Helper()
-		require.NoError(t, store.Integrations().MarkGitHubCheckRun(
-			ctx, ids.ProjectID, integrationID, uuid.New(), address, false))
-	}
-	for range githubCheckRunConcurrency + 1 {
-		track(integrationID)
+	for pullRequest := range githubCheckRunConcurrency + 1 {
+		trackSubscribedGitHubCheck(t, store, ids, integrationID, pullRequest+1)
 	}
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -137,7 +155,7 @@ func TestGitHubCheckReconcilerPausesRateLimitedInstallations(t *testing.T) {
 		CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
 	})
 	require.NoError(t, err)
-	track(shared.ID)
+	trackSubscribedGitHubCheck(t, store, ids, shared.ID, 1)
 	pass, err = reconciler.Reconcile(ctx)
 	require.NoError(t, err)
 	require.False(t, pass.Worked)
@@ -150,8 +168,7 @@ func TestGitHubCheckReconcilerPausesInstallationOnLastAttemptRateLimit(t *testin
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
 	ctx := t.Context()
 	integrations := store.Integrations()
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
-	require.NoError(t, integrations.MarkGitHubCheckRun(ctx, ids.ProjectID, integrationID, uuid.New(), address, false))
+	trackSubscribedGitHubCheck(t, store, ids, integrationID, 42)
 	runs, err := integrations.ListGitHubCheckRuns(ctx, uuid.Nil, uuid.Nil, 10)
 	require.NoError(t, err)
 	require.Len(t, runs, 1)
@@ -177,7 +194,7 @@ func TestGitHubCheckReconcilerPausesInstallationOnLastAttemptRateLimit(t *testin
 	require.WithinDuration(t, time.Now().Add(time.Minute), reconciler.paused["22"], 5*time.Second,
 		"the installation waits for GitHub's Retry-After, not the check's own backoff")
 	limited := requests.Load()
-	require.NoError(t, integrations.MarkGitHubCheckRun(ctx, ids.ProjectID, integrationID, uuid.New(), address, false))
+	trackSubscribedGitHubCheck(t, store, ids, integrationID, 43)
 	pass, err := reconciler.Reconcile(ctx)
 	require.NoError(t, err)
 	require.False(t, pass.Worked)

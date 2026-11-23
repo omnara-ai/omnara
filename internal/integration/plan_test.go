@@ -445,11 +445,12 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 				require.Nil(t, compiled.GitCredentials)
 			}
 			for _, tool := range toolcatalog.IntegrationTools(integration.IntegrationKind) {
-				require.Equal(
-					t,
-					integration.ID,
-					compiled.Tools[toolcatalog.IntegrationToolName(integration.Name, tool.Operation)].IntegrationID,
-				)
+				name := toolcatalog.IntegrationToolName(integration.Name, tool.Operation)
+				if tool.Scope != toolcatalog.IntegrationToolScopeConversation {
+					require.NotContains(t, compiled.Tools, name, "launches only add tools bound to the conversation")
+					continue
+				}
+				require.Equal(t, integration.ID, compiled.Tools[name].IntegrationID)
 			}
 			require.Equal(t, integration.ID, subscription.IntegrationID)
 			require.JSONEq(t, test.address, string(subscription.Conversation))
@@ -506,6 +507,33 @@ func TestGitHubLaunchPreservesExplicitGitCredentials(t *testing.T) {
 	_, err = deriveIntegrationLaunchConfig(base, integration)
 	require.ErrorIs(t, err, ErrIntegrationLaunchUnavailable,
 		"a reused integration name cannot replace the profile's pinned identity")
+}
+
+func TestGitHubLaunchKeepsExplicitAttachPullRequest(t *testing.T) {
+	_, execution, _, integration, _ := integrationPlannerFixture(t)
+	base := execution.profile.CurrentConfig
+	integration.Provider = integrationdefinition.ProviderGitHub
+	integration.IntegrationKind, integration.Name = integrationdefinition.GitHubPR, "reviews"
+	name := toolcatalog.IntegrationToolName(integration.Name, toolcatalog.IntegrationOperationAttachPullRequest)
+	derived, err := deriveIntegrationLaunchConfig(base, integration)
+	require.NoError(t, err)
+	var actual agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
+	require.NotContains(t, actual.Tools, name)
+
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+	explicit := actual.Tools[toolcatalog.IntegrationToolName(integration.Name, "read")]
+	explicit.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
+	compiled.Tools[name] = explicit
+	encoded, err := agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	derived, err = deriveIntegrationLaunchConfig(base, integration)
+	require.NoError(t, err)
+	actual = agentconfig.Compiled{}
+	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
+	require.Equal(t, explicit, actual.Tools[name], "a profile can opt launched agents into attaching pull requests")
 }
 
 func TestIntegrationLaunchSubscriptionsFollowDefinition(t *testing.T) {

@@ -13,14 +13,14 @@ func TestGitHubRepositoryPageContinuesAcrossWindows(t *testing.T) {
 	repositories := func(start, count int) []github.Repository {
 		result := make([]github.Repository, count)
 		for i := range result {
-			result[i] = github.Repository{FullName: fmt.Sprintf("acme/repo-%d", start+i)}
+			result[i] = github.Repository{ID: int64(start + i), FullName: fmt.Sprintf("acme/repo-%d", start+i)}
 		}
 		return result
 	}
 	names := func(start, count int) []githubRepositoryPayload {
 		result := make([]githubRepositoryPayload, count)
 		for i := range result {
-			result[i] = githubRepositoryPayload{FullName: fmt.Sprintf("acme/repo-%d", start+i)}
+			result[i] = githubRepositoryPayload{ID: int64(start + i), FullName: fmt.Sprintf("acme/repo-%d", start+i)}
 		}
 		return result
 	}

@@ -3673,7 +3673,7 @@ export const zCreateAgentRequest = z.intersection(z.union([
     name: zAgentName.optional(),
     message: z.string().optional(),
     tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
-    subscriptions: z.array(zIntegrationSubscriptionAttachment).max(100).optional(),
+    subscriptions: z.array(zIntegrationSubscriptionAttachment).max(16).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 }));

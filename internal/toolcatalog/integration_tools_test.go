@@ -17,6 +17,22 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 		for _, tool := range IntegrationTools(integrationKind) {
 			operation := tool.Operation
 			t.Run(string(integrationKind)+"/"+operation, func(t *testing.T) {
+				if operation == IntegrationOperationListAttachedPullRequests {
+					require.Equal(t, IntegrationToolScopeIntegration, tool.Scope)
+					entry, err := tool.Prepare(IntegrationToolName("engineering-team", operation))
+					require.NoError(t, err)
+					require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(`{"offset":20,"limit":10}`)))
+					require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`{"limit":101}`)))
+					return
+				}
+				if operation == IntegrationOperationAttachPullRequest || operation == IntegrationOperationDetachPullRequest {
+					require.Equal(t, IntegrationToolScopeIntegration, tool.Scope)
+					entry, err := tool.Prepare(IntegrationToolName("engineering-team", operation))
+					require.NoError(t, err)
+					require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(`{"repository_id":1,"pull_request":2}`)))
+					require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`{"repository_id":1}`)))
+					return
+				}
 				require.Equal(t, IntegrationToolScopeConversation, tool.Scope)
 				action := `{}`
 				switch operation {
@@ -47,11 +63,20 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 					Properties map[string]json.RawMessage `json:"properties"`
 				}
 				require.NoError(t, json.Unmarshal(entry.InputSchema, &schema))
-				for _, field := range []string{
-					"channel_id", "thread_ts", "guild_id", "thread_id", "repository_id", "pull_request",
-				} {
-					require.NotContains(t, schema.Properties, field, "model cannot select a conversation")
+				for _, field := range []string{"channel_id", "thread_ts", "guild_id", "thread_id"} {
+					require.NotContains(t, schema.Properties, field, "model cannot select a channel or thread")
 				}
+				var fields map[string]any
+				require.NoError(t, json.Unmarshal([]byte(action), &fields))
+				fields["repository_id"] = 1
+				partial, err := json.Marshal(fields)
+				require.NoError(t, err)
+				require.Error(t, jsonschema.Validate(entry.InputSchema, partial), "repository_id requires pull_request")
+				fields["pull_request"] = 2
+				targeted, err := json.Marshal(fields)
+				require.NoError(t, err)
+				require.Equal(t, integrationKind == integrationdefinition.GitHubPR,
+					jsonschema.Validate(entry.InputSchema, targeted) == nil, "only GitHub tools name a pull request")
 				require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`null`)))
 				if operation != IntegrationOperationRead {
 					require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`{}`)), "action fields are required")

@@ -14,3 +14,13 @@ WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(ag
   AND target.integration_id = sqlc.arg(integration_id) AND target.scope_kind = sqlc.arg(kind)
   AND target.scope_ref = sqlc.arg(ref) AND target.deleted_at IS NULL
   AND integration.deleted_at IS NULL AND integration.state = 'active';
+
+-- name: GetAgentToolAuthority :one
+SELECT agent.current_config_id = sqlc.arg(config_id)::uuid AS config_current,
+       EXISTS (
+         SELECT 1 FROM agent_runtime_locks runtime_lock
+         WHERE runtime_lock.agent_id = agent.id AND runtime_lock.id = sqlc.arg(runtime_lock_id)::uuid
+           AND runtime_lock.cancel_requested_at IS NULL AND runtime_lock.lease_expires_at > statement_timestamp()
+       ) AS runtime_active
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id);

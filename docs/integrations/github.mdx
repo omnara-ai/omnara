@@ -140,14 +140,23 @@ tools:
     permission: {mode: always_ask}
   int__reviews__resolve_thread:
     permission: {mode: always_ask}
+  int__reviews__attach_pull_request: {}
+  int__reviews__detach_pull_request: {}
+  int__reviews__list_attached_pull_requests: {}
 ```
 
-The GitHub launcher assigns one pull request to the agent. Every tool operates on
-that PR, so the model supplies neither repository nor PR identifiers. Adding these
-tools to an agent without an assigned PR is insufficient; calls fail before
-contacting GitHub. Subscriptions independently control incoming events and do not
-assign or change the tools' PR. Machine Git authentication uses the separate
-`git_credentials` capability described below.
+`attach_pull_request` attaches a PR in any repository the installation can reach;
+`launcher.repository_id` doesn't narrow it. Attaching subscribes the agent, so the PR's
+comments, reviews and commits reach it. `list_attached_pull_requests` lists the agent's
+PRs. `detach_pull_request` reverses attaching; an agent can't detach the PR it was
+launched for.
+
+The other tools act on the agent's pull requests: the one the GitHub launcher assigned,
+plus any attached with `attach_pull_request` or the subscriptions API. With one PR, the
+model supplies neither repository nor PR identifiers. With several, or in a response that
+also attaches or detaches a PR, calls must pass `repository_id` and `pull_request`. Calls fail
+before contacting GitHub if the agent has no PR or names one that isn't attached.
+Machine Git authentication uses the separate `git_credentials` capability described below.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
 `discussion_comments`, `review_comments`, `reviews`, `review`, `pending_review` or
@@ -221,7 +230,7 @@ unless `repository_ids` lists a subset; find an ID with `gh api repos/OWNER/REPO
 They are read-only unless **Let agents push code** (`code_write`) is enabled on
 the integration and `read_only` isn't set. Write credentials can also open, comment on and approve
 pull requests. The assigned PR and `launcher.repository_id` do not narrow
-these credentials. Existing PR tools retain their assigned-PR restrictions.
+these credentials.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
 Apps registered through Omnara get **Contents**, **Pull requests** and **Checks: Read & write**, plus
@@ -290,7 +299,8 @@ For PR-open and mention launches through the API, update the saved integration w
 ```
 
 The launcher derives the PR tools and Git credentials, adding missing capabilities
-and preserving explicit entries from the profile. It attaches a subscription for
+and preserving explicit entries from the profile. It doesn't add `attach_pull_request`,
+`detach_pull_request` or `list_attached_pull_requests`. It attaches a subscription for
 the triggering PR. An unrestricted launcher applies to repositories granted to this installation. Set
 `launcher.repository_id` to a numeric repository ID string to narrow it. Use
 `trigger: "mention"` for mention-only launches, or `"pull_request_opened"` for
