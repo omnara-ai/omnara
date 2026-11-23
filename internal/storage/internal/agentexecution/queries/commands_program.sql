@@ -4,9 +4,9 @@ FROM processes p WHERE p.agent_id=sqlc.arg(agent_id) AND p.id=sqlc.arg(id) FOR S
 
 -- name: InsertProgramTool :one
 INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
- program_named,created_at)
+ program_named,program_offer_id,created_at)
 SELECT sqlc.arg(id),c.project_id,c.agent_id,sqlc.arg(key),sqlc.arg(name),sqlc.arg(input)::jsonb,sqlc.arg(type),
- 'awaiting_authorization','program',c.id,sqlc.arg(named)::boolean,statement_timestamp()
+ 'awaiting_authorization','program',c.id,sqlc.arg(named)::boolean,sqlc.narg(offer_id)::text,statement_timestamp()
 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(parent_id) AND c.caller='model'
 ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
 RETURNING id;
@@ -24,7 +24,7 @@ SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
 
 -- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
- c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
@@ -33,13 +33,17 @@ FOR UPDATE OF c;
 
 -- name: ReadProgramToolByKey :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
- c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.caller='program' AND c.provider_call_id=sqlc.arg(key)
 ORDER BY c.created_at DESC,c.id DESC LIMIT 1
 FOR UPDATE OF c;
+
+-- name: SetProgramToolOffer :execrows
+UPDATE tool_calls c SET program_offer_id=sqlc.arg(offer_id)::text
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program' AND c.state<>'completed';
 
 -- name: TransitionProgramTool :execrows
 UPDATE tool_calls c SET state=sqlc.arg(next_state),program_claim_id=sqlc.narg(next_claim_id),

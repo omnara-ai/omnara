@@ -76,6 +76,9 @@ type CreateProgramToolCallInput struct {
 	Name      string
 	Type      string
 	Input     json.RawMessage
+	// OfferID names the daemon offer this request answers, so a cancel of another offer of the key
+	// cannot end the call this one makes or picks up.
+	OfferID string
 }
 
 type CompleteProgramToolCallInput struct {
@@ -146,7 +149,8 @@ func (s *Store) CreateProgramToolCall(
 	return programUnit(ctx, s, "create_program_tool_call", input.ProjectID, input.AgentID,
 		func(unit *agentexecution.Unit, h *agentexecution.Handle) (ProgramToolCallRecord, error) {
 			tool, err := h.CreateProgramTool(ctx, agentexecution.CreateProgramToolInput{ProcessID: input.ProcessID,
-				Key: input.Key, Named: input.Named, Name: input.Name, Type: input.Type, Input: input.Input})
+				Key: input.Key, Named: input.Named, Name: input.Name, Type: input.Type, Input: input.Input,
+				OfferID: input.OfferID})
 			if err != nil {
 				return ProgramToolCallRecord{}, err
 			}
@@ -170,7 +174,7 @@ func (s *Store) ResumeProgramToolCall(
 	result, err := programUnit(ctx, s, "resume_program_tool_call", input.ProjectID, input.AgentID,
 		func(unit *agentexecution.Unit, h *agentexecution.Handle) (resumed, error) {
 			tool, found, err := h.ResumeProgramTool(ctx, agentexecution.CreateProgramToolInput{
-				ProcessID: input.ProcessID, Key: input.Key, Name: input.Name, Input: input.Input})
+				ProcessID: input.ProcessID, Key: input.Key, Name: input.Name, Input: input.Input, OfferID: input.OfferID})
 			if err != nil || !found {
 				return resumed{}, err
 			}

@@ -60,6 +60,9 @@ type CreateProgramToolInput struct {
 	Name  string
 	Type  string
 	Input json.RawMessage
+	// OfferID names the daemon offer this request answers. The call keeps the latest offer to make or
+	// pick it up, so a late cancel of an earlier offer of its key cannot end it.
+	OfferID string
 }
 
 func programToolRecord(row executiondb.ReadProgramToolRow) ProgramTool {
@@ -183,13 +186,15 @@ func validProgramToolKey(key string) bool {
 
 // resumeProgramTool finds the call a key already names. It reports false when the key is new, or when
 // its last call was canceled before it could take effect, so the caller may start another attempt.
-// toolType is checked only when the caller has resolved it.
+// input.Type is checked only when the caller has resolved it. An open call it finds now answers
+// input.OfferID.
 func (h *Handle) resumeProgramTool(
-	ctx context.Context, processID uuid.UUID, key, name, toolType string, callInput json.RawMessage,
+	ctx context.Context, input CreateProgramToolInput, callInput json.RawMessage,
 ) (ProgramTool, bool, error) {
+	processID, name, toolType := input.ProcessID, input.Name, input.Type
 	q := executiondb.New()
 	found, err := q.ReadProgramToolByKey(ctx, h.unit.DB(),
-		executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: key})
+		executiondb.ReadProgramToolByKeyParams{AgentID: h.route.AgentID, Key: input.Key})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProgramTool{}, false, nil
 	}
@@ -217,11 +222,18 @@ func (h *Handle) resumeProgramTool(
 	if row.State == "completed" && storeutil.ValueOrZero(row.Outcome) == "canceled" {
 		return ProgramTool{}, false, nil
 	}
+	if row.State != "completed" && input.OfferID != "" && storeutil.ValueOrZero(row.ProgramOfferID) != input.OfferID {
+		if _, err := q.SetProgramToolOffer(ctx, h.unit.DB(), executiondb.SetProgramToolOfferParams{
+			OfferID: input.OfferID, AgentID: h.route.AgentID, ID: row.ID}); err != nil {
+			return ProgramTool{}, false, err
+		}
+	}
 	return programToolRecord(row), true, nil
 }
 
 func programToolInput(input CreateProgramToolInput) (json.RawMessage, error) {
-	if !validProgramToolKey(input.Key) || input.Name == "" || dbsafe.Text(input.Name) != nil {
+	if !validProgramToolKey(input.Key) || input.Name == "" || dbsafe.Text(input.Name) != nil ||
+		(input.OfferID != "" && !validProgramToolKey(input.OfferID)) {
 		return nil, storeerr.ErrInvalidRequest
 	}
 	callInput, err := objectJSON(input.Input)
@@ -246,7 +258,8 @@ func (h *Handle) ResumeProgramTool(ctx context.Context, input CreateProgramToolI
 		if _, err := h.fenceProgram(ctx, input.ProcessID); err != nil {
 			return resumed{}, err
 		}
-		tool, found, err := h.resumeProgramTool(ctx, input.ProcessID, input.Key, input.Name, "", callInput)
+		input.Type = ""
+		tool, found, err := h.resumeProgramTool(ctx, input, callInput)
 		return resumed{tool: tool, found: found}, err
 	})
 	return result.tool, result.found, err
@@ -267,7 +280,7 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 		}
 		q := executiondb.New()
 		existing := func() (ProgramTool, bool, error) {
-			return h.resumeProgramTool(ctx, input.ProcessID, input.Key, input.Name, input.Type, callInput)
+			return h.resumeProgramTool(ctx, input, callInput)
 		}
 		if record, found, err := existing(); err != nil || found {
 			return record, err
@@ -286,7 +299,8 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 		}
 		if _, err = q.InsertProgramTool(ctx, h.unit.DB(), executiondb.InsertProgramToolParams{
 			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: input.Key, Named: input.Named,
-			Name: input.Name, Type: input.Type, Input: callInput}); errors.Is(err, pgx.ErrNoRows) {
+			Name: input.Name, Type: input.Type, Input: callInput, OfferID: storeutil.TextFromEmpty(input.OfferID),
+		}); errors.Is(err, pgx.ErrNoRows) {
 			record, found, err := existing()
 			if err == nil && !found {
 				err = storeerr.ErrStateTransitionConflict
@@ -670,8 +684,10 @@ func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (boo
 	})
 }
 
-// CancelProgramToolByKey leaves a named call alone: it outlives the command that stopped waiting.
-func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID, key string) error {
+// CancelProgramToolByKey ends the call a key names for a cancel of offerID, unless a later offer has
+// made or picked it up since. An empty offerID ends it whatever offer it answers. It leaves a named
+// call alone: it outlives the command that stopped waiting.
+func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID, key, offerID string) error {
 	_, err := programCommand(h, func() (struct{}, error) {
 		process, err := h.lockProgram(ctx, processID)
 		if err != nil {
@@ -686,7 +702,8 @@ func (h *Handle) CancelProgramToolByKey(ctx context.Context, processID uuid.UUID
 			return struct{}{}, err
 		}
 		row := executiondb.ReadProgramToolRow(found)
-		if row.ProcessID != processID || row.ProgramNamed || !h.programToolOpen(process, row) {
+		if row.ProcessID != processID || row.ProgramNamed || !h.programToolOpen(process, row) ||
+			(offerID != "" && storeutil.ValueOrZero(row.ProgramOfferID) != offerID) {
 			return struct{}{}, nil
 		}
 		return struct{}{}, h.cancelProgramTool(ctx, row)

@@ -34,18 +34,19 @@ func (s *Store) CancelDaemonProgramToolCall(
 }
 
 // CancelDaemonProgramToolCallByKey ends the call a key of a daemon's command names, for a cancel of
-// an offer made on an earlier connection. It succeeds only once nothing of the call is left to end.
+// an offer made on an earlier connection. A call a later offer of the key has made or picked up since
+// is not that offer's to end. It succeeds only once nothing of the offer's call is left to end.
 // The call may still be open where no new one could start, such as after code mode is turned off,
 // so the process need only belong to the daemon's machine.
 func (s *Store) CancelDaemonProgramToolCallByKey(
-	ctx context.Context, authority DaemonRuntimeAuthority, processID uuid.UUID, key string,
+	ctx context.Context, authority DaemonRuntimeAuthority, processID uuid.UUID, key, offerID string,
 ) error {
 	if processID == uuid.Nil || key == "" {
 		return errors.New("process and key are required")
 	}
 	_, _, err := daemonProgramUnit(ctx, s, "cancel_daemon_program_tool_call_by_key", authority, processID,
 		func(h *agentexecution.Handle) (struct{}, error) {
-			return struct{}{}, h.CancelProgramToolByKey(ctx, processID, key)
+			return struct{}{}, h.CancelProgramToolByKey(ctx, processID, key, offerID)
 		})
 	if errors.Is(err, storeerr.ErrProcessTerminal) || errors.Is(err, storeerr.ErrNotFound) {
 		return nil

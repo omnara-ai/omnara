@@ -236,13 +236,15 @@ func (s *daemonSocket) runQueuedToolCallCancel(ctx context.Context, cancel *daem
 func (s *daemonSocket) cancelStoredToolCall(ctx context.Context, cancel daemonprotocol.ToolCallCancel) {
 	server := s.server
 	processID, decodeErr := publicid.Decode(publicid.KindProcess, cancel.ProcessID)
-	if decodeErr != nil || !daemonprotocol.ValidProgramToolCallKey(cancel.Key) {
+	if decodeErr != nil || !daemonprotocol.ValidProgramToolCallKey(cancel.Key) ||
+		(cancel.OfferID != "" && !daemonprotocol.ValidProgramToolCallKey(cancel.OfferID)) {
 		// It cannot name a call, so there is nothing to end.
 		s.reportToolCallCanceled(ctx, cancel)
 		return
 	}
 	for {
-		err := server.store.Execution().CancelDaemonProgramToolCallByKey(ctx, s.authority(), processID, cancel.Key)
+		err := server.store.Execution().CancelDaemonProgramToolCallByKey(ctx, s.authority(), processID, cancel.Key,
+			cancel.OfferID)
 		if err == nil {
 			s.reportToolCallCanceled(ctx, cancel)
 			return
@@ -501,6 +503,9 @@ func (s *Server) offerProgramToolCall(
 	case !daemonprotocol.ValidProgramToolCallKey(key):
 		return ref, nil, invalid("key must be 1 to %d printable characters with no spaces",
 			daemonprotocol.ProgramToolCallMaxKeyBytes)
+	case offer.OfferID != "" && !daemonprotocol.ValidProgramToolCallKey(offer.OfferID):
+		return ref, nil, invalid("offer_id must be 1 to %d printable characters with no spaces",
+			daemonprotocol.ProgramToolCallMaxKeyBytes)
 	case strings.TrimSpace(offer.Name) == "":
 		return ref, nil, invalid("name is required")
 	case len(offer.Name) > daemonprotocol.ProgramToolCallMaxNameBytes:
@@ -556,7 +561,7 @@ func (s *Server) offerProgramToolCall(
 	// runs it checks the agent's current config again, so it always reaches a result.
 	create := executionstore.CreateProgramToolCallInput{
 		ProjectID: program.ProjectID, AgentID: program.AgentID, ProcessID: program.ProcessID,
-		Key: key, Named: offer.KeepOnDisconnect, Name: offer.Name, Input: offer.Input,
+		Key: key, Named: offer.KeepOnDisconnect, Name: offer.Name, Input: offer.Input, OfferID: offer.OfferID,
 	}
 	existing, resumed, err := s.store.Execution().ResumeProgramToolCall(ctx, create)
 	if err != nil {

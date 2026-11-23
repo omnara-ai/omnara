@@ -111,7 +111,7 @@ func TestProgramCustomToolWaitsForItsResult(t *testing.T) {
 
 	// The command stops waiting, by key or by the call it was serving.
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("ticket")))
+		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("ticket"), ""))
 		over, err := h.CancelProgramTool(t.Context(),
 			agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process})
 		require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestProgramCustomToolResultChecksTheCall(t *testing.T) {
 	}
 	// Before authorization a custom call is ended with its command, like any other unnamed call.
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("unauthorized")))
+		require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("unauthorized"), ""))
 	})
 	state, outcome := programState(t, f, pending.ID)
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})

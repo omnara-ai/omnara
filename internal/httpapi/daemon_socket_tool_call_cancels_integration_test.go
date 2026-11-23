@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"testing"
 
@@ -12,9 +13,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
+// storedCall is a call an offer named key made on an earlier connection.
 func (f *daemonProgramToolCallFixture) storedCall(t *testing.T, key string) (
 	daemonprotocol.ToolCallOffer, executionstore.ProgramToolCallRecord,
 ) {
@@ -23,7 +26,8 @@ func (f *daemonProgramToolCallFixture) storedCall(t *testing.T, key string) (
 	execution := f.project.Store.Execution()
 	record, err := execution.CreateProgramToolCall(t.Context(), executionstore.CreateProgramToolCallInput{
 		ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
-		Key: offer.Key, Name: offer.Name, Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{}`)})
+		Key: offer.Key, Name: offer.Name, Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{}`),
+		OfferID: key})
 	require.NoError(t, err)
 	return offer, record
 }
@@ -47,7 +51,7 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	ctx := t.Context()
 	storedOffer, stored := f.storedCall(t, "stored")
 	storedCancel := daemonprotocol.ToolCallCancel{ProcessID: storedOffer.ProcessID, Key: storedOffer.Key,
-		OfferID: "earlier-connection"}
+		OfferID: "stored"}
 
 	blocked, err := f.pool.Begin(ctx)
 	require.NoError(t, err)
@@ -202,4 +206,67 @@ func TestDaemonSocketToolCallCancelEndsACallAfterCodeModeIsOff(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM agent_interactions WHERE agent_id = $1
  AND state = 'open'`, f.process.AgentUUID).Scan(&open))
 	require.Zero(t, open, "the call's approval is closed with it")
+}
+
+// A cancel whose acknowledgment was lost is sent again on the next connection. By then the command
+// may have retried the key, starting a new attempt, which the late cancel must leave alone.
+func TestDaemonSocketToolCallLateCancelLeavesARetryAlone(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	offer := func(socket *daemonSocket, offerID string) daemonprotocol.ToolCallReport {
+		t.Helper()
+		offer := programToolOffer(f.process.ProcessID, "job", toolcatalog.ToolNameStorageRead,
+			`{"path":"/memory/engineering/notes.md"}`)
+		offer.OfferID = offerID
+		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+		report := nextToolCallReport(t, socket)
+		require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, report.State)
+		return report
+	}
+	lateCancel := daemonprotocol.ToolCallCancel{ProcessID: f.process.ProcessID,
+		Key: programToolOffer(f.process.ProcessID, "job", "", "").Key, OfferID: "first"}
+
+	first := f.socket()
+	attempt := offer(first, "first")
+	require.NoError(t, first.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &lateCancel}))
+	require.True(t, nextToolCallReport(t, first).CancelRecorded, "this acknowledgment is lost")
+	first.toolCallsDone.Wait()
+
+	retrying := f.socket()
+	retry := offer(retrying, "retry")
+	require.NotEqual(t, attempt.ToolCallID, retry.ToolCallID)
+
+	reconnected := f.socket()
+	require.NoError(t, reconnected.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &lateCancel}))
+	require.True(t, nextToolCallReport(t, reconnected).CancelRecorded, "nothing of the first attempt is left")
+	reconnected.toolCallsDone.Wait()
+	state, _ := f.toolCallState(t, retry.ToolCallID)
+	require.Equal(t, "awaiting_permission", state, "the late cancel must not end the retry")
+
+	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+	interactions := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions", "", "",
+		http.StatusOK, authHeaders(f.project.AdminToken))
+	listed, ok := interactions["data"].([]any)
+	require.True(t, ok)
+	var interactionID string
+	for _, item := range listed {
+		interaction, ok := item.(map[string]any)
+		require.True(t, ok)
+		if interaction["tool_call_id"] == retry.ToolCallID {
+			require.Equal(t, "open", interaction["state"], "the retry's approval is still open")
+			interactionID, ok = interaction["id"].(string)
+			require.True(t, ok)
+		}
+	}
+	require.NotEmpty(t, interactionID)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/interactions/"+interactionID+"/resolve",
+		httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	done := nextToolCallReport(t, retrying)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+	require.Equal(t, retry.ToolCallID, done.ToolCallID)
+	retrying.toolCallsDone.Wait()
 }

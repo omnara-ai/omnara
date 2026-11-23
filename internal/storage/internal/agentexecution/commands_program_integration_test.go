@@ -803,3 +803,61 @@ func TestProgramToolNamedCallOutlivesItsCommand(t *testing.T) {
 	retry := named(second, "idle", "built_in")
 	require.True(t, retry.Created)
 }
+
+// A cancel names the offer it ends. A late cancel of an earlier offer, whose call was already ended
+// and retried under the same key, leaves the retry alone.
+func TestProgramToolCancelByKeyEndsOnlyItsOffer(t *testing.T) {
+	f := newProgramFixture(t)
+	offer := func(offerID string) agentexecution.ProgramTool {
+		t.Helper()
+		var tool agentexecution.ProgramTool
+		f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+			var err error
+			tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+				ProcessID: f.process, Key: programKey("job"), Name: "storage_read", Type: "built_in",
+				Input: json.RawMessage(`{"path":"a"}`), OfferID: offerID})
+			require.NoError(t, err)
+		})
+		return tool
+	}
+	cancel := func(offerID string) {
+		t.Helper()
+		f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+			require.NoError(t, h.CancelProgramToolByKey(t.Context(), f.process, programKey("job"), offerID))
+		})
+	}
+
+	first := offer("a")
+	cancel("a")
+	state, outcome := programState(t, f, first.ID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+	retry := offer("b")
+	require.True(t, retry.Created)
+	cancel("a")
+	state, _ = programState(t, f, retry.ID)
+	require.Equal(t, "awaiting_authorization", state, "a late cancel of the first attempt must not end the retry")
+
+	// An offer that picks up the open call takes it over from the offer that made it.
+	again := offer("c")
+	require.Equal(t, retry.ID, again.ID)
+	require.False(t, again.Created)
+	cancel("b")
+	state, _ = programState(t, f, retry.ID)
+	require.Equal(t, "awaiting_authorization", state)
+	cancel("c")
+	state, outcome = programState(t, f, retry.ID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+
+	// A cancel that names no offer ends the call whatever offer it answers.
+	unnamed := offer("d")
+	cancel("")
+	state, _ = programState(t, f, unnamed.ID)
+	require.Equal(t, "completed", state)
+
+	f.try(t, func(h *agentexecution.Handle) {
+		_, err := h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
+			ProcessID: f.process, Key: programKey("bad-offer"), Name: "storage_read", Type: "built_in",
+			Input: json.RawMessage(`{}`), OfferID: fmt.Sprintf("%0129d", 0)})
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	})
+}

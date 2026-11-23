@@ -35,10 +35,10 @@ func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountO
 
 const insertProgramTool = `-- name: InsertProgramTool :one
 INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
- program_named,created_at)
+ program_named,program_offer_id,created_at)
 SELECT $1,c.project_id,c.agent_id,$2,$3,$4::jsonb,$5,
- 'awaiting_authorization','program',c.id,$6::boolean,statement_timestamp()
-FROM tool_calls c WHERE c.agent_id=$7 AND c.id=$8 AND c.caller='model'
+ 'awaiting_authorization','program',c.id,$6::boolean,$7::text,statement_timestamp()
+FROM tool_calls c WHERE c.agent_id=$8 AND c.id=$9 AND c.caller='model'
 ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
 RETURNING id
 `
@@ -50,6 +50,7 @@ type InsertProgramToolParams struct {
 	Input    json.RawMessage
 	Type     string
 	Named    bool
+	OfferID  *string
 	AgentID  uuid.UUID
 	ParentID uuid.UUID
 }
@@ -62,6 +63,7 @@ func (q *Queries) InsertProgramTool(ctx context.Context, db DBTX, arg InsertProg
 		arg.Input,
 		arg.Type,
 		arg.Named,
+		arg.OfferID,
 		arg.AgentID,
 		arg.ParentID,
 	)
@@ -181,7 +183,7 @@ func (q *Queries) LockProgramProcess(ctx context.Context, db DBTX, arg LockProgr
 
 const readProgramTool = `-- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
- c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
@@ -203,6 +205,7 @@ type ReadProgramToolRow struct {
 	ParentToolCallID      *uuid.UUID
 	ProviderCallID        string
 	ProgramNamed          bool
+	ProgramOfferID        *string
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
@@ -225,6 +228,7 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 		&i.ParentToolCallID,
 		&i.ProviderCallID,
 		&i.ProgramNamed,
+		&i.ProgramOfferID,
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
@@ -239,7 +243,7 @@ func (q *Queries) ReadProgramTool(ctx context.Context, db DBTX, arg ReadProgramT
 
 const readProgramToolByKey = `-- name: ReadProgramToolByKey :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
- c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
  c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
 FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
@@ -262,6 +266,7 @@ type ReadProgramToolByKeyRow struct {
 	ParentToolCallID      *uuid.UUID
 	ProviderCallID        string
 	ProgramNamed          bool
+	ProgramOfferID        *string
 	ProgramClaimID        *uuid.UUID
 	ProgramClaimExpiresAt *time.Time
 	ClaimExpired          bool
@@ -284,6 +289,7 @@ func (q *Queries) ReadProgramToolByKey(ctx context.Context, db DBTX, arg ReadPro
 		&i.ParentToolCallID,
 		&i.ProviderCallID,
 		&i.ProgramNamed,
+		&i.ProgramOfferID,
 		&i.ProgramClaimID,
 		&i.ProgramClaimExpiresAt,
 		&i.ClaimExpired,
@@ -327,6 +333,25 @@ func (q *Queries) RenewProgramToolClaim(ctx context.Context, db DBTX, arg RenewP
 	var program_claim_expires_at *time.Time
 	err := row.Scan(&program_claim_expires_at)
 	return program_claim_expires_at, err
+}
+
+const setProgramToolOffer = `-- name: SetProgramToolOffer :execrows
+UPDATE tool_calls c SET program_offer_id=$1::text
+WHERE c.agent_id=$2 AND c.id=$3 AND c.caller='program' AND c.state<>'completed'
+`
+
+type SetProgramToolOfferParams struct {
+	OfferID string
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) SetProgramToolOffer(ctx context.Context, db DBTX, arg SetProgramToolOfferParams) (int64, error) {
+	result, err := db.Exec(ctx, setProgramToolOffer, arg.OfferID, arg.AgentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const transitionProgramTool = `-- name: TransitionProgramTool :execrows
