@@ -424,6 +424,7 @@ func agentConfigEditFailed(
 		}
 		logpkg.Error(ctx, fmt.Errorf("edit agent config target: %w", err))
 		logpkg.Escalate(ctx, logpkg.ErrorLevel)
+		result.Edits, result.CurrentGeneration = nil, nil
 	}
 	result.Status = openapi.AgentConfigEditResultStatusFailed
 	result.Code, result.Error = &responseErr.Code, &responseErr.Message

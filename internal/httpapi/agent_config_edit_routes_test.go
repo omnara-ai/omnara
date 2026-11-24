@@ -11,11 +11,15 @@ import (
 
 func TestAgentConfigEditFailedReportsInternalErrorsPerTarget(t *testing.T) {
 	internal := errors.New("database unavailable")
-	result, err := agentConfigEditFailed(context.Background(), openapi.AgentConfigEditResult{}, internal)
+	edits, generation := []openapi.AgentConfigEditResultEdits{openapi.AgentConfigEditResultEditsApplied}, 1
+	result, err := agentConfigEditFailed(context.Background(),
+		openapi.AgentConfigEditResult{Edits: &edits, CurrentGeneration: &generation}, internal)
 	require.NoError(t, err)
 	require.Equal(t,
 		[]any{openapi.AgentConfigEditResultStatusFailed, openapi.ErrorCodeInternalError, "internal server error"},
 		[]any{result.Status, *result.Code, *result.Error})
+	require.Nil(t, result.Edits)
+	require.Nil(t, result.CurrentGeneration)
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -1898,7 +1898,7 @@ export type EditAgentConfigsRequest = {
      */
     edits: Array<AgentConfigEdit>;
     /**
-     * continue leaves a failed target unchanged and keeps going; ignore also saves a target's matching edits when others miss; stop skips the targets after the first failure.
+     * continue keeps going after a failed target; ignore also saves a target's matching edits when others miss; stop skips the targets after the first failure.
      */
     on_failed_edit?: 'continue' | 'ignore' | 'stop';
 };
@@ -2005,7 +2005,7 @@ export type AgentConfigEditResult = {
     current_config_id?: AgentConfigId;
     current_generation?: number;
     /**
-     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results and for targets that failed or were skipped before all edits ran.
+     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results, for server errors (the target may have been saved, so retry with the same Idempotency-Key), and for targets that failed or were skipped before all edits ran.
      */
     edits?: Array<'applied' | 'unchanged' | 'text_not_found' | 'path_not_found' | 'not_applied'>;
     code?: ErrorCode;

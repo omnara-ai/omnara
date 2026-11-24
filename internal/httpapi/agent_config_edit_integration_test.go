@@ -68,6 +68,12 @@ func TestEditAgentConfigs(t *testing.T) {
 			"", "", http.StatusOK, headers)
 		return testutil.RequireType[string](t, config["source"])
 	}
+	currentSource := func(agentID string) string {
+		t.Helper()
+		agent := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(t, handler, http.MethodGet,
+			project.ProjectPath+"/agents/"+agentID, "", "", http.StatusOK, headers)["agent"])
+		return source(testutil.RequireType[string](t, agent["current_config_id"]))
+	}
 	agentTargets := func(ids ...string) string {
 		var targets []string
 		for _, id := range ids {
@@ -161,11 +167,24 @@ func TestEditAgentConfigs(t *testing.T) {
 	failedItem := edit(`{`+agentTargets(shared)+`,`+nullItem+`}`, "", http.StatusOK)
 	require.Equal(t, []any{"failed", "invalid_request", []any{"not_applied"}},
 		[]any{failedItem[0]["status"], failedItem[0]["code"], failedItem[0]["edits"]})
-	stopped := edit(`{`+agentTargets(shared, personal, secondEarly)+`,"on_failed_edit":"stop",`+nullItem+`}`,
-		"", http.StatusOK)
-	require.Equal(t, []any{"failed", "skipped", "skipped"},
-		[]any{stopped[0]["status"], stopped[1]["status"], stopped[2]["status"]})
-	require.NotContains(t, stopped[1], "edits")
+	statuses := func(results []map[string]any) []any {
+		var out []any
+		for _, result := range results {
+			out = append(out, result["status"])
+		}
+		return out
+	}
+	kinder := `"edits":[{"type":"replace_text","path":"/instruction","find":"Be direct and kind.","replace":"Be kind."},` +
+		`{"type":"set","path":"/model/cache_retention","value":"short"}]`
+	stopped := edit(`{`+agentTargets(personal, other, shared)+`,"on_failed_edit":"stop",`+kinder+`}`, "", http.StatusOK)
+	require.Equal(t, []any{"updated", "failed", "skipped"}, statuses(stopped))
+	require.NotContains(t, stopped[2], "edits")
+	require.Contains(t, currentSource(personal), "Be kind.")
+	require.Contains(t, currentSource(shared), "Be direct and kind.")
+	continued := edit(`{`+agentTargets(personal, other, shared)+`,`+kinder+`}`, "", http.StatusOK)
+	require.Equal(t, []any{"unchanged", "failed", "updated"}, statuses(continued))
+	require.Contains(t, currentSource(shared), "Be kind.")
+	require.Contains(t, currentSource(other), "cache_retention: long")
 
 	missing := testPublicID(t, publicid.KindAgent, httpTestID("agent-config-edit-missing"))
 	setShort := `"edits":[{"type":"set","path":"/model/cache_retention","value":"short"}]`
@@ -289,7 +308,7 @@ func TestEditAgentConfigsReportsReplayErrorsPerTarget(t *testing.T) {
 		"instruction: Be direct.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 		project.AdminToken, http.StatusCreated)
 	var profiles []string
-	for _, seed := range []string{"first", "second"} {
+	for _, seed := range []string{"first", "second", "third"} {
 		profile := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-replay-error-"+seed, seed,
 			testutil.RequireType[string](t, config["id"]), project.AdminToken, http.StatusCreated)
 		profiles = append(profiles, testutil.RequireType[string](t, profile["id"]))
@@ -298,7 +317,8 @@ func TestEditAgentConfigsReportsReplayErrorsPerTarget(t *testing.T) {
 		failProfileReplayTracer{profileID: mustPublicHTTPID(t, publicid.KindAgentProfile, profiles[1])}))
 	response := requestJSONWithHeaders(t, traced, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
 		`{"targets":[{"type":"profile","agent_profile_id":"`+profiles[0]+`"},`+
-			`{"type":"profile","agent_profile_id":"`+profiles[1]+`"}],`+
+			`{"type":"profile","agent_profile_id":"`+profiles[1]+`"},`+
+			`{"type":"profile","agent_profile_id":"`+profiles[2]+`"}],`+
 			`"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]}`,
 		"idem-agent-config-edit-replay-error", http.StatusOK, headers)
 	var statuses []any
@@ -306,7 +326,7 @@ func TestEditAgentConfigsReportsReplayErrorsPerTarget(t *testing.T) {
 		result := testutil.RequireType[map[string]any](t, item)
 		statuses = append(statuses, result["status"], result["code"])
 	}
-	require.Equal(t, []any{"updated", nil, "failed", "internal_error"}, statuses)
+	require.Equal(t, []any{"updated", nil, "failed", "internal_error", "updated", nil}, statuses)
 }
 
 type failProfileReplayTracer struct {
