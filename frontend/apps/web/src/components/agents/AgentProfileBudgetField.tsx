@@ -4,6 +4,7 @@ import type { ProfileBudget } from '@/components/agents/useProfileBudget'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { BudgetIntervalSelect } from '@/components/usage/BudgetIntervalSelect'
+import { CostInfo } from '@/components/usage/CostInfo'
 
 export function AgentProfileBudgetField({
   budget,
@@ -21,7 +22,10 @@ export function AgentProfileBudgetField({
   return (
     <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
       <Field>
-        <FieldLabel htmlFor={id}>Budget (USD)</FieldLabel>
+        <div className="flex items-center gap-1">
+          <FieldLabel htmlFor={id}>Budget (USD)</FieldLabel>
+          <CostInfo />
+        </div>
         <div className="mt-2 flex gap-2">
           <div className="w-32 shrink-0">
             <BudgetIntervalSelect

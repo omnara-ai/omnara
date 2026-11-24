@@ -16,16 +16,12 @@ export function formatCount(value: number) {
   return countFormatter.format(value)
 }
 
-const usdFormatter = new Intl.NumberFormat(undefined, {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 4,
-})
+const usdFormatter = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' })
 
 export function formatUsd(decimal: string) {
   const value = Number(decimal)
   if (!Number.isFinite(value)) return decimal
+  if (value > 0 && value < 0.01) return `<${usdFormatter.format(0.01)}`
   return usdFormatter.format(value)
 }
 

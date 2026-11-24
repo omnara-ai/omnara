@@ -8,6 +8,7 @@ export const guides = {
   agents: 'agents/overview',
   agentProfiles: 'agents/configuration',
   apiTokens: 'api/authentication',
+  costs: 'organization/costs',
   machinePools: 'machines/pools',
   machines: 'machines/connect',
   members: 'organization/members',

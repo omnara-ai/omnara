@@ -29,6 +29,7 @@ import { ProjectTag } from '@/components/agents/ProjectTag'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert, Users } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { CostInfo } from '@/components/usage/CostInfo'
 import { defaultUsageDays, lastDaysUsageWindow } from '@/components/usage/usage-date-range'
 import { UsageCost } from '@/components/usage/UsageCost'
 import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
@@ -363,7 +364,12 @@ function ProfileCard({
       stats={
         <>
           <AgentCardStat
-            label={`cost, last ${String(defaultUsageDays)} days`}
+            label={
+              <>
+                cost, last {defaultUsageDays} days
+                <CostInfo />
+              </>
+            }
             value={
               profile.stats && (
                 <UsageCost

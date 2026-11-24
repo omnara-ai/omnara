@@ -175,7 +175,8 @@
               "organization/model-providers",
               "organization/secrets",
               "organization/members",
-              "organization/budgets"
+              "organization/budgets",
+              "organization/costs"
             ]
           },
           {

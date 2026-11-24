@@ -197,7 +197,7 @@ func TestBudgetRoutes(t *testing.T) {
 	require.NoError(t, err)
 	var live int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM budgets WHERE org_id = $1 AND deleted_at IS NULL`, project.OrgUUID).Scan(&live))
+		`SELECT count(*) FROM budgets WHERE org_id = $1`, project.OrgUUID).Scan(&live))
 	require.Zero(t, live)
 }
 
@@ -237,21 +237,22 @@ func TestUsageReportsEffectiveCost(t *testing.T) {
 	store := integrationStoreForHandler(t, handler)
 	project := bootstrapPublicHTTPProject(t, handler, "usage-effective-costs")
 	usage := modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5}
-	for index, cost := range []modelenvelope.ProviderReportedCostUSD{"0.25", "0.1", ""} {
+	agents := make([]uuid.UUID, 0, 5)
+	for index, cost := range []modelenvelope.ProviderReportedCostUSD{"0.25", "0.1", "", "0", ""} {
 		agent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID,
 			"usage-effective-costs-"+strconv.Itoa(index))
 		recordHTTPModelUsageForAgent(
 			t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent.Agent, usage, cost,
 		)
+		agents = append(agents, agent.Agent.ID)
 	}
 	_, err := pool.Exec(ctx, `ALTER TABLE model_call_contexts DISABLE TRIGGER model_call_contexts_transition_guard`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `
-UPDATE model_call_contexts
-SET effective_cost_usd = CASE provider_reported_cost_usd WHEN 0.25 THEN 2 WHEN 0.1 THEN NULL ELSE 0.5 END,
-    effective_cost_kind = CASE provider_reported_cost_usd
-        WHEN 0.25 THEN 'custom' WHEN 0.1 THEN NULL ELSE 'estimated' END
-WHERE project_id = $1 AND input_tokens_total IS NOT NULL`, project.ProjectUUID)
+UPDATE model_call_contexts c SET effective_cost_usd = v.cost, effective_cost_kind = v.kind
+FROM (VALUES ($1::uuid, 2::numeric, 'custom'), ($2::uuid, NULL, NULL), ($3::uuid, 0.5, 'estimated'))
+    v(agent_id, cost, kind)
+WHERE c.agent_id = v.agent_id AND c.input_tokens_total IS NOT NULL`, agents[0], agents[1], agents[2])
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `ALTER TABLE model_call_contexts ENABLE TRIGGER model_call_contexts_transition_guard`)
 	require.NoError(t, err)
@@ -260,13 +261,16 @@ WHERE project_id = $1 AND input_tokens_total IS NOT NULL`, project.ProjectUUID)
 	report := requestJSONWithHeaders(t, handler, http.MethodGet,
 		"/api/v1/orgs/"+project.OrgID+"/usage", "", "", http.StatusOK, admin)
 	totals := testutil.RequireType[map[string]any](t, report["totals"])
-	require.Equal(t, float64(3), totals["model_calls"])
+	require.Equal(t, float64(5), totals["model_calls"])
+	tokens := testutil.RequireType[map[string]any](t, totals["tokens"])
+	require.Equal(t, float64(50), tokens["input_tokens_total"])
+	require.Equal(t, float64(25), tokens["output_tokens_total"])
 	require.Equal(t, map[string]any{
 		"provider_reported_usd":           "0.35",
-		"model_calls_with_reported_cost":  float64(2),
+		"model_calls_with_reported_cost":  float64(3),
 		"effective_usd":                   "2.6",
-		"model_calls_with_effective_cost": float64(3),
-	}, totals["cost"])
+		"model_calls_with_effective_cost": float64(4),
+	}, totals["cost"], "a $0 call is priced and a call with no cost is not")
 
 	series := requestJSONWithHeaders(t, handler, http.MethodGet,
 		orgUsageTimeseriesPath(project.OrgID, url.Values{"metric": {"sum_cost"}}), "", "", http.StatusOK, admin)

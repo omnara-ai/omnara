@@ -5,6 +5,7 @@ import type { Blob } from '@/components/aurora/aurora'
 import { AuroraPanel } from '@/components/aurora/AuroraPanel'
 import { DitherBackdrop } from '@/components/aurora/DitherBackdrop'
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
+import { CostInfo } from '@/components/usage/CostInfo'
 import { formatUsageValue, usageMeasureValue } from '@/components/usage/usage-chart-data'
 import { lastDaysUsageWindow } from '@/components/usage/usage-date-range'
 import { UsageCost } from '@/components/usage/UsageCost'
@@ -72,13 +73,8 @@ function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
         { label: 'Tokens', value: formatUsageValue('tokens', usageMeasureValue(totals, 'tokens')) },
         {
           label: 'Cost',
-          value: (
-            <UsageCost
-              modelCalls={totals.model_calls}
-              cost={totals.cost}
-              format={(decimal) => formatUsageValue('cost', Number(decimal))}
-            />
-          ),
+          info: <CostInfo />,
+          value: <UsageCost modelCalls={totals.model_calls} cost={totals.cost} />,
         },
         { label: 'Model calls', value: formatCount(totals.model_calls) },
         { label: 'Active agents', value: formatCount(timeseries.active_agents) },

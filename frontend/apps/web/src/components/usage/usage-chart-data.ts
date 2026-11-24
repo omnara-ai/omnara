@@ -155,15 +155,8 @@ export function labelledColumns(count: number, maxLabels: number) {
   return indexes
 }
 
-function costFractionDigits(value: number) {
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1) return 2
-  if (magnitude >= 0.01) return 3
-  return 4
-}
-
 export function formatUsageValue(measure: UsageMeasure, value: number) {
-  if (measure === 'cost') return formatUsd(value.toFixed(costFractionDigits(value)))
+  if (measure === 'cost') return formatUsd(String(value))
   if (measure === 'calls') return formatCount(value)
   return formatCompactCount(value)
 }

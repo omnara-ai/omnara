@@ -53,9 +53,8 @@ A call counts toward the interval it started in.
 
 ## What counts
 
-- **Model calls only.** Machines and web search aren't counted.
-- **Your prices first.** Calls to a model with [your own prices](/organization/model-providers#set-model-prices) count at those prices. Otherwise the cost the provider reported counts. If it reported none, Omnara estimates the cost from public list prices, so the total can be higher or lower than your provider's bill.
-- **Models need a price.** While a budget applies, calls to a model are refused unless it has [your own prices](/organization/model-providers#set-model-prices), runs through OpenRouter, or has a public list price. When a call runs at a rate the price list doesn't cover, such as US-only inference, it counts at the model's standard price. A call that still can't be priced, for example a response cut off partway through, doesn't count.
+- **Model calls only.** Each call counts at the cost described in [How costs are calculated](/organization/costs). Machines and web search aren't counted.
+- **Models need a price.** While a budget applies, calls to a model are refused unless it has [your own prices](/organization/model-providers#set-model-prices), runs through OpenRouter, or has a public list price.
 - **Models priced at 0 keep running.** Budgets never stop a model whose [own prices](/organization/model-providers#set-model-prices) are all 0, such as a self-hosted model, because its calls add no spend.
 - **Every project counts toward the organization.** An organization budget includes spend from all of its projects, including deleted ones.
 - **Subagents count toward their top-level agent.** An agent budget includes the agent's subagents. A profile budget includes every top-level agent started from the profile and their subagents, even subagents started from a different profile.

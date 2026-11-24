@@ -18,6 +18,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { BudgetCard } from '@/components/usage/BudgetCard'
+import { ActiveOrgContext } from '@/lib/active-org-context'
 import { OrganizationUsagePage } from '@/routes/OrganizationUsagePage'
 import {
   emptyResponse,
@@ -124,11 +125,17 @@ async function renderCard(
   variant: 'card' | 'sidebar' = 'card',
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryDefaults(['web-config'], { enabled: false })
+  const activeOrg = currentUserOrg({ id: orgId, role: 'admin' })
   await act(async () => {
     root.render(
       <OmnaraClientProvider client={clientFor(api)}>
         <QueryClientProvider client={queryClient}>
-          <BudgetCard orgId={orgId} scope={scope} variant={variant} />
+          <ActiveOrgContext.Provider
+            value={{ orgs: [activeOrg], activeOrg, setActiveOrgId: () => undefined }}
+          >
+            <BudgetCard orgId={orgId} scope={scope} variant={variant} />
+          </ActiveOrgContext.Provider>
         </QueryClientProvider>
       </OmnaraClientProvider>,
     )
@@ -154,7 +161,9 @@ it('lists each interval with its spend, reset, and reached state', async () => {
   const nextMonth = new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
-    timeZone: 'UTC',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
   }).format(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
   expect(text).toContain(`Resets ${nextMonth}`)
   expect(text).toMatch(/New model calls are blocked until the budget is raised or resets \w+ \d+/)

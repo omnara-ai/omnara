@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CostInfo } from '@/components/usage/CostInfo'
 import { UsageCost } from '@/components/usage/UsageCost'
 import { formatCompactCount, formatCount } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
@@ -34,7 +35,10 @@ export function AgentUsageGroup({
   return (
     <SidebarGroup>
       <div className="flex items-center justify-between gap-2">
-        <SidebarGroupLabel className="px-0 text-sm">Usage</SidebarGroupLabel>
+        <div className="flex items-center gap-1">
+          <SidebarGroupLabel className="px-0 text-sm">Usage</SidebarGroupLabel>
+          <CostInfo />
+        </div>
         <SubagentsToggle
           checked={includeSubagents}
           onToggle={() => {

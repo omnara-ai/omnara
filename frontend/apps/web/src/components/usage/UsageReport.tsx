@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { CostInfo } from '@/components/usage/CostInfo'
 import { UsageCost } from '@/components/usage/UsageCost'
 import { type UsageStat, UsageStats, UsageStatsSkeleton } from '@/components/usage/UsageStats'
 import { formatCount } from '@/lib/format'
@@ -80,6 +81,7 @@ function usageSummaryStats(totals: UsageTotals): UsageStat[] {
   return [
     {
       label: 'Cost',
+      info: <CostInfo />,
       value: <UsageCost modelCalls={totals.model_calls} cost={totals.cost} />,
     },
     { label: 'Input tokens', value: formatCount(totals.tokens.input_tokens_total) },
@@ -101,7 +103,12 @@ function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {
             <TableHead className="text-right">Cache write</TableHead>
             <TableHead className="text-right">Output</TableHead>
             <TableHead className="text-right">Reasoning</TableHead>
-            <TableHead className="pr-4 text-right">Cost</TableHead>
+            <TableHead className="pr-4 text-right">
+              <span className="inline-flex items-center gap-1">
+                Cost
+                <CostInfo />
+              </span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

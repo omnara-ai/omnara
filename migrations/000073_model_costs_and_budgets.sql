@@ -9,7 +9,10 @@ ALTER TABLE model_call_contexts
         (effective_cost_usd IS NULL) = (effective_cost_kind IS NULL)
         AND (effective_cost_usd IS NULL OR (effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd >= 0))
         AND (effective_cost_kind IS NULL OR effective_cost_kind IN ('custom', 'provider_reported', 'estimated'))
-        AND (effective_cost_kind IS DISTINCT FROM 'provider_reported' OR effective_cost_usd = provider_reported_cost_usd)
+        AND (
+            effective_cost_kind IS DISTINCT FROM 'provider_reported'
+            OR (provider_reported_cost_usd IS NOT NULL AND effective_cost_usd = provider_reported_cost_usd)
+        )
         AND (effective_cost_kind IS DISTINCT FROM 'estimated' OR provider_reported_cost_usd IS NULL)
         AND (
             effective_cost_kind NOT IN ('custom', 'estimated')
@@ -32,7 +35,6 @@ CREATE TABLE budgets (
     amount_usd numeric(30, 15) NOT NULL,
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
-    deleted_at timestamptz,
     CHECK (interval IN ('day', 'week', 'month', 'lifetime')),
     CHECK (amount_usd <> 'NaN'::numeric AND amount_usd > 0),
     CHECK (num_nonnulls(agent_profile_id, agent_id) <= 1),
@@ -42,9 +44,9 @@ CREATE TABLE budgets (
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id)
 );
 
-CREATE UNIQUE INDEX budgets_active_scope_interval_idx
+CREATE UNIQUE INDEX budgets_scope_interval_idx
     ON budgets(org_id, project_id, agent_profile_id, agent_id, interval)
-    NULLS NOT DISTINCT WHERE deleted_at IS NULL;
+    NULLS NOT DISTINCT;
 
 CREATE TABLE daily_model_costs (
     org_id uuid NOT NULL REFERENCES orgs(id),
@@ -53,7 +55,9 @@ CREATE TABLE daily_model_costs (
     agent_id uuid,
     day date NOT NULL,
     effective_cost_usd numeric NOT NULL,
-    CHECK (effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd >= 0),
+    CHECK (
+        effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd <> 'Infinity'::numeric AND effective_cost_usd >= 0
+    ),
     CHECK (num_nonnulls(agent_profile_id, agent_id) <= 1),
     CHECK (project_id IS NOT NULL OR num_nonnulls(agent_profile_id, agent_id) = 0),
     FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id),
@@ -129,33 +133,6 @@ AS $$
     ) bounds
 $$;
 -- +goose StatementEnd
-
--- +goose StatementBegin
-CREATE FUNCTION insert_pending_model_cost_from_model_call_context() RETURNS trigger AS $$
-BEGIN
-    INSERT INTO pending_model_costs(
-        model_call_context_id, org_id, project_id, agent_profile_id, agent_id, day, effective_cost_usd
-    )
-    SELECT NEW.id, NEW.org_id, NEW.project_id, root.agent_profile_id, agent.id,
-           (NEW.created_at AT TIME ZONE 'UTC')::date, NEW.effective_cost_usd
-    FROM agents agent
-    JOIN agents root ON root.project_id = agent.project_id AND root.id = agent.root_agent_id
-    WHERE agent.project_id = NEW.project_id AND agent.id = NEW.agent_id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- +goose StatementEnd
-
-CREATE TRIGGER model_call_contexts_insert_pending_model_cost
-    AFTER UPDATE OF state
-    ON model_call_contexts
-    FOR EACH ROW
-    WHEN (
-        OLD.state = 'started'
-        AND NEW.state <> 'started'
-        AND NEW.effective_cost_usd IS NOT NULL
-    )
-    EXECUTE FUNCTION insert_pending_model_cost_from_model_call_context();
 
 CREATE TABLE model_price_catalog (
     singleton_key smallint PRIMARY KEY DEFAULT 1,

@@ -23,6 +23,7 @@ import {
 } from '@/components/usage/budget-form'
 import { spendReachesBudget } from '@/components/usage/budget-spend'
 import { BudgetIntervalSelect } from '@/components/usage/BudgetIntervalSelect'
+import { CostInfo } from '@/components/usage/CostInfo'
 import { formatUsd } from '@/lib/format'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -99,7 +100,10 @@ function BudgetSidebarGroup({ status, empty, rows, dialog, onAdd }: BudgetsView)
   return (
     <SidebarGroup>
       <div className="flex items-center justify-between">
-        <SidebarGroupLabel className="px-0 text-sm">Budgets</SidebarGroupLabel>
+        <div className="flex items-center gap-1">
+          <SidebarGroupLabel className="px-0 text-sm">Budgets</SidebarGroupLabel>
+          <CostInfo />
+        </div>
         {onAdd && (
           <Button
             size="sm"
@@ -148,7 +152,10 @@ function BudgetCardSection({ status, empty, rows, dialog, onAdd }: BudgetsView) 
     <section className="bg-muted/50 rounded-xl border">
       <div className="bg-card -mx-px -mt-px flex flex-col gap-4 rounded-xl border px-4 py-3.5">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-muted-foreground text-xs">Budgets</h2>
+          <div className="flex items-center gap-1">
+            <h2 className="text-muted-foreground text-xs">Budgets</h2>
+            <CostInfo />
+          </div>
           {onAdd && (
             <Button size="sm" variant="outline" onClick={onAdd}>
               Add budget
@@ -222,7 +229,9 @@ function BudgetRow({
 const resetDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   day: 'numeric',
-  timeZone: 'UTC',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
 })
 
 function resetDate(interval: BudgetInterval, now = new Date()) {
@@ -326,7 +335,10 @@ function BudgetDialog({
               </Field>
             )}
             <Field>
-              <FieldLabel htmlFor="budget-usd">Budget (USD)</FieldLabel>
+              <div className="flex items-center gap-1">
+                <FieldLabel htmlFor="budget-usd">Budget (USD)</FieldLabel>
+                <CostInfo />
+              </div>
               <Input
                 id="budget-usd"
                 inputMode="decimal"

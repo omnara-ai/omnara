@@ -758,7 +758,7 @@ func TestDailyModelCostsRejectInvalidRows(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
-	for _, cost := range []string{"NaN", "-1"} {
+	for _, cost := range []string{"NaN", "Infinity", "-1"} {
 		_, err := f.Pool.Exec(ctx, `
 INSERT INTO daily_model_costs(org_id, day, effective_cost_usd)
 VALUES ($1, current_date, $2::numeric)`, kernelTestOrgID, cost)

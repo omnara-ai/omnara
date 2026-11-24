@@ -74,7 +74,7 @@ func (s *Store) CreateBudget(ctx context.Context, input CreateBudgetInput) (Budg
 		OrgID: input.OrgID, ProjectID: input.ProjectID, AgentProfileID: input.AgentProfileID, AgentID: input.AgentID,
 		Interval: input.Interval, AmountUsd: input.AmountUSD,
 	})
-	if storeutil.IsUniqueViolationOnConstraint(err, "budgets_active_scope_interval_idx") {
+	if storeutil.IsUniqueViolationOnConstraint(err, "budgets_scope_interval_idx") {
 		return BudgetRecord{}, storeerr.Tag(storeerr.ErrConflict,
 			errors.New("a budget for this interval already exists"))
 	}
@@ -111,15 +111,12 @@ func (s *Store) ListBudgets(ctx context.Context, input ListBudgetsInput) (ListBu
 			return ListBudgetsResult{}, err
 		}
 	}
-	params := dbsqlc.ListBudgetsParams{
-		OrgID: input.OrgID, FilterScope: input.FilterScope, ProjectID: input.ProjectID,
-		AgentProfileID: input.AgentProfileID, AgentID: input.AgentID, RowLimit: int32(input.Limit) + 1,
-	}
+	params := dbsqlc.ListBudgetsParams{OrgID: input.OrgID, RowLimit: int32(input.Limit) + 1}
 	if input.After.Set {
 		params.CursorCreatedAt = &input.After.CreatedAt
 		params.CursorID = &input.After.ID
 	}
-	rows, err := s.q.ListBudgets(ctx, params)
+	rows, err := s.listBudgetRows(ctx, input, params)
 	if err != nil {
 		return ListBudgetsResult{}, err
 	}
@@ -136,6 +133,25 @@ func (s *Store) ListBudgets(ctx context.Context, input ListBudgetsInput) (ListBu
 		result.Budgets = append(result.Budgets, record)
 	}
 	return result, nil
+}
+
+func (s *Store) listBudgetRows(
+	ctx context.Context,
+	input ListBudgetsInput,
+	params dbsqlc.ListBudgetsParams,
+) ([]dbsqlc.ListBudgetsRow, error) {
+	if !input.FilterScope {
+		return s.q.ListBudgets(ctx, params)
+	}
+	scoped, err := s.q.ListScopedBudgets(ctx, dbsqlc.ListScopedBudgetsParams{
+		OrgID: params.OrgID, ProjectID: input.ProjectID, AgentProfileID: input.AgentProfileID, AgentID: input.AgentID,
+		CursorCreatedAt: params.CursorCreatedAt, CursorID: params.CursorID, RowLimit: params.RowLimit,
+	})
+	rows := make([]dbsqlc.ListBudgetsRow, len(scoped))
+	for index, row := range scoped {
+		rows[index] = dbsqlc.ListBudgetsRow(row)
+	}
+	return rows, err
 }
 
 func (s *Store) UpdateBudgetAmount(ctx context.Context, orgID, id uuid.UUID, amountUSD string) (BudgetRecord, error) {
