@@ -352,9 +352,14 @@ func (s *daemonSocket) rejectToolCall(ctx context.Context, offer daemonprotocol.
 		AckStatus: rejection.status, ErrorCode: rejection.code, Error: rejection.message})
 }
 
-func (s *daemonSocket) nextToolCallOffer(call *servedToolCall) *daemonprotocol.ToolCallOffer {
+// nextToolCallOffer takes the queued replacement offer. Once the call has been canceled or detached it
+// takes nothing, leaving the replacement to be served afresh when this call ends.
+func (s *daemonSocket) nextToolCallOffer(id string, call *servedToolCall) *daemonprotocol.ToolCallOffer {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
+	if s.toolCalls[id] != call {
+		return nil
+	}
 	next := call.next
 	call.next = nil
 	call.adopting = next
@@ -523,7 +528,7 @@ func (s *daemonSocket) serveToolCall(
 			return
 		case <-call.reoffered:
 			timer.Stop()
-			next := s.nextToolCallOffer(call)
+			next := s.nextToolCallOffer(offer.ProcessID+"\x00"+offer.Key, call)
 			if next == nil {
 				continue
 			}

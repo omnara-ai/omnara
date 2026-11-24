@@ -82,7 +82,7 @@ func TestDaemonSocketToolCallCancelsWaitForAReplacementOffer(t *testing.T) {
 			call := newServedToolCall(first)
 			socket.toolCalls[id] = call
 			require.NoError(t, socket.handleToolCallOffer(t.Context(), daemonprotocol.Message{ToolCallOffer: &second}))
-			require.Equal(t, "o-b", socket.nextToolCallOffer(call).OfferID)
+			require.Equal(t, "o-b", socket.nextToolCallOffer(id, call).OfferID)
 
 			socket.cancelToolCall(t.Context(), tc.cancel)
 			socket.cancelToolCall(t.Context(), tc.cancel)
@@ -107,6 +107,40 @@ func TestDaemonSocketToolCallCancelsWaitForAReplacementOffer(t *testing.T) {
 			} else {
 				require.Same(t, call, socket.toolCalls[id])
 			}
+		})
+	}
+}
+
+func TestDaemonSocketToolCallLeavesAReplacementOfferForAFreshServe(t *testing.T) {
+	const id = "prc\x00k-1"
+	first := daemonprotocol.ToolCallOffer{ProcessID: "prc", OfferID: "o-a"}
+	first.Key = "k-1"
+	second := first
+	second.OfferID = "o-b"
+	for name, detach := range map[string]bool{"detached": true, "canceled": false} {
+		t.Run(name, func(t *testing.T) {
+			socket := newDaemonSocket(nil, nil, uuid.Nil, uuid.Nil, uuid.Nil, uuid.Nil, uuid.Nil, false)
+			call := newServedToolCall(first)
+			socket.toolCalls[id] = call
+			require.NoError(t, socket.handleToolCallOffer(t.Context(), daemonprotocol.Message{ToolCallOffer: &second}))
+			socket.cancelToolCall(t.Context(), daemonprotocol.ToolCallCancel{
+				ProcessID: "prc", Key: "k-1", OfferID: "o-a", DetachOnly: detach})
+			ended := call.canceled
+			if detach {
+				ended = call.detached
+			}
+			select {
+			case <-ended:
+			default:
+				t.Fatal("the first waiter's cancel applies at once")
+			}
+			require.NotContains(t, socket.toolCalls, id)
+
+			require.Nil(t, socket.nextToolCallOffer(id, call),
+				"a call that is ending does not take the replacement offer")
+			require.Nil(t, call.adopting)
+			require.NotNil(t, call.next, "the replacement is left for the serve that follows")
+			require.Equal(t, "o-b", call.next.OfferID)
 		})
 	}
 }
