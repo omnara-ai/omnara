@@ -76,7 +76,7 @@ func (subprocessRunnerLauncher) Prepare(
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
 	if c.cfg.Firewalled {
-		assignment.Env = fillFromDaemonEnv(assignment.Env)
+		assignment.Env = fillNetworkEnv(assignment.Env)
 	}
 	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
 		connection, err := c.fileTransferConnection()
@@ -423,17 +423,19 @@ func supervisorIdentityBootstrapFileName(
 		processID + "-" + supervisorInstanceID + ".json", nil
 }
 
-func fillFromDaemonEnv(env map[string]string) map[string]string {
+var networkEnvNames = []string{
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+}
+
+func fillNetworkEnv(env map[string]string) map[string]string {
 	out := maps.Clone(env)
 	if out == nil {
 		out = map[string]string{}
 	}
-	for _, entry := range os.Environ() {
-		name, value, _ := strings.Cut(entry, "=")
-		if upperName := strings.ToUpper(name); upperName == "PATH" || upperName == "PWD" {
-			continue
-		}
-		if _, set := out[name]; !set {
+	for _, name := range networkEnvNames {
+		value, found := os.LookupEnv(name)
+		if _, set := out[name]; found && !set {
 			out[name] = value
 		}
 	}

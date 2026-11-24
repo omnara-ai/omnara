@@ -279,7 +279,7 @@ func machineNetwork(apiURL, releaseURL, machineToken string, internetAllowlist [
 			network.Proxy.AllowedDomains = append(network.Proxy.AllowedDomains, "GET:release-assets.githubusercontent.com")
 		}
 		network.Proxy.AllowedDomains = append(network.Proxy.AllowedDomains, internetAllowlist...)
-		headers = map[string]string{"Authorization": "Bearer " + secret}
+		headers["Authorization"] = "Bearer " + secret
 	}
 	network.Proxy.Routing = []sandboxProxyRoute{{
 		Destinations: []string{host},

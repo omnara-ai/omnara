@@ -292,8 +292,10 @@ func TestBlaxelProviderProvisionWithInternetAllowlistTurnsOnFirewall(t *testing.
 		t.Fatalf("proxy route secrets = %d, want 1", len(route.Secrets))
 	}
 	for secretName := range route.Secrets {
-		if len(route.Headers) != 1 || route.Headers["Authorization"] != "Bearer {{SECRET:"+secretName+"}}" {
-			t.Fatalf("proxy route headers = %+v, want injected Authorization", route.Headers)
+		secret := "{{SECRET:" + secretName + "}}"
+		if len(route.Headers) != 2 || route.Headers["Authorization"] != "Bearer "+secret ||
+			route.Headers[daemonprotocol.MachineTokenHeader] != secret {
+			t.Fatalf("proxy route headers = %+v, want injected Authorization and machine token", route.Headers)
 		}
 	}
 	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)

@@ -1671,13 +1671,13 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 	}
 }
 
-func TestFirewalledPassesDaemonEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
+func TestFirewalledPassesNetworkEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a POSIX shell")
 	}
 	t.Setenv("HTTPS_PROXY", "http://localhost:49152")
-	t.Setenv("OMNARA_PROBE", "hidden")
-	t.Setenv("SHARED", "daemon")
+	t.Setenv("NO_PROXY", "daemon")
+	t.Setenv("STALE_SECRET", "revoked")
 	for _, enabled := range []bool{true, false} {
 		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -1686,17 +1686,17 @@ func TestFirewalledPassesDaemonEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
 				ID: "prc_firewalled_" + strconv.FormatBool(enabled),
 				Process: Process{
 					ExecutionSpec: processcmd.ForShell(
-						`printf 'proxy=%s omnara=%s shared=%s\n' "${HTTPS_PROXY:-unset}" "${OMNARA_PROBE:-unset}" "${SHARED:-unset}"`,
+						`printf 'proxy=%s no_proxy=%s stale=%s\n' "${HTTPS_PROXY:-unset}" "${NO_PROXY:-unset}" "${STALE_SECRET:-unset}"`,
 						"default", "pipe",
 					),
 					Cwd: t.TempDir(),
 				},
-				Env: map[string]string{"SHARED": "process"},
+				Env: map[string]string{"NO_PROXY": "process"},
 			})
 			fixture.acceptAndStart(t, ctx)
-			want := "proxy=unset omnara=unset shared=process"
+			want := "proxy=unset no_proxy=process stale=unset"
 			if enabled {
-				want = "proxy=http://localhost:49152 omnara=unset shared=process"
+				want = "proxy=http://localhost:49152 no_proxy=process stale=unset"
 			}
 			fixture.waitForOutput(t, ctx, want)
 		})
