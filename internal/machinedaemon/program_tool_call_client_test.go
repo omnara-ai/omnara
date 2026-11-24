@@ -462,3 +462,60 @@ func TestProgramToolCallCLICustomToolTransportFailurePrintsItsKey(t *testing.T) 
 	require.Contains(t, stderr, "tool call tc_drop is still waiting for its result, so run it again with "+
 		"--idempotency-key "+key+" to pick it up")
 }
+
+func TestProgramToolCallCLIPrintsScalarStructuredResults(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		output  ProgramToolCallOutput
+		want    string
+	}{
+		{
+			name:    "null alone",
+			content: `[{"type":"structured_data","value":null}]`,
+			want:    "null\n",
+		},
+		{
+			name:    "null with accompanying text",
+			content: `[{"type":"text","text":"side note"},{"type":"structured_data","value":null}]`,
+			want:    "null\n",
+		},
+		{
+			name:    "null in text output mode",
+			content: `[{"type":"text","text":"side note"},{"type":"structured_data","value":null}]`,
+			output:  ProgramToolCallOutputText,
+			want:    "null\n",
+		},
+		{
+			name:    "false",
+			content: `[{"type":"structured_data","value":false}]`,
+			want:    "false\n",
+		},
+		{
+			name:    "zero",
+			content: `[{"type":"structured_data","value":0}]`,
+			want:    "0\n",
+		},
+		{
+			name:    "empty string",
+			content: `[{"type":"structured_data","value":""}]`,
+			want:    "\"\"\n",
+		},
+		{
+			name:    "string scalar",
+			content: `[{"type":"structured_data","value":"ok"}]`,
+			want:    "\"ok\"\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			startFakeToolCallDaemon(t, reply(http.StatusOK,
+				`{"state":"completed","outcome":"succeeded","content":`+tc.content+`}`))
+			code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{
+				Tool: "custom_scalar", Output: tc.output,
+			}, "")
+			require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
+			require.Equal(t, tc.want, stdout)
+			require.Empty(t, stderr)
+		})
+	}
+}

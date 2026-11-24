@@ -236,3 +236,42 @@ func TestDaemonSocketProgramCustomToolRevokedBeforeApproval(t *testing.T) {
 		})
 	}
 }
+
+func TestDaemonSocketProgramCustomToolScalarResults(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list"), "code_mode:\n",
+		customProgramToolsYAML+"code_mode:\n", 1))
+	ctx := t.Context()
+	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
+		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
+	admin := authHeaders(f.project.AdminToken)
+
+	for _, tc := range []struct {
+		key   string
+		value string
+	}{
+		{key: "scalar-null", value: "null"},
+		{key: "scalar-false", value: "false"},
+		{key: "scalar-zero", value: "0"},
+		{key: "scalar-string", value: `"ok"`},
+	} {
+		socket := f.socket()
+		offer := programToolOffer(f.process.ProcessID, tc.key, "create_ticket", `{"title":"scalar"}`)
+		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+		waiting := nextToolCallReport(t, socket)
+		require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingResult, waiting.State)
+
+		requestJSONWithHeaders(t, f.handler, http.MethodPost, agentPath+"/tool-calls/"+waiting.ToolCallID+"/result",
+			`{"outcome":"succeeded","content_blocks":[{"type":"structured_data","value":`+tc.value+`}]}`,
+			"", http.StatusCreated, admin)
+		done := nextToolCallReport(t, socket)
+		socket.toolCallsDone.Wait()
+		require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, done.State)
+		require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, done.Outcome)
+		require.Len(t, done.Content, 1)
+		require.Equal(t, daemonprotocol.ProgramToolCallContentStructuredData, done.Content[0].Type)
+		require.Equal(t, tc.value, string(done.Content[0].Value))
+	}
+}

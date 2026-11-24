@@ -125,23 +125,72 @@ func TestDaemonSocketHubCloseWaitsForItsSockets(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	hub := &daemonSocketHub{ctx: ctx, cancel: cancel, byMachine: map[uuid.UUID]*daemonSocket{},
 		byRuntime: map[uuid.UUID]*daemonSocket{}}
-	require.True(t, hub.enter())
+	socket := newTestDaemonSocket(t, &daemonSocket{machineID: uuid.New(), runtimeID: uuid.New()})
+	require.True(t, hub.register(socket))
 	closed := make(chan struct{})
 	go func() {
 		hub.Close()
 		close(closed)
 	}()
-	require.Eventually(t, func() bool { return ctx.Err() != nil }, 5*time.Second, time.Millisecond)
+	select {
+	case <-socket.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not close the registered socket")
+	}
 	select {
 	case <-closed:
 		t.Fatal("the hub closed while a socket was still serving")
 	case <-time.After(100 * time.Millisecond):
 	}
-	require.False(t, hub.enter(), "a closing hub admits no socket")
-	hub.leave()
+	late := newTestDaemonSocket(t, &daemonSocket{machineID: uuid.New(), runtimeID: uuid.New()})
+	require.False(t, hub.register(late), "a closing hub admits no socket")
+	hub.unregister(socket)
 	select {
 	case <-closed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the hub did not close once its socket ended")
+	}
+}
+
+func TestDaemonSocketHubRegisterRacingWithCloseNeverStrandsASocket(t *testing.T) {
+	t.Parallel()
+	for range 64 {
+		ctx, cancel := context.WithCancel(t.Context())
+		hub := &daemonSocketHub{ctx: ctx, cancel: cancel, byMachine: map[uuid.UUID]*daemonSocket{},
+			byRuntime: map[uuid.UUID]*daemonSocket{}}
+		socket := newTestDaemonSocket(t, &daemonSocket{machineID: uuid.New(), runtimeID: uuid.New()})
+
+		hub.mu.Lock()
+		admitted := make(chan bool, 1)
+		closed := make(chan struct{})
+		go func() {
+			admitted <- hub.register(socket)
+		}()
+		go func() {
+			hub.Close()
+			close(closed)
+		}()
+		hub.mu.Unlock()
+
+		if <-admitted {
+			select {
+			case <-socket.done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("admitted socket was missed by Close snapshot")
+			}
+			hub.unregister(socket)
+		} else {
+			hub.mu.RLock()
+			_, inMachine := hub.byMachine[socket.machineID]
+			_, inRuntime := hub.byRuntime[socket.runtimeID]
+			hub.mu.RUnlock()
+			require.False(t, inMachine)
+			require.False(t, inRuntime)
+		}
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Close deadlocked waiting for a socket")
+		}
 	}
 }

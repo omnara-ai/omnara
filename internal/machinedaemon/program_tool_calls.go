@@ -144,10 +144,17 @@ type programToolCallHandler struct {
 }
 
 type programToolCall struct {
-	offer   daemonprotocol.ToolCallOffer
-	report  *daemonprotocol.ToolCallReport
-	waiters map[chan struct{}]struct{}
-	keep    bool
+	offer    daemonprotocol.ToolCallOffer
+	report   *daemonprotocol.ToolCallReport
+	waiters  map[chan struct{}]struct{}
+	keep     bool
+	sendStop chan struct{}
+	sendDone chan struct{}
+	stopOnce sync.Once
+}
+
+func (c *programToolCall) stopSend() {
+	c.stopOnce.Do(func() { close(c.sendStop) })
 }
 
 func programToolCallOver(report *daemonprotocol.ToolCallReport) bool {
@@ -269,7 +276,7 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	switch {
 	case !attached:
 		call = &programToolCall{offer: offer, keep: offer.KeepOnDisconnect,
-			waiters: map[chan struct{}]struct{}{changed: {}}}
+			waiters: map[chan struct{}]struct{}{changed: {}}, sendStop: make(chan struct{}), sendDone: make(chan struct{})}
 		h.calls[id] = call
 	case call.offer.Name != offer.Name || !sameProgramToolCallInput(call.offer.Input, offer.Input):
 		h.mu.Unlock()
@@ -286,7 +293,7 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	h.mu.Unlock()
 	defer h.leave(r.Context(), id, call, changed)
 	if !attached {
-		h.client.sendToolCallOffer(r.Context(), offer)
+		h.startOfferSend(call)
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
@@ -316,6 +323,13 @@ func sameProgramToolCallInput(a, b json.RawMessage) bool {
 	return bytes.Equal(a, b) || jsoncanonical.Equal(a, b)
 }
 
+func (h *programToolCallHandler) startOfferSend(call *programToolCall) {
+	go func() {
+		defer close(call.sendDone)
+		h.client.sendToolCallOffer(call.sendStop, call.offer)
+	}()
+}
+
 func (h *programToolCallHandler) leave(ctx context.Context, id string, call *programToolCall, changed chan struct{}) {
 	h.mu.Lock()
 	delete(call.waiters, changed)
@@ -327,6 +341,10 @@ func (h *programToolCallHandler) leave(ctx context.Context, id string, call *pro
 	abandon := last && !call.keep && !over
 	detach := last && call.keep && !over
 	h.mu.Unlock()
+	if last {
+		call.stopSend()
+		<-call.sendDone
+	}
 	switch {
 	case abandon:
 		h.abandon(ctx, call.offer)
@@ -431,6 +449,9 @@ func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 		return
 	}
 	call.report = &report
+	if programToolCallOver(&report) {
+		call.stopSend()
+	}
 	for changed := range call.waiters {
 		select {
 		case changed <- struct{}{}:
@@ -461,9 +482,11 @@ func (c *Client) socketTransport() (*daemonSocketTransport, bool) {
 	return transport, connected && transport != nil
 }
 
-func (c *Client) sendToolCallOffer(ctx context.Context, offer daemonprotocol.ToolCallOffer) {
+func (c *Client) sendToolCallOffer(stop <-chan struct{}, offer daemonprotocol.ToolCallOffer) {
 	if transport, connected := c.socketTransport(); connected {
-		transport.offerToolCall(ctx, offer)
+		transport.enqueueWaitStop(stop, daemonprotocol.Message{
+			Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer,
+		})
 	}
 }
 
@@ -476,12 +499,16 @@ func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, cancel daemo
 }
 
 func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {
+	return t.enqueueWaitStop(ctx.Done(), message)
+}
+
+func (t *daemonSocketTransport) enqueueWaitStop(stop <-chan struct{}, message daemonprotocol.Message) bool {
 	select {
 	case t.toolSend <- message:
 		return true
 	case <-t.done:
 		return false
-	case <-ctx.Done():
+	case <-stop:
 		return false
 	}
 }

@@ -329,18 +329,20 @@ func writeProgramToolCallResult(
 	}
 	var texts []string
 	var structured json.RawMessage
+	hasStructured := false
 	for _, part := range result.Content {
 		switch {
 		case part.Type == daemonprotocol.ProgramToolCallContentText:
 			texts = append(texts, part.Text)
-		case part.Type == daemonprotocol.ProgramToolCallContentStructuredData && structured == nil:
+		case part.Type == daemonprotocol.ProgramToolCallContentStructuredData && !hasStructured && len(part.Value) > 0:
 			structured = part.Value
+			hasStructured = true
 		}
 	}
 	text := strings.Join(texts, "\n")
 	var value any
 	switch {
-	case len(structured) > 0 && string(structured) != "null":
+	case hasStructured:
 		var compact bytes.Buffer
 		if err := json.Compact(&compact, structured); err != nil {
 			_, _ = fmt.Fprintln(stderr, "omnarad call: invalid structured tool result")

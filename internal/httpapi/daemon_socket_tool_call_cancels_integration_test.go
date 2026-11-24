@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -56,46 +57,98 @@ func TestDaemonSocketToolCallCancelWaitsForAFreeSlot(t *testing.T) {
 	_, err = blocked.Exec(ctx, `LOCK TABLE processes IN ACCESS EXCLUSIVE MODE`)
 	require.NoError(t, err)
 	socket := f.socket()
-	for i := range daemonToolCallLimit {
-		offer := programToolOffer(f.process.ProcessID, "k-"+strconv.Itoa(i), toolcatalog.ToolNameStorageList, `{}`)
-		offer.OfferID = strconv.Itoa(i)
-		require.NoError(t, socket.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &offer}))
+	for i := range daemonToolCallCancelLimit {
+		cancel := daemonprotocol.ToolCallCancel{
+			ProcessID: f.process.ProcessID,
+			Key:       programToolOffer(f.process.ProcessID, "c-"+strconv.Itoa(i), "", "").Key,
+			OfferID:   "c-" + strconv.Itoa(i),
+		}
+		require.NoError(t, socket.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &cancel}))
 	}
 	for range 2 {
 		require.NoError(t, socket.handleToolCallCancel(ctx, daemonprotocol.Message{ToolCallCancel: &storedCancel}))
 	}
 	socket.workMu.Lock()
-	active, queued := socket.toolCallsActive, len(socket.toolCallCancelsQueued)
+	active, queued := socket.toolCallCancelsActive, len(socket.toolCallCancelsQueued)
 	socket.workMu.Unlock()
-	require.Equal(t, daemonToolCallLimit, active)
+	require.Equal(t, daemonToolCallCancelLimit, active)
 	require.Equal(t, 1, queued, "a cancel sent again while it waits is held once")
 	require.Empty(t, socket.toolSend, "a held cancel is not acknowledged yet")
 
 	require.NoError(t, blocked.Rollback(ctx))
 	acknowledged := 0
-	for completed := 0; completed < daemonToolCallLimit || acknowledged == 0; {
+	for completed := 0; completed < daemonToolCallCancelLimit || acknowledged == 0; {
 		report := nextToolCallReport(t, socket)
-		switch {
-		case report.CancelRecorded:
-			require.Equal(t, []string{storedCancel.Key, storedCancel.OfferID}, []string{report.Key, report.OfferID})
+		require.True(t, report.CancelRecorded, "unexpected report %+v", report)
+		if report.Key == storedCancel.Key && report.OfferID == storedCancel.OfferID {
 			acknowledged++
-		case report.State == daemonprotocol.ProgramToolCallStateCompleted,
-			report.ErrorCode == daemonprotocol.ErrorCodeToolCallLimitReached:
+		} else {
 			completed++
-		default:
-			t.Fatalf("unexpected report %+v", report)
 		}
 	}
 	socket.toolCallsDone.Wait()
 	require.Equal(t, 1, acknowledged)
 	require.Empty(t, socket.toolSend)
 	socket.workMu.Lock()
-	active, queued = socket.toolCallsActive, len(socket.toolCallCancelsQueued)
+	active, queued = socket.toolCallCancelsActive, len(socket.toolCallCancelsQueued)
 	socket.workMu.Unlock()
 	require.Zero(t, active)
 	require.Zero(t, queued)
 	state, outcome := f.toolCallState(t, testPublicID(t, publicid.KindToolCall, stored.ID))
 	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+}
+
+func TestDaemonSocketToolCallCancelProgressesWhileOfferSlotsAreFull(t *testing.T) {
+	t.Parallel()
+	f := newDaemonProgramToolCallFixture(t)
+	f.acceptProcess(t)
+	ctx := t.Context()
+	approval := f.awaitingApproval(t, "old-approval")
+	approvalOffer := programToolOffer(f.process.ProcessID, "old-approval", "", "")
+	approvalOffer.OfferID = "old-approval"
+	f.changeConfig(t, strings.Replace(programToolAgentYAML(true, "storage_list"), "code_mode:\n",
+		customProgramToolsYAML+"code_mode:\n", 1))
+	socket := f.socket()
+	socketCtx, disconnectSocket := context.WithCancel(ctx)
+	defer func() {
+		disconnectSocket()
+		socket.toolCallsDone.Wait()
+	}()
+	// The call awaiting approval counts toward the process's own limit, so the last socket slot is
+	// taken directly.
+	socket.workMu.Lock()
+	socket.toolCallsActive++
+	socket.workMu.Unlock()
+	for i := range daemonToolCallLimit - 1 {
+		offer := programToolOffer(f.process.ProcessID, "custom-"+strconv.Itoa(i), "create_ticket",
+			`{"title":"t"}`)
+		offer.KeepOnDisconnect = true
+		offer.OfferID = "custom-" + strconv.Itoa(i)
+		require.NoError(t, socket.handleToolCallOffer(socketCtx, daemonprotocol.Message{ToolCallOffer: &offer}))
+		waiting := nextToolCallReport(t, socket)
+		require.Empty(t, waiting.AckStatus, waiting.Error)
+		require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingResult, waiting.State)
+	}
+	socket.workMu.Lock()
+	activeOffers := socket.toolCallsActive
+	socket.workMu.Unlock()
+	require.Equal(t, daemonToolCallLimit, activeOffers)
+
+	cancel := daemonprotocol.ToolCallCancel{
+		ProcessID: approvalOffer.ProcessID, Key: approvalOffer.Key, OfferID: approvalOffer.OfferID,
+	}
+	require.NoError(t, socket.handleToolCallCancel(socketCtx, daemonprotocol.Message{ToolCallCancel: &cancel}))
+	ack := nextToolCallReport(t, socket)
+	require.True(t, ack.CancelRecorded)
+	require.Equal(t, approvalOffer.Key, ack.Key)
+	require.Equal(t, approvalOffer.OfferID, ack.OfferID)
+
+	state, outcome := f.toolCallState(t, approval.ToolCallID)
+	require.Equal(t, []string{"completed", "canceled"}, []string{state, outcome})
+	var openApprovals int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM agent_interactions WHERE agent_id = $1
+ AND state = 'open'`, f.process.AgentUUID).Scan(&openApprovals))
+	require.Zero(t, openApprovals)
 }
 
 func (f *daemonProgramToolCallFixture) awaitingApproval(t *testing.T, key string) daemonprotocol.ToolCallReport {

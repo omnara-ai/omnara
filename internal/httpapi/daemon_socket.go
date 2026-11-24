@@ -49,6 +49,7 @@ type daemonSocket struct {
 	toolCalls             map[string]*servedToolCall
 	toolCallsCanceling    map[string]*servedToolCall
 	toolCallsActive       int
+	toolCallCancelsActive int
 	toolCallsDone         sync.WaitGroup
 	toolCallCancelsQueued []daemonprotocol.ToolCallCancel
 	leaseRenewAfter       time.Time
@@ -182,17 +183,15 @@ func (s *daemonSocket) close(code websocket.StatusCode, reason string) {
 }
 
 func (s *daemonSocket) run(ctx context.Context) {
-	if !s.server.daemonHub.enter() {
-		s.close(websocket.StatusGoingAway, "api shutting down")
-		return
-	}
-	defer s.server.daemonHub.leave()
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	s.drain = func() { s.drainLoop(runCtx) }
-	s.server.daemonHub.register(s)
+	if !s.server.daemonHub.register(s) {
+		s.close(websocket.StatusGoingAway, "api shutting down")
+		return
+	}
 	defer func() {
-		s.server.daemonHub.unregister(s)
+		defer s.server.daemonHub.unregister(s)
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cleanupCancel()
 		owner := s.presenceOwner()

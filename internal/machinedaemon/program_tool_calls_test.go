@@ -991,3 +991,46 @@ func TestProgramToolCallServerRefusesAKeyInFlightForAnotherCall(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, report.State)
 	require.JSONEq(t, `"a"`, string(report.Content[0].Value))
 }
+
+func TestProgramToolCallServerDeliversOfferAfterFirstWaiterLeavesFullQueue(t *testing.T) {
+	handler, transport, server, processID := newProgramToolCallWaiterTest(t)
+	for i := range cap(transport.toolSend) {
+		transport.toolSend <- daemonprotocol.Message{
+			Type:          daemonprotocol.MessageToolCallOffer,
+			ToolCallOffer: &daemonprotocol.ToolCallOffer{ProcessID: processID, OfferID: "fill-" + strconv.Itoa(i)},
+		}
+	}
+
+	body := `{"key":"k-1","name":"storage_list","input":{"prefix":"a"}}`
+	first := streamProgramToolCall(t, server, processID, body)
+	require.Equal(t, http.StatusOK, <-first.status)
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 1 },
+		5*time.Second, 10*time.Millisecond)
+
+	second := streamProgramToolCall(t, server, processID, body)
+	require.Equal(t, http.StatusOK, <-second.status)
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 2 },
+		5*time.Second, 10*time.Millisecond)
+
+	first.stop()
+	require.Eventually(t, func() bool { return programToolCallWaiters(handler, processID, "k-1") == 1 },
+		5*time.Second, 10*time.Millisecond)
+
+	for range cap(transport.toolSend) {
+		filler := nextProgramToolCallMessage(t, transport)
+		require.Equal(t, daemonprotocol.MessageToolCallOffer, filler.Type)
+		require.True(t, strings.HasPrefix(filler.ToolCallOffer.OfferID, "fill-"))
+	}
+
+	offered := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, offered.Type)
+	require.Equal(t, "k-1", offered.ToolCallOffer.Key)
+
+	done := completedProgramToolCall(`{"files":["a/1"]}`)
+	done.ProcessID, done.Key, done.OfferID = processID, "k-1", offered.ToolCallOffer.OfferID
+	handler.report(done)
+	report := second.next(t)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, report.State)
+	require.JSONEq(t, `{"files":["a/1"]}`, string(report.Content[0].Value))
+	second.ended(t)
+}

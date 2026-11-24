@@ -23,7 +23,9 @@ import (
 
 const (
 	daemonToolCallLimit            = 128
+	daemonToolCallCancelLimit      = 16
 	daemonToolCallCancelQueueLimit = 1024
+	daemonToolCallHeldCancelLimit  = 8
 	programToolCallLease           = time.Minute
 	programToolCallPoll            = 2 * time.Second
 	programToolCallFallbackPoll    = 250 * time.Millisecond
@@ -78,6 +80,10 @@ type servedToolCall struct {
 	reoffered chan struct{}
 	offerID   string
 	next      *daemonprotocol.ToolCallOffer
+	// adopting is the replacement offer being stored. Until that settles, offerID still names the
+	// waiter being replaced, so cancels for either offer are held and applied afterwards.
+	adopting *daemonprotocol.ToolCallOffer
+	held     []daemonprotocol.ToolCallCancel
 }
 
 func newServedToolCall(offer daemonprotocol.ToolCallOffer) *servedToolCall {
@@ -138,7 +144,7 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			if s.toolCallsCanceling[id] == call {
 				delete(s.toolCallsCanceling, id)
 			}
-			queued := s.releaseToolCallSlotLocked()
+			s.toolCallsActive--
 			next := call.next
 			call.next = nil
 			s.workMu.Unlock()
@@ -146,7 +152,6 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 			if next != nil && ctx.Err() == nil {
 				_ = s.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: next})
 			}
-			s.runQueuedToolCallCancel(ctx, queued)
 		}()
 		if canceling != nil {
 			select {
@@ -172,6 +177,14 @@ func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol
 	id := cancel.ProcessID + "\x00" + cancel.Key
 	s.workMu.Lock()
 	call, serving := s.toolCalls[id]
+	if serving && call.adopting != nil &&
+		(cancel.OfferID == "" || cancel.OfferID == call.offerID || cancel.OfferID == call.adopting.OfferID) {
+		if len(call.held) < daemonToolCallHeldCancelLimit && !slices.Contains(call.held, cancel) {
+			call.held = append(call.held, cancel)
+		}
+		s.workMu.Unlock()
+		return
+	}
 	if cancel.DetachOnly {
 		switch {
 		case serving && call.next != nil && call.next.OfferID == cancel.OfferID:
@@ -196,18 +209,18 @@ func (s *daemonSocket) cancelToolCall(ctx context.Context, cancel daemonprotocol
 	case serving:
 		s.workMu.Unlock()
 		s.replyToolCallCanceled(ctx, cancel)
-	case s.toolCallsActive >= daemonToolCallLimit:
+	case s.toolCallCancelsActive >= daemonToolCallCancelLimit:
 		s.queueToolCallCancelLocked(cancel)
 		s.workMu.Unlock()
 	default:
-		s.toolCallsActive++
+		s.toolCallCancelsActive++
 		s.toolCallsDone.Add(1)
 		s.workMu.Unlock()
 		go func() {
 			defer s.toolCallsDone.Done()
 			s.cancelStoredToolCall(ctx, cancel)
 			s.workMu.Lock()
-			queued := s.releaseToolCallSlotLocked()
+			queued := s.releaseToolCallCancelSlotLocked()
 			s.workMu.Unlock()
 			s.runQueuedToolCallCancel(ctx, queued)
 		}()
@@ -222,8 +235,8 @@ func (s *daemonSocket) queueToolCallCancelLocked(cancel daemonprotocol.ToolCallC
 	s.toolCallCancelsQueued = append(s.toolCallCancelsQueued, cancel)
 }
 
-func (s *daemonSocket) releaseToolCallSlotLocked() *daemonprotocol.ToolCallCancel {
-	s.toolCallsActive--
+func (s *daemonSocket) releaseToolCallCancelSlotLocked() *daemonprotocol.ToolCallCancel {
+	s.toolCallCancelsActive--
 	if len(s.toolCallCancelsQueued) == 0 {
 		return nil
 	}
@@ -344,7 +357,23 @@ func (s *daemonSocket) nextToolCallOffer(call *servedToolCall) *daemonprotocol.T
 	defer s.workMu.Unlock()
 	next := call.next
 	call.next = nil
+	call.adopting = next
 	return next
+}
+
+// adoptToolCallOffer ends the replacement started by nextToolCallOffer and then applies the cancels
+// held meanwhile, so each is judged against the waiter the call ended up serving.
+func (s *daemonSocket) adoptToolCallOffer(ctx context.Context, call *servedToolCall, adopted bool) {
+	s.workMu.Lock()
+	if adopted && call.adopting != nil {
+		call.offerID = call.adopting.OfferID
+	}
+	held := call.held
+	call.adopting, call.held = nil, nil
+	s.workMu.Unlock()
+	for _, cancel := range held {
+		s.cancelToolCall(ctx, cancel)
+	}
 }
 
 func (s *daemonSocket) serveToolCall(
@@ -499,15 +528,13 @@ func (s *daemonSocket) serveToolCall(
 				continue
 			}
 			nextRef, result, err := server.offerProgramToolCall(ctx, s.authority(), *next)
+			s.adoptToolCallOffer(ctx, call, err == nil && result == nil)
 			switch {
 			case err != nil:
 				s.rejectToolCall(ctx, *next, err)
 			case result != nil:
 				s.reportToolCall(ctx, *next, daemonprotocol.ToolCallReport{ProgramToolCallResult: *result})
 			default:
-				s.workMu.Lock()
-				call.offerID = next.OfferID
-				s.workMu.Unlock()
 				offer, awaitingApproval, awaitingResult = *next, false, false
 				if nextRef.ToolCallID != ref.ToolCallID {
 					ref = nextRef

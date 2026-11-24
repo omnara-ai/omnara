@@ -192,23 +192,13 @@ func (h *daemonSocketHub) Close() {
 	h.serving.Wait()
 }
 
-func (h *daemonSocketHub) enter() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed {
-		return false
-	}
-	h.serving.Add(1)
-	return true
-}
-
-func (h *daemonSocketHub) leave() {
-	h.serving.Done()
-}
-
-func (h *daemonSocketHub) register(socket *daemonSocket) {
+func (h *daemonSocketHub) register(socket *daemonSocket) bool {
 	var replaced []*daemonSocket
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return false
+	}
 	if prior := h.byMachine[socket.machineID]; prior != nil && prior != socket {
 		replaced = append(replaced, prior)
 	}
@@ -226,21 +216,24 @@ func (h *daemonSocketHub) register(socket *daemonSocket) {
 	}
 	h.byMachine[socket.machineID] = socket
 	h.byRuntime[socket.runtimeID] = socket
+	h.serving.Add(1)
 	h.mu.Unlock()
 	for _, prior := range replaced {
 		prior.close(websocket.StatusNormalClosure, "replaced")
 	}
+	return true
 }
 
 func (h *daemonSocketHub) unregister(socket *daemonSocket) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.byMachine[socket.machineID] == socket {
 		delete(h.byMachine, socket.machineID)
 	}
 	if h.byRuntime[socket.runtimeID] == socket {
 		delete(h.byRuntime, socket.runtimeID)
 	}
+	h.mu.Unlock()
+	h.serving.Done()
 }
 
 func (h *daemonSocketHub) handleWakeup(ctx context.Context, body notifications.WakeupMessage) {
