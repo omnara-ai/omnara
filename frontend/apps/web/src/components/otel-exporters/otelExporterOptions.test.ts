@@ -85,7 +85,11 @@ it('requires a value after the kind in the Braintrust parent header', () => {
   const rows = (value: string) => textRowsFromRecord({ 'x-bt-parent': value })
   expect(braintrustParentError('braintrust', rows('project_id:'))).toBeDefined()
   expect(braintrustParentError('braintrust', rows('project_id: '))).toBeDefined()
-  expect(braintrustParentError('braintrust', rows('abc'))).toBeDefined()
+  expect(braintrustParentError('braintrust', rows(''))).toBeDefined()
+  expect(braintrustParentError('braintrust', rows(':abc'))).toBeDefined()
+  // A span.export() parent slug is Base64, with no kind prefix.
+  expect(braintrustParentError('braintrust', rows('abc'))).toBeUndefined()
+  expect(braintrustParentError('braintrust', rows('AwEBAQIDBAUGBwgJCgsMDQ4P+/8='))).toBeUndefined()
   expect(braintrustParentError('braintrust', rows('project_id:abc'))).toBeUndefined()
   expect(braintrustParentError('braintrust', rows('project_name:my project'))).toBeUndefined()
   expect(braintrustParentError('braintrust', [])).toBeUndefined()

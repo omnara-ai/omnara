@@ -75,8 +75,9 @@ const variantPresets: Record<OtelTraceVariant, VariantPreset> = {
 }
 
 /**
- * Braintrust files spans under the parent its x-bt-parent header names, as `kind:value`. The
- * preset fills in only the kind, and Braintrust rejects every export until a value follows.
+ * Braintrust files spans under the parent its x-bt-parent header names: either `kind:value` or
+ * a `span.export()` slug, which has no colon. The preset fills in only the kind, and Braintrust
+ * rejects every export until a value follows, so only that unfinished form is an error.
  */
 export function braintrustParentError(variant: OtelTraceVariant, headerRows: TextRow[]) {
   if (variant !== 'braintrust') return undefined
@@ -84,7 +85,8 @@ export function braintrustParentError(variant: OtelTraceVariant, headerRows: Tex
     if (row.key.trim().toLowerCase() !== 'x-bt-parent') return false
     const value = (row.value ?? '').trim()
     const separator = value.indexOf(':')
-    return separator < 1 || value.slice(separator + 1).trim() === ''
+    if (separator < 0) return value === ''
+    return separator === 0 || value.slice(separator + 1).trim() === ''
   })
   return incomplete
     ? 'Finish the x-bt-parent header with your Braintrust project, such as project_id:<id>.'
