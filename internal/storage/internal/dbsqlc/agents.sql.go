@@ -856,53 +856,43 @@ func (q *Queries) InsertAgentProfile(ctx context.Context, arg InsertAgentProfile
 	return i, err
 }
 
-const listAgentConfigEditProfileAgents = `-- name: ListAgentConfigEditProfileAgents :many
-SELECT agent.id, agent.created_at
+const listAgentConfigEditProfileAgentIDs = `-- name: ListAgentConfigEditProfileAgentIDs :many
+SELECT agent.id
 FROM agents agent
 WHERE agent.project_id = $1
   AND agent.agent_profile_id = $2
   AND agent.state = 'active'
   AND agent.parent_agent_id IS NULL
   AND agent.created_at <= $3::timestamptz
-  AND (agent.created_at, agent.id) > ($4::timestamptz, $5::uuid)
 ORDER BY agent.created_at, agent.id
-LIMIT $6::bigint
+LIMIT $4::bigint
 `
 
-type ListAgentConfigEditProfileAgentsParams struct {
+type ListAgentConfigEditProfileAgentIDsParams struct {
 	ProjectID      uuid.UUID
 	AgentProfileID *uuid.UUID
 	CreatedBefore  time.Time
-	AfterCreatedAt time.Time
-	AfterID        uuid.UUID
 	RowLimit       int64
 }
 
-type ListAgentConfigEditProfileAgentsRow struct {
-	ID        uuid.UUID
-	CreatedAt time.Time
-}
-
-func (q *Queries) ListAgentConfigEditProfileAgents(ctx context.Context, arg ListAgentConfigEditProfileAgentsParams) ([]ListAgentConfigEditProfileAgentsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentConfigEditProfileAgents,
+func (q *Queries) ListAgentConfigEditProfileAgentIDs(ctx context.Context, arg ListAgentConfigEditProfileAgentIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAgentConfigEditProfileAgentIDs,
 		arg.ProjectID,
 		arg.AgentProfileID,
 		arg.CreatedBefore,
-		arg.AfterCreatedAt,
-		arg.AfterID,
 		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentConfigEditProfileAgentsRow{}
+	items := []uuid.UUID{}
 	for rows.Next() {
-		var i ListAgentConfigEditProfileAgentsRow
-		if err := rows.Scan(&i.ID, &i.CreatedAt); err != nil {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

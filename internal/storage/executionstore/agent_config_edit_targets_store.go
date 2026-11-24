@@ -9,38 +9,26 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-type AgentConfigEditProfileAgent struct {
-	ID        uuid.UUID
-	CreatedAt time.Time
-}
-
 type AgentConfigEditProfileAgentsWindow struct {
 	CreatedBefore time.Time
-	After         AgentConfigEditProfileAgent
 }
 
-func (s *Store) ListAgentConfigEditProfileAgents(
+func (s *Store) ListAgentConfigEditProfileAgentIDs(
 	ctx context.Context,
 	projectID, profileID uuid.UUID,
 	window AgentConfigEditProfileAgentsWindow,
 	limit int,
-) ([]AgentConfigEditProfileAgent, error) {
-	rows, err := s.q.ListAgentConfigEditProfileAgents(ctx, dbsqlc.ListAgentConfigEditProfileAgentsParams{
+) ([]uuid.UUID, error) {
+	ids, err := s.q.ListAgentConfigEditProfileAgentIDs(ctx, dbsqlc.ListAgentConfigEditProfileAgentIDsParams{
 		ProjectID:      projectID,
 		AgentProfileID: &profileID,
 		CreatedBefore:  window.CreatedBefore,
-		AfterCreatedAt: window.After.CreatedAt,
-		AfterID:        window.After.ID,
 		RowLimit:       int64(limit),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list agent config edit profile agents: %w", err)
+		return nil, fmt.Errorf("list agent config edit profile agent ids: %w", err)
 	}
-	agents := make([]AgentConfigEditProfileAgent, 0, len(rows))
-	for _, row := range rows {
-		agents = append(agents, AgentConfigEditProfileAgent(row))
-	}
-	return agents, nil
+	return ids, nil
 }
 
 type AgentConfigEditTargetCheck struct {

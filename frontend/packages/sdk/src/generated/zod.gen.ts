@@ -1165,6 +1165,26 @@ export const zResolveAgentConfigToolsRequest = z.object({
 });
 
 /**
+ * At least one of apply_to_profile and apply_to_instances must be true.
+ */
+export const zAgentConfigEditProfileTarget = z.object({
+    type: z.enum(['profile']),
+    agent_profile_id: zAgentProfileId,
+    apply_to_profile: z.boolean().optional().default(true),
+    apply_to_instances: z.boolean().optional().default(false)
+});
+
+export const zAgentConfigEditAgentTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId
+});
+
+export const zAgentConfigEditTarget = z.discriminatedUnion('type', [
+    zAgentConfigEditProfileTarget.extend({ type: z.literal('profile') }),
+    zAgentConfigEditAgentTarget.extend({ type: z.literal('agent') })
+]);
+
+/**
  * JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null top-level sections count as empty.
  */
 export const zAgentConfigEditPath = z.string().min(2).max(1024).regex(/^\//);
@@ -1221,29 +1241,23 @@ export const zAgentConfigEdit = z.discriminatedUnion('type', [
     zReplaceTextAgentConfigEdit.extend({ type: z.literal('replace_text') })
 ]);
 
-export const zEditAgentConfigsRequest = z.intersection(z.union([
-    z.object({
-        agent_profile_ids: z.array(z.unknown())
-    }),
-    z.object({
-        agent_ids: z.array(z.unknown())
-    })
-]), z.object({
-    agent_profile_ids: z.array(zAgentProfileId).min(1).max(1000).optional(),
-    agent_ids: z.array(zAgentId).min(1).max(1000).optional(),
-    apply_to: z.array(z.enum(['profile', 'agent'])).min(1).optional(),
+export const zEditAgentConfigsRequest = z.object({
+    targets: z.array(zAgentConfigEditTarget).min(1).max(500),
     edits: z.array(zAgentConfigEdit).min(1).max(100),
-    allow_partial_edits: z.boolean().optional().default(false)
-}));
+    on_failed_edit: z.enum([
+        'continue',
+        'ignore',
+        'stop'
+    ]).optional().default('continue')
+});
 
 export const zAgentConfigEditResult = z.object({
-    type: z.enum(['profile', 'agent']),
-    agent_profile_id: zAgentProfileId.optional(),
-    agent_id: zAgentId.optional(),
+    target: zAgentConfigEditTarget,
     status: z.enum([
         'updated',
         'unchanged',
-        'failed'
+        'failed',
+        'skipped'
     ]),
     previous_config_id: zAgentConfigId.optional(),
     current_config_id: zAgentConfigId.optional(),
@@ -1260,8 +1274,7 @@ export const zAgentConfigEditResult = z.object({
 });
 
 export const zEditAgentConfigsResponse = z.object({
-    data: z.array(zAgentConfigEditResult),
-    next_cursor: z.string().nullable()
+    data: z.array(zAgentConfigEditResult)
 });
 
 /**
@@ -5308,13 +5321,8 @@ export const zEditAgentConfigsPath = z.object({
     projectID: zProjectId
 });
 
-export const zEditAgentConfigsQuery = z.object({
-    limit: z.int().gte(1).lte(100).optional().default(50),
-    cursor: z.string().max(1024).optional()
-});
-
 /**
- * Results for this page of targets.
+ * One result per target.
  */
 export const zEditAgentConfigsResponse2 = zEditAgentConfigsResponse;
 

@@ -1891,25 +1891,43 @@ export type ResolveAgentConfigToolsRequest = {
     source_format: 'yaml' | 'json';
 };
 
-export type EditAgentConfigsRequest = ({
-    agent_profile_ids: Array<unknown>;
-} | {
-    agent_ids: Array<unknown>;
-}) & {
-    agent_profile_ids?: Array<AgentProfileId>;
-    agent_ids?: Array<AgentId>;
-    /**
-     * Only valid with agent_profile_ids. Defaults to both.
-     */
-    apply_to?: Array<'profile' | 'agent'>;
+export type EditAgentConfigsRequest = {
+    targets: Array<AgentConfigEditTarget>;
     /**
      * Applied in order.
      */
     edits: Array<AgentConfigEdit>;
     /**
-     * When false, a target where some edits miss (text_not_found or path_not_found) while others apply is left unchanged and fails with edit_conflict.
+     * continue leaves a failed target unchanged and keeps going; ignore also saves a target's matching edits when others miss; stop skips the targets after the first failure.
      */
-    allow_partial_edits?: boolean;
+    on_failed_edit?: 'continue' | 'ignore' | 'stop';
+};
+
+export type AgentConfigEditTarget = ({
+    type: 'profile';
+} & AgentConfigEditProfileTarget) | ({
+    type: 'agent';
+} & AgentConfigEditAgentTarget);
+
+/**
+ * At least one of apply_to_profile and apply_to_instances must be true.
+ */
+export type AgentConfigEditProfileTarget = {
+    type: 'profile';
+    agent_profile_id: AgentProfileId;
+    /**
+     * Edit the profile's own config, which new agents launch with.
+     */
+    apply_to_profile?: boolean;
+    /**
+     * Edit the active top-level agents launched from the profile.
+     */
+    apply_to_instances?: boolean;
+};
+
+export type AgentConfigEditAgentTarget = {
+    type: 'agent';
+    agent_id: AgentId;
 };
 
 /**
@@ -1975,22 +1993,19 @@ export type ReplaceTextAgentConfigEdit = {
 
 export type EditAgentConfigsResponse = {
     data: Array<AgentConfigEditResult>;
-    next_cursor: string | null;
 };
 
 export type AgentConfigEditResult = {
-    type: 'profile' | 'agent';
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
+    target: AgentConfigEditTarget;
     /**
-     * unchanged also covers targets where no edit matched.
+     * unchanged also covers targets where no edit matched; skipped means stop skipped the target.
      */
-    status: 'updated' | 'unchanged' | 'failed';
+    status: 'updated' | 'unchanged' | 'failed' | 'skipped';
     previous_config_id?: AgentConfigId;
     current_config_id?: AgentConfigId;
     current_generation?: number;
     /**
-     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results and for targets that failed before all edits ran.
+     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results and for targets that failed or were skipped before all edits ran.
      */
     edits?: Array<'applied' | 'unchanged' | 'text_not_found' | 'path_not_found' | 'not_applied'>;
     code?: ErrorCode;
@@ -13051,16 +13066,7 @@ export type EditAgentConfigsData = {
          */
         projectID: ProjectId;
     };
-    query?: {
-        /**
-         * Maximum number of items to return in one page.
-         */
-        limit?: number;
-        /**
-         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
-         */
-        cursor?: string;
-    };
+    query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/agent-configs/edit';
 };
 
@@ -13111,7 +13117,7 @@ export type EditAgentConfigsError = EditAgentConfigsErrors[keyof EditAgentConfig
 
 export type EditAgentConfigsResponses = {
     /**
-     * Results for this page of targets.
+     * One result per target.
      */
     200: EditAgentConfigsResponse;
 };

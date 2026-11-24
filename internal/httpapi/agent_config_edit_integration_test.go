@@ -3,16 +3,17 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -49,16 +50,15 @@ func TestEditAgentConfigs(t *testing.T) {
 		quotedJSONString("instruction: Be calm. Ask before deleting.\n"+model)+`}}`)
 	secondLate := launch("second-late", `{"profile":"`+secondProfileID+`","config":"`+configID+`"}`)
 
-	edit := func(query, body, key string, want int) map[string]any {
+	edit := func(body, key string, want int) []map[string]any {
 		t.Helper()
-		return requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit"+query,
+		response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
 			body, key, want, headers)
-	}
-	results := func(response map[string]any) []map[string]any {
-		t.Helper()
 		var out []map[string]any
-		for _, item := range testutil.RequireType[[]any](t, response["data"]) {
-			out = append(out, testutil.RequireType[map[string]any](t, item))
+		if want == http.StatusOK {
+			for _, item := range testutil.RequireType[[]any](t, response["data"]) {
+				out = append(out, testutil.RequireType[map[string]any](t, item))
+			}
 		}
 		return out
 	}
@@ -68,109 +68,77 @@ func TestEditAgentConfigs(t *testing.T) {
 			"", "", http.StatusOK, headers)
 		return testutil.RequireType[string](t, config["source"])
 	}
+	agentTargets := func(ids ...string) string {
+		var targets []string
+		for _, id := range ids {
+			targets = append(targets, `{"type":"agent","agent_id":"`+id+`"}`)
+		}
+		return `"targets":[` + strings.Join(targets, ",") + `]`
+	}
+	targetIDs := func(results []map[string]any) []any {
+		var ids []any
+		for _, result := range results {
+			target := testutil.RequireType[map[string]any](t, result["target"])
+			if id, ok := target["agent_id"]; ok {
+				ids = append(ids, id)
+			} else {
+				ids = append(ids, target["agent_profile_id"])
+			}
+		}
+		return ids
+	}
 
 	edits := `"edits":[{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"Be direct and kind."},` +
 		`{"type":"set","path":"/model/cache_retention","value":"long"}]`
-	body := `{"agent_profile_ids":["` + profileID + `"],"agent_ids":["` + shared + `"],` + edits + `}`
-	response := edit("", body, "", http.StatusOK)
-	require.Nil(t, response["next_cursor"])
-	data := results(response)
-	require.Len(t, data, 4)
-	require.Equal(t, []any{"profile", profileID, "updated", float64(2)},
-		[]any{data[0]["type"], data[0]["agent_profile_id"], data[0]["status"], data[0]["current_generation"]})
+	fleet := `{"type":"profile","agent_profile_id":"` + profileID + `","apply_to_instances":true}`
+	body := `{"targets":[` + fleet + `,{"type":"agent","agent_id":"` + shared + `"}],` + edits + `}`
+	data := edit(body, "", http.StatusOK)
+	require.Equal(t, []any{profileID, shared, personal, other}, targetIDs(data))
+	require.Equal(t, []any{map[string]any{"type": "profile", "agent_profile_id": profileID}, "updated", float64(2)},
+		[]any{data[0]["target"], data[0]["status"], data[0]["current_generation"]})
 	require.Equal(t, configID, data[0]["previous_config_id"])
-	for i, agentID := range []string{shared, personal} {
-		require.Equal(t, []any{"agent", agentID, "updated"},
-			[]any{data[i+1]["type"], data[i+1]["agent_id"], data[i+1]["status"]})
-	}
-	require.Equal(t, []any{"applied", "applied"}, data[1]["edits"])
+	require.Equal(t, map[string]any{"type": "agent", "agent_id": shared}, data[1]["target"])
+	require.Equal(t, []any{"updated", []any{"applied", "applied"}}, []any{data[1]["status"], data[1]["edits"]})
+	require.Equal(t, "updated", data[2]["status"])
 	require.Contains(t, source(testutil.RequireType[string](t, data[2]["current_config_id"])),
 		"Hi Maya. Be direct and kind.")
-	require.Equal(t, []any{other, "failed", "edit_conflict", []any{"text_not_found", "not_applied"},
+	require.Equal(t, []any{"failed", "edit_conflict", []any{"text_not_found", "not_applied"},
 		"edit conflict: edit 0 didn't match this config, so nothing was saved; " +
-			"set allow_partial_edits to save the other edits"},
-		[]any{data[3]["agent_id"], data[3]["status"], data[3]["code"], data[3]["edits"], data[3]["error"]})
-	missed := results(edit("", `{"agent_ids":["`+other+`"],"edits":[`+
+			"set on_failed_edit to ignore to save the other edits"},
+		[]any{data[3]["status"], data[3]["code"], data[3]["edits"], data[3]["error"]})
+	missed := edit(`{`+agentTargets(other)+`,"edits":[`+
 		`{"type":"replace_text","path":"/instruction","find":"a","replace":"b"},`+
 		`{"type":"replace_text","path":"/instruction","find":"Be direct.","replace":"x"},`+
-		`{"type":"remove","path":"/tools/gone/permission"}]}`, "", http.StatusOK))
+		`{"type":"remove","path":"/tools/gone/permission"}]}`, "", http.StatusOK)
 	require.Equal(t, "edit conflict: edits 1 and 2 didn't match this config, so nothing was saved; "+
-		"set allow_partial_edits to save the other edits", missed[0]["error"])
-	partial := results(edit("", `{"agent_ids":["`+other+`"],"allow_partial_edits":true,`+edits+`}`, "", http.StatusOK))
+		"set on_failed_edit to ignore to save the other edits", missed[0]["error"])
+	partial := edit(`{`+agentTargets(other)+`,"on_failed_edit":"ignore",`+edits+`}`, "", http.StatusOK)
 	require.Equal(t, []any{"updated", []any{"text_not_found", "applied"}},
 		[]any{partial[0]["status"], partial[0]["edits"]})
 
-	for _, result := range results(edit("", body, "", http.StatusOK)) {
+	for _, result := range edit(body, "", http.StatusOK) {
 		require.Equal(t, "unchanged", result["status"])
 	}
-
-	walk := func(body string) []any {
-		t.Helper()
-		var walked []any
-		for cursor := ""; ; {
-			query := "?limit=1"
-			if cursor != "" {
-				query += "&cursor=" + url.QueryEscape(cursor)
-			}
-			page := edit(query, body, "", http.StatusOK)
-			for _, result := range results(page) {
-				if id, ok := result["agent_id"]; ok {
-					walked = append(walked, id)
-				} else {
-					walked = append(walked, result["agent_profile_id"])
-				}
-			}
-			next, _ := page["next_cursor"].(string)
-			if next == "" {
-				return walked
-			}
-			cursor = next
-		}
+	instancesOnly := func(id string) string {
+		return `{"type":"profile","agent_profile_id":"` + id + `","apply_to_profile":false,"apply_to_instances":true}`
 	}
-	require.Equal(t, []any{profileID, shared, personal, other}, walk(body))
-	firstPage := edit("?limit=1", body, "", http.StatusOK)
-	edit("?limit=1&cursor="+url.QueryEscape(testutil.RequireType[string](t, firstPage["next_cursor"])),
-		`{"allow_partial_edits":true,`+body[1:], "", http.StatusBadRequest)
-	firstAgents, secondAgents := []any{shared, personal, other}, []any{secondEarly, secondLate}
-	if testPublicIDOrder(t, publicid.KindAgentProfile, secondProfileID, profileID) {
-		firstAgents, secondAgents = secondAgents, firstAgents
-	}
-	require.Equal(t, append(firstAgents, secondAgents...), walk(`{"agent_profile_ids":["`+profileID+
-		`","`+secondProfileID+`"],"apply_to":["agent"],"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]}`))
+	setLong := `"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]`
+	require.Equal(t, []any{shared, personal, other, secondEarly, secondLate}, targetIDs(edit(`{"targets":[`+
+		instancesOnly(profileID)+`,`+instancesOnly(secondProfileID)+`],`+setLong+`}`, "", http.StatusOK)))
+	edit(`{"targets":[{"type":"profile","agent_profile_id":"`+profileID+`","apply_to_profile":false}],`+setLong+`}`,
+		"", http.StatusBadRequest)
 
-	insert := `{"agent_profile_ids":["` + profileID + `"],"edits":[{"type":"replace_text","path":"/instruction",` +
+	insert := `{"targets":[` + fleet + `],"edits":[{"type":"replace_text","path":"/instruction",` +
 		`"find":"Ask before deleting.","replace":"Ask before deleting. Log every command."}]}`
-	var pages []map[string]any
-	var queries []string
-	cursor := ""
-	for page := 0; ; page++ {
-		query := "?limit=1"
-		if cursor != "" {
-			query += "&cursor=" + url.QueryEscape(cursor)
-		}
-		queries = append(queries, query)
-		key := fmt.Sprintf("idem-agent-config-edit-insert-%d", page)
-		first := edit(query, insert, key, http.StatusOK)
-		retry := edit(query, insert, key, http.StatusOK)
-		firstData, retryData := results(first), results(retry)
-		require.Len(t, firstData, 1)
-		require.Equal(t, firstData[0]["current_config_id"], retryData[0]["current_config_id"])
-		pages = append(pages, firstData[0])
-		next, _ := retry["next_cursor"].(string)
-		if next == "" {
-			break
-		}
-		cursor = next
-	}
-	require.Len(t, pages, 4)
-	require.Equal(t, []any{"profile", "updated"}, []any{pages[0]["type"], pages[0]["status"]})
-	for _, page := range pages {
-		require.Equal(t, 1, strings.Count(source(testutil.RequireType[string](t, page["current_config_id"])),
+	inserted := edit(insert, "idem-agent-config-edit-insert", http.StatusOK)
+	require.Equal(t, []any{profileID, shared, personal, other}, targetIDs(inserted))
+	for _, result := range inserted {
+		require.Equal(t, "updated", result["status"])
+		require.Equal(t, 1, strings.Count(source(testutil.RequireType[string](t, result["current_config_id"])),
 			"Log every command."))
 	}
-
-	intervening := results(edit("", `{"agent_profile_ids":["`+profileID+`"],"edits":[{"type":"replace_text",`+
-		`"path":"/instruction","find":"Log every command.","replace":"Log every command!"}]}`, "", http.StatusOK))
+	intervening := edit(`{"targets":[`+fleet+`],"edits":[{"type":"replace_text",`+
+		`"path":"/instruction","find":"Log every command.","replace":"Log every command!"}]}`, "", http.StatusOK)
 	countConfigs := func() int {
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM agent_configs WHERE project_id = $1`,
@@ -178,66 +146,65 @@ func TestEditAgentConfigs(t *testing.T) {
 		return count
 	}
 	configsBefore := countConfigs()
-	for i := range 2 {
-		replayed := results(edit(queries[i], insert, fmt.Sprintf("idem-agent-config-edit-insert-%d", i), http.StatusOK))
-		require.Equal(t, []any{"updated", pages[i]["current_config_id"]},
-			[]any{replayed[0]["status"], replayed[0]["current_config_id"]})
-		require.NotContains(t, replayed[0], "edits")
+	for i, replayed := range edit(insert, "idem-agent-config-edit-insert", http.StatusOK) {
+		require.Equal(t, []any{"updated", inserted[i]["current_config_id"]},
+			[]any{replayed["status"], replayed["current_config_id"]})
+		require.NotContains(t, replayed, "edits")
 		require.Contains(t, source(testutil.RequireType[string](t, intervening[i]["current_config_id"])),
 			"Log every command!")
 	}
 	require.Equal(t, configsBefore, countConfigs())
 
-	nulled := results(edit("", `{"agent_ids":["`+shared+`"],"edits":[{"type":"set","path":"/mcp","value":null}]}`,
-		"", http.StatusOK))
+	nulled := edit(`{`+agentTargets(shared)+`,"edits":[{"type":"set","path":"/mcp","value":null}]}`, "", http.StatusOK)
 	require.Equal(t, "updated", nulled[0]["status"])
-	nullItem := results(edit("", `{"agent_ids":["`+shared+`"],"edits":[`+
-		`{"type":"add_item","path":"/skills","value":null}]}`, "", http.StatusOK))
+	nullItem := `"edits":[{"type":"add_item","path":"/skills","value":null}]`
+	failedItem := edit(`{`+agentTargets(shared)+`,`+nullItem+`}`, "", http.StatusOK)
 	require.Equal(t, []any{"failed", "invalid_request", []any{"not_applied"}},
-		[]any{nullItem[0]["status"], nullItem[0]["code"], nullItem[0]["edits"]})
+		[]any{failedItem[0]["status"], failedItem[0]["code"], failedItem[0]["edits"]})
+	stopped := edit(`{`+agentTargets(shared, personal, secondEarly)+`,"on_failed_edit":"stop",`+nullItem+`}`,
+		"", http.StatusOK)
+	require.Equal(t, []any{"failed", "skipped", "skipped"},
+		[]any{stopped[0]["status"], stopped[1]["status"], stopped[2]["status"]})
+	require.NotContains(t, stopped[1], "edits")
 
 	missing := testPublicID(t, publicid.KindAgent, httpTestID("agent-config-edit-missing"))
 	setShort := `"edits":[{"type":"set","path":"/model/cache_retention","value":"short"}]`
-	edit("", `{"agent_ids":["`+missing+`"],`+setShort+`}`, "", http.StatusNotFound)
-	edit("", `{"agent_ids":["`+shared+`"],"apply_to":["profile"],`+setShort+`}`, "", http.StatusBadRequest)
-	profileOnly := results(edit("", `{"agent_profile_ids":["`+profileID+`"],"apply_to":["profile"],`+setShort+`}`,
-		"", http.StatusOK))
-	require.Len(t, profileOnly, 1)
-	require.Equal(t, []any{"profile", "updated"}, []any{profileOnly[0]["type"], profileOnly[0]["status"]})
+	edit(`{`+agentTargets(missing)+`,`+setShort+`}`, "", http.StatusNotFound)
+	profileOnly := edit(`{"targets":[{"type":"profile","agent_profile_id":"`+profileID+`"}],`+setShort+`}`,
+		"", http.StatusOK)
+	require.Equal(t, []any{[]any{profileID}, "updated"}, []any{targetIDs(profileOnly), profileOnly[0]["status"]})
 
-	setOther := `{"agent_ids":["` + other + `"],` + setShort + `}`
-	beforeArchive := results(edit("", setOther, "idem-agent-config-edit-before-archive", http.StatusOK))
+	setOther := `{` + agentTargets(other) + `,` + setShort + `}`
+	beforeArchive := edit(setOther, "idem-agent-config-edit-before-archive", http.StatusOK)
 	require.Equal(t, "updated", beforeArchive[0]["status"])
 	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents/"+other+"/archive", "",
 		"idem-agent-config-edit-archive", http.StatusOK, headers)
-	afterArchive := results(edit("", setOther, "idem-agent-config-edit-before-archive", http.StatusOK))
+	afterArchive := edit(setOther, "idem-agent-config-edit-before-archive", http.StatusOK)
 	require.Equal(t, []any{"updated", beforeArchive[0]["current_config_id"]},
 		[]any{afterArchive[0]["status"], afterArchive[0]["current_config_id"]})
-	archived := results(edit("", setOther, "", http.StatusOK))
+	archived := edit(setOther, "", http.StatusOK)
 	require.Equal(t, []any{"failed", "state_transition_conflict"}, []any{archived[0]["status"], archived[0]["code"]})
 }
 
-func TestEditAgentConfigsRestart(t *testing.T) {
+func TestEditAgentConfigsRetry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
-	project := bootstrapPublicHTTPProject(t, handler, "agent-config-edit-restart")
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-edit-retry")
 	headers := authHeaders(project.AdminToken)
 	config := func(seed, instruction string) string {
-		created := createPublicHTTPAgentConfig(t, handler, project, "agent-config-edit-restart-"+seed, "yaml",
+		created := createPublicHTTPAgentConfig(t, handler, project, "agent-config-edit-retry-"+seed, "yaml",
 			"instruction: "+instruction+"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 			project.AdminToken, http.StatusCreated)
 		return testutil.RequireType[string](t, created["id"])
 	}
-	profile := func(seed, configID string) string {
-		created := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-restart-"+seed, seed,
-			configID, project.AdminToken, http.StatusCreated)
-		return testutil.RequireType[string](t, created["id"])
-	}
-	launch := func(seed, profileID string) string {
+	created := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-retry", "Retry",
+		config("ask", "Ask before deleting."), project.AdminToken, http.StatusCreated)
+	profileID := testutil.RequireType[string](t, created["id"])
+	launch := func(seed string) string {
 		launched := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
-			`{"profile":"`+profileID+`"}`, "idem-agent-config-edit-restart-"+seed, http.StatusCreated, headers)
+			`{"profile":"`+profileID+`"}`, "idem-agent-config-edit-retry-"+seed, http.StatusCreated, headers)
 		return testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 	}
 	inserted := func(agentID string) int {
@@ -247,69 +214,120 @@ func TestEditAgentConfigsRestart(t *testing.T) {
 			testutil.RequireType[string](t, agent["current_config_id"]), "", "", http.StatusOK, headers)
 		return strings.Count(testutil.RequireType[string](t, config["source"]), "Log every command.")
 	}
-	calm := config("calm", "Be calm.")
-	unchanged, edited := profile("a", calm), profile("b", calm)
-	if !testPublicIDOrder(t, publicid.KindAgentProfile, unchanged, edited) {
-		unchanged, edited = edited, unchanged
-	}
-	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-profiles/"+edited+"/config",
-		`{"config":"`+config("ask", "Ask before deleting.")+`","expected_current_config_id":"`+calm+`"}`,
-		"idem-agent-config-edit-restart-retarget", http.StatusOK, headers)
-	first, second := launch("first", edited), launch("second", edited)
-	targets := `{"agent_profile_ids":["` + unchanged + `","` + edited + `"],"edits":`
-	insert := targets + `[{"type":"replace_text","path":"/instruction",` +
-		`"find":"Ask before deleting.","replace":"Ask before deleting. Log every command."}]}`
-	page := func(body, cursor, key string) map[string]any {
-		query := "?limit=1"
-		if cursor != "" {
-			query += "&cursor=" + url.QueryEscape(cursor)
-		}
-		return requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit"+query,
+	edit := func(body, key string) []any {
+		t.Helper()
+		response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
 			body, key, http.StatusOK, headers)
-	}
-	finish := func(body string, response map[string]any, run string, after func(int)) []map[string]any {
-		var results []map[string]any
-		for i := 1; ; i++ {
-			for _, item := range testutil.RequireType[[]any](t, response["data"]) {
-				results = append(results, testutil.RequireType[map[string]any](t, item))
+		var ids []any
+		for _, item := range testutil.RequireType[[]any](t, response["data"]) {
+			target := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, item)["target"])
+			if id, ok := target["agent_id"]; ok {
+				ids = append(ids, id)
+			} else {
+				ids = append(ids, target["agent_profile_id"])
 			}
-			if after != nil {
-				after(i)
-			}
-			next, _ := response["next_cursor"].(string)
-			if next == "" {
-				return results
-			}
-			response = page(body, next, fmt.Sprintf("idem-agent-config-edit-restart-%s-%d", run, i))
 		}
+		return ids
 	}
-
-	page(insert, "", "idem-agent-config-edit-restart-rollout")
-	lost := launch("lost", edited)
-	var late string
-	finish(insert, page(insert, "", "idem-agent-config-edit-restart-rollout"), "first", func(i int) {
-		if i == 2 {
-			late = launch("late", edited)
-		}
-	})
+	first, second := launch("first"), launch("second")
+	insert := `"edits":[{"type":"replace_text","path":"/instruction",` +
+		`"find":"Ask before deleting.","replace":"Ask before deleting. Log every command."}]}`
+	fleet := `{"targets":[{"type":"profile","agent_profile_id":"` + profileID + `","apply_to_instances":true}],` + insert
+	require.Equal(t, []any{profileID, first, second}, edit(fleet, "idem-agent-config-edit-retry-fleet"))
+	late := launch("late")
 	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents/"+first+"/archive", "",
-		"idem-agent-config-edit-restart-archive", http.StatusOK, headers)
-	finish(insert, page(insert, "", "idem-agent-config-edit-restart-rollout"), "restart", nil)
-	for _, agentID := range []string{first, second, lost, late} {
+		"idem-agent-config-edit-retry-archive", http.StatusOK, headers)
+	require.Equal(t, []any{profileID, second}, edit(fleet, "idem-agent-config-edit-retry-fleet"))
+	for _, agentID := range []string{first, second, late} {
 		require.Equal(t, 1, inserted(agentID), agentID)
 	}
 
-	set := targets + `[{"type":"set","path":"/model/cache_retention","value":"long"}]}`
-	deleted := finish(set, page(set, "", "idem-agent-config-edit-restart-delete"), "delete", func(i int) {
-		if i == 1 {
-			requestJSONWithHeaders(t, handler, http.MethodDelete, project.ProjectPath+"/agent-profiles/"+edited, "",
-				"", http.StatusNoContent, headers)
-		}
-	})
-	require.Equal(t, []any{edited, "failed", "not_found"},
-		[]any{deleted[1]["agent_profile_id"], deleted[1]["status"], deleted[1]["code"]})
-	require.Len(t, deleted, 5)
+	stale := launch("stale")
+	setLong := `{"targets":[{"type":"profile","agent_profile_id":"` + profileID + `","apply_to_profile":false,` +
+		`"apply_to_instances":true}],"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]}`
+	require.Equal(t, []any{second, late, stale}, edit(setLong, "idem-agent-config-edit-retry-agents"))
+	lost := launch("lost")
+	require.Equal(t, []any{second, late, stale, lost}, edit(setLong, "idem-agent-config-edit-retry-agents"))
+
+	requestJSONWithHeaders(t, handler, http.MethodDelete, project.ProjectPath+"/agent-profiles/"+profileID, "",
+		"", http.StatusNoContent, headers)
+	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
+		fleet, "idem-agent-config-edit-retry-fleet", http.StatusNotFound, headers)
 }
+
+func TestEditAgentConfigsTargetLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-edit-limit")
+	headers := authHeaders(project.AdminToken)
+	config := createPublicHTTPAgentConfig(t, handler, project, "agent-config-edit-limit", "yaml",
+		"instruction: Be direct.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	profile := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-limit", "Limit",
+		testutil.RequireType[string](t, config["id"]), project.AdminToken, http.StatusCreated)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	for i := range maxAgentConfigEditTargets {
+		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents", `{"profile":"`+profileID+`"}`,
+			"idem-agent-config-edit-limit-"+strconv.Itoa(i), http.StatusCreated, headers)
+	}
+	response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
+		`{"targets":[{"type":"profile","agent_profile_id":"`+profileID+`","apply_to_instances":true}],`+
+			`"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]}`, "", http.StatusBadRequest, headers)
+	require.Equal(t, "invalid request: targets expand to more than 500 profiles and agents", response["error"])
+}
+
+func TestEditAgentConfigsReportsReplayErrorsPerTarget(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-edit-replay-error")
+	headers := authHeaders(project.AdminToken)
+	config := createPublicHTTPAgentConfig(t, handler, project, "agent-config-edit-replay-error", "yaml",
+		"instruction: Be direct.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	var profiles []string
+	for _, seed := range []string{"first", "second"} {
+		profile := createPublicHTTPAgentProfile(t, handler, project, "agent-config-edit-replay-error-"+seed, seed,
+			testutil.RequireType[string](t, config["id"]), project.AdminToken, http.StatusCreated)
+		profiles = append(profiles, testutil.RequireType[string](t, profile["id"]))
+	}
+	traced := newIntegrationServer(poolWithQueryTracer(t, ctx, pool,
+		failProfileReplayTracer{profileID: mustPublicHTTPID(t, publicid.KindAgentProfile, profiles[1])}))
+	response := requestJSONWithHeaders(t, traced, http.MethodPost, project.ProjectPath+"/agent-configs/edit",
+		`{"targets":[{"type":"profile","agent_profile_id":"`+profiles[0]+`"},`+
+			`{"type":"profile","agent_profile_id":"`+profiles[1]+`"}],`+
+			`"edits":[{"type":"set","path":"/model/cache_retention","value":"long"}]}`,
+		"idem-agent-config-edit-replay-error", http.StatusOK, headers)
+	var statuses []any
+	for _, item := range testutil.RequireType[[]any](t, response["data"]) {
+		result := testutil.RequireType[map[string]any](t, item)
+		statuses = append(statuses, result["status"], result["code"])
+	}
+	require.Equal(t, []any{"updated", nil, "failed", "internal_error"}, statuses)
+}
+
+type failProfileReplayTracer struct {
+	profileID uuid.UUID
+}
+
+func (tracer failProfileReplayTracer) TraceQueryStart(
+	ctx context.Context,
+	_ *pgx.Conn,
+	data pgx.TraceQueryStartData,
+) context.Context {
+	if strings.HasPrefix(data.SQL, "-- name: GetAgentProfileVersionByIdempotencyKey ") &&
+		slices.Contains(data.Args, any(tracer.profileID)) {
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		return canceled
+	}
+	return ctx
+}
+
+func (failProfileReplayTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
 func TestEditAgentConfigsConcurrentReplay(t *testing.T) {
 	t.Parallel()
@@ -369,17 +387,8 @@ func TestEditAgentConfigsConcurrentReplay(t *testing.T) {
 		require.Equal(t, results[0]["current_config_id"], results[1]["current_config_id"])
 	}
 
-	race("idem-agent-config-edit-race-agent",
-		`{"agent_ids":["`+agentID+`"],`+edits("Be kind."), `{"agent_ids":["`+agentID+`"],`+edits("Be calm."))
-	profileBody := `{"agent_profile_ids":["` + profileID + `"],"apply_to":["profile"],` + edits("Be brief.")
+	agentTarget := `{"targets":[{"type":"agent","agent_id":"` + agentID + `"}],`
+	race("idem-agent-config-edit-race-agent", agentTarget+edits("Be kind."), agentTarget+edits("Be calm."))
+	profileBody := `{"targets":[{"type":"profile","agent_profile_id":"` + profileID + `"}],` + edits("Be brief.")
 	race("idem-agent-config-edit-race-profile", profileBody, profileBody)
-}
-
-func testPublicIDOrder(t *testing.T, kind publicid.Kind, a, b string) bool {
-	t.Helper()
-	first, err := publicid.Decode(kind, a)
-	require.NoError(t, err)
-	second, err := publicid.Decode(kind, b)
-	require.NoError(t, err)
-	return bytes.Compare(first[:], second[:]) < 0
 }
