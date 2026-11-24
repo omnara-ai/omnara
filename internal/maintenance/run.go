@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
@@ -42,6 +43,7 @@ type Options struct {
 	PublicURL            string
 	GitHubHTTPClient     *http.Client
 	DefaultModelProvider *defaultprovider.Runner
+	ModelPrices          *modelprice.Source
 }
 
 // Run runs every maintenance job on its own schedule until ctx ends.
@@ -53,68 +55,87 @@ func Run(ctx context.Context, options Options) {
 	jobRecorder := metrics.NewJobRecorder(options.Metrics, metrics.SubsystemMaintenance)
 	webhookRecorder := metrics.NewEventWebhookBacklogRecorder(options.Metrics)
 	jobs := []maintenanceJob{
-		{"reap_runtime_locks", interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
-		{"expire_daemon_runtimes", interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
-		{"expire_process_tools", interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
-		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval,
+		{"reap_runtime_locks", interval, interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
+		{"expire_daemon_runtimes", interval, interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
+		{"expire_process_tools", interval, interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
+		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval, interval,
 			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries, webhookRecorder)},
-		{"cleanup_auth_state", expiredDataCleanupInterval,
+		{"cleanup_auth_state", expiredDataCleanupInterval, interval,
 			cleanupAuthState(log, options.Store.Identity().CleanupInactiveAuthState)},
-		{"cleanup_integration_states", expiredDataCleanupInterval,
+		{"cleanup_integration_states", expiredDataCleanupInterval, interval,
 			cleanupIntegrationStates(log, integrations.CleanupIntegrationStates)},
-		{"cleanup_completed_inbox", expiredDataCleanupInterval,
+		{"cleanup_completed_inbox", expiredDataCleanupInterval, interval,
 			cleanupCompletedInbox(log, integrations.CleanupTerminalIntegrationInbox)},
-		{"cleanup_deleted_inbox", expiredDataCleanupInterval,
+		{"cleanup_deleted_inbox", expiredDataCleanupInterval, interval,
 			cleanupDeletedInbox(log, integrations.CleanupDeletedIntegrationInbox)},
-		{"cleanup_memory_files", memoryCleanupInterval, cleanupMemoryFiles(log, options.Store.Memories().CleanupFiles)},
-		{"provision_pool_machines", interval, provisionPoolMachines(log, machinePools)},
-		{"cleanup_pool_machines", interval, cleanupPoolMachines(log, machinePools)},
-		{"delete_idle_pool_machines", idleMachineReconcileInterval,
+		{"cleanup_memory_files", memoryCleanupInterval, interval,
+			cleanupMemoryFiles(log, options.Store.Memories().CleanupFiles)},
+		{"provision_pool_machines", interval, interval, provisionPoolMachines(log, machinePools)},
+		{"cleanup_pool_machines", interval, interval, cleanupPoolMachines(log, machinePools)},
+		{"delete_idle_pool_machines", idleMachineReconcileInterval, interval,
 			deleteIdlePoolMachines(log, machinePools.ReconcileIdleDeletion)},
-		{"delete_denied_pool_machines", deniedMachineReconcileInterval, deleteDeniedPoolMachines(log, machinePools)},
-		{"archive_idle_agents", idleAgentArchiveInterval,
+		{"delete_denied_pool_machines", deniedMachineReconcileInterval, interval,
+			deleteDeniedPoolMachines(log, machinePools)},
+		{"archive_idle_agents", idleAgentArchiveInterval, interval,
 			archiveIdleAgents(log, execution.ArchiveIdleAgents, machinePools.DeleteMachines)},
-		{"discover_provider_runtimes", providerRuntimeDiscoveryInterval, reconcileProviderRuntimes(
+		{"discover_provider_runtimes", providerRuntimeDiscoveryInterval, interval, reconcileProviderRuntimes(
 			log, runtimeRecorder, metrics.ProviderRuntimeOperationDiscovery,
 			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
 				return machinePools.DiscoverProviderRuntimeMismatches(ctx, machinepool.RuntimeReconciliationConfig{})
 			},
 		)},
-		{"confirm_provider_runtimes", providerRuntimeRecheckInterval, reconcileProviderRuntimes(
+		{"confirm_provider_runtimes", providerRuntimeRecheckInterval, interval, reconcileProviderRuntimes(
 			log, runtimeRecorder, metrics.ProviderRuntimeOperationConfirmation,
 			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
 				return machinePools.ConfirmProviderRuntimeMismatches(ctx, machinepool.RuntimeReconciliationConfig{})
 			},
 		)},
-		{executionHeadJob, executionHeadInterval, sampleExecutionHeads(
+		{executionHeadJob, executionHeadInterval, interval, sampleExecutionHeads(
 			log, jobRecorder, execution.SampleExecutionHeads,
 		)},
-		{"sample_discord_demand", discordRuntimeMetricsInterval, recordDiscordRuntimeDemand(
+		{"sample_discord_demand", discordRuntimeMetricsInterval, interval, recordDiscordRuntimeDemand(
 			log, integrations.CountUnclaimedDiscordIntegrations, metrics.NewDiscordRuntimeDemandRecorder(options.Metrics),
 		)},
-		{"sample_event_webhook_backlog", eventWebhookBacklogInterval, recordEventWebhookBacklog(
+		{"sample_event_webhook_backlog", eventWebhookBacklogInterval, interval, recordEventWebhookBacklog(
 			log, execution.SampleEventWebhookBacklog, webhookRecorder,
 		)},
-		{"sample_agent_backlog", agentBacklogInterval, recordAgentBacklog(
+		{"sample_agent_backlog", agentBacklogInterval, interval, recordAgentBacklog(
 			log, execution.SampleReadyAgentBacklog, metrics.NewAgentBacklogRecorder(options.Metrics),
 		)},
-		{"reconcile_github_checks", interval, reconcileGitHubChecks(log, (&integrationruntime.GitHubCheckReconciler{
+		{modelCostMergeJob, interval, 0, mergeDailyModelCosts(
+			log, options.Store.Identity().MergeDailyModelCosts, jobRecorder,
+		)},
+		{"sample_model_cost_backlog", modelCostBacklogInterval, interval, recordModelCostBacklog(
+			log, options.Store.Identity().CountPendingModelCosts,
+			metrics.NewModelCostBacklogRecorder(options.Metrics, modelCostBacklogCeiling),
+		)},
+		{"reconcile_github_checks", interval, interval, reconcileGitHubChecks(log, (&integrationruntime.GitHubCheckReconciler{
 			Store: options.Store, GitHub: github.Config{HTTPClient: options.GitHubHTTPClient}, PublicURL: options.PublicURL,
 		}).Reconcile, metrics.NewGitHubCheckRecorder(options.Metrics))},
 	}
 	if options.DefaultModelProvider != nil {
 		jobs = append(jobs, maintenanceJob{
-			"provision_default_model_provider", interval,
+			"provision_default_model_provider", interval, interval,
 			provisionDefaultModelProviders(log, options.DefaultModelProvider),
+		})
+	}
+	if options.ModelPrices != nil {
+		models := options.Store.Models()
+		jobs = append(jobs, maintenanceJob{
+			"refresh_model_prices", modelPriceRefreshInterval, interval,
+			refreshModelPrices(log, func(ctx context.Context) (string, int, error) {
+				return options.ModelPrices.Refresh(ctx, models.ModelPriceCatalog, models.SaveModelPriceCatalog)
+			}),
 		})
 	}
 	runMaintenanceJobs(ctx, interval, jobRecorder, jobs)
 }
 
 type maintenanceJob struct {
-	name     string
-	interval time.Duration
-	run      func(context.Context) maintenanceResult
+	name      string
+	interval  time.Duration
+	moreDelay time.Duration
+	run       func(context.Context) maintenanceResult
 }
 
 type maintenanceResult struct {
@@ -152,7 +173,7 @@ func runMaintenanceJob(
 		} else {
 			retry = busyInterval
 			if result.more {
-				delay = min(delay, busyInterval)
+				delay = min(delay, job.moreDelay)
 			}
 		}
 		timer := time.NewTimer(delay)

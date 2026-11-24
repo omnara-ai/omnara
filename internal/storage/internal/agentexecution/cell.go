@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
@@ -17,23 +18,26 @@ import (
 )
 
 type AgentCell struct {
-	pool         *storeutil.Pool
-	publisher    notifications.PostCommitPublisher
-	retryBackoff func(int, string) time.Duration
+	pool          *storeutil.Pool
+	publisher     notifications.PostCommitPublisher
+	retryBackoff  func(int, string) time.Duration
+	costEstimator modelprice.Estimator
 }
 
 func NewCell(
 	pool *pgxpool.Pool,
 	publisher notifications.PostCommitPublisher,
 	retryBackoff func(int, string) time.Duration,
+	costEstimator modelprice.Estimator,
 ) *AgentCell {
 	if retryBackoff == nil {
 		retryBackoff = modelprotocol.RetryBackoff
 	}
 	return &AgentCell{
-		pool:         storeutil.WrapPool(pool),
-		publisher:    publisher,
-		retryBackoff: retryBackoff,
+		pool:          storeutil.WrapPool(pool),
+		publisher:     publisher,
+		retryBackoff:  retryBackoff,
+		costEstimator: costEstimator,
 	}
 }
 

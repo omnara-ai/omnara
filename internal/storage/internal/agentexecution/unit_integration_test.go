@@ -37,7 +37,7 @@ CREATE TABLE agents(id uuid PRIMARY KEY, project_id uuid NOT NULL, org_id uuid N
 CREATE TABLE unit_probe(id bigint GENERATED ALWAYS AS IDENTITY, agent_id uuid, phase text, labels text[]);
 CREATE TABLE deferred_probe(id integer UNIQUE DEFERRABLE INITIALLY DEFERRED);`)
 	require.NoError(t, err)
-	return NewCell(pool, publisher, nil), pool
+	return NewCell(pool, publisher, nil, nil), pool
 }
 
 func unitTestAgent(t *testing.T, u *Unit, project, agent uuid.UUID) *Handle {
@@ -171,7 +171,7 @@ func TestUnitLockPlans(t *testing.T) {
 			nil),
 		ErrLockPlan)
 	require.ErrorIs(t, u.active(), ErrUnitAborted)
-	other, err := BeginTestUnit(ctx, NewCell(pool, nil, nil))
+	other, err := BeginTestUnit(ctx, NewCell(pool, nil, nil, nil))
 	require.NoError(t, err)
 	defer func() { _ = other.Rollback(ctx) }()
 	require.ErrorIs(t, other.LockAgents(ctx, plan), ErrLockPlan)

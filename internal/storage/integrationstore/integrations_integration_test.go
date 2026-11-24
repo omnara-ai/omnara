@@ -43,7 +43,7 @@ func TestIntegrationReferencesAndLifecycle(t *testing.T) {
 		"released idempotency keys retain the transport namespace")
 	require.Equal(t, integrationstore.IntegrationStateDisconnected, integration.State)
 	require.EqualValues(t, 1, integration.SetupRevision)
-	require.NoError(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID))
+	require.NoError(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID, true))
 	_, err = execution.GetAgentProfile(f.ctx, f.project, profile.ID)
 	require.True(t, storeerr.IsNotFound(err), "%v", err)
 	_, err = s.CreateIntegration(f.ctx, input)

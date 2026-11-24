@@ -71,6 +71,7 @@ func isIrreducibleCompactionFailure(err error) bool {
 type providerAttemptEvidence struct {
 	APIFormat              modelprotocol.APIFormat
 	APIVariant             modelprotocol.APIVariant
+	BaseURL                string
 	ProviderRequestStarted bool
 	Response               model.Response
 }
@@ -145,8 +146,10 @@ func (r Runner) recordFailure(
 				RecoveryKind:            executionstore.ModelCallRecoveryRetry,
 				APIFormat:               providerAttempt.APIFormat,
 				APIVariant:              providerAttempt.APIVariant,
+				ProviderBaseURL:         providerAttempt.BaseURL,
 				ProviderRequestID:       providerRequestID,
 				ProviderResponseID:      providerResponseIDAfter(providerAttempt),
+				ServedProviderModelSlug: servedSlug,
 				ErrorKind:               evidence.Kind,
 				ErrorCode:               evidence.Code,
 				ErrorMessage:            evidence.Message,
@@ -178,6 +181,7 @@ func (r Runner) recordFailure(
 			ModelCallContextID:      claim.Context.ID,
 			APIFormat:               providerAttempt.APIFormat,
 			APIVariant:              providerAttempt.APIVariant,
+			ProviderBaseURL:         providerAttempt.BaseURL,
 			ServedProviderModelSlug: servedSlug,
 			ProviderRequestID:       providerRequestID,
 			ProviderResponseID:      providerResponseIDAfter(providerAttempt),
@@ -218,8 +222,10 @@ func (r Runner) replaceCompactionSource(
 			ModelCallContextID:         claim.Context.ID,
 			APIFormat:                  providerAttempt.APIFormat,
 			APIVariant:                 providerAttempt.APIVariant,
+			ProviderBaseURL:            providerAttempt.BaseURL,
 			ProviderRequestID:          providerRequestID,
 			ProviderResponseID:         providerResponseIDAfter(providerAttempt),
+			ServedProviderModelSlug:    servedModelSlugAfter(providerAttempt),
 			ErrorKind:                  evidence.Kind,
 			ErrorCode:                  evidence.Code,
 			ErrorMessage:               evidence.Message,

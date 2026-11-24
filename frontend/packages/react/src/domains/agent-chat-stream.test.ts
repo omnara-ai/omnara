@@ -1,5 +1,5 @@
 import { type Actor, AgentEventStreamError } from '@omnara/sdk'
-import { getActorQueryKey } from '@omnara/sdk/tanstack'
+import { getActorQueryKey, getAgentUsageQueryKey, listBudgetsQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -539,9 +539,34 @@ describe('AgentChatSession streaming', () => {
       data: controlEvent({ sequence: 14 }),
     })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(4)
+      expect(invalidate).toHaveBeenCalledTimes(5)
     })
     expect(invalidate.mock.calls.some(([filters]) => filters?.predicate !== undefined)).toBe(true)
+    session.disconnect()
+  })
+
+  it('refreshes agent usage and budgets when a turn finishes', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const usageKey = getAgentUsageQueryKey({
+      client: sessionClient,
+      path: { orgID: 'org', projectID: 'project', agentID: 'agent' },
+    })
+    const budgetsKey = listBudgetsQueryKey({
+      client: sessionClient,
+      path: { orgID: 'org' },
+      query: { scope_type: 'agent', project_id: 'project', agent_id: 'agent' },
+    })
+    queryClient.getQueryCache().build(queryClient, { queryKey: usageKey })
+    queryClient.getQueryCache().build(queryClient, { queryKey: budgetsKey })
+    const session = startSession([], sessionClient, queryClient)
+    const stream = await connection(0)
+
+    stream.push({ event: 'model_output', data: event() })
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryState(usageKey)?.isInvalidated).toBe(true)
+      expect(queryClient.getQueryState(budgetsKey)?.isInvalidated).toBe(true)
+    })
     session.disconnect()
   })
 

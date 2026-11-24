@@ -13,6 +13,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -102,6 +103,18 @@ func normalizeConfiguredModelUpdate(input configuredModelUpdate) configuredModel
 	)
 	input.APIVariantOptions = storeutil.NormalizeJSON(input.APIVariantOptions)
 	return input
+}
+
+func normalizePricing(pricing **modelprice.Pricing) error {
+	if *pricing == nil {
+		return nil
+	}
+	normalized, err := (*pricing).Normalized()
+	if err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	*pricing = &normalized
+	return nil
 }
 
 func normalizeConfiguredModelOptionFields(

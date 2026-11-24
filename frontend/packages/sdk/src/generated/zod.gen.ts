@@ -470,6 +470,16 @@ export const zModelCatalog = z.object({
     error: z.string().optional()
 });
 
+/**
+ * Your own prices in USD per million tokens, as exact decimal strings, named like genai-prices catalog entries. Missing cache prices use the input price.
+ */
+export const zModelPricing = z.object({
+    input_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/),
+    cache_read_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    cache_write_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    output_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/)
+});
+
 export const zCreateConfiguredModelRequest = z.object({
     name: zResourceName,
     provider_model_slug: z.string().min(1),
@@ -483,7 +493,8 @@ export const zCreateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zModelPricing.optional()
 });
 
 /**
@@ -502,7 +513,8 @@ export const zUpdateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zModelPricing.nullish()
 });
 
 /**
@@ -722,6 +734,7 @@ export const zConfiguredModel = z.object({
     input_modalities: z.array(z.string()),
     output_modalities: z.array(z.string()),
     api_variant_options: zModelApiVariantOptions,
+    pricing: zModelPricing.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     revision_created_at: zTimestamp
@@ -1369,11 +1382,6 @@ export const zAgentConfigSummary = z.object({
 
 export const zAgentConfigGeneratedSource = z.object({
     source: z.string()
-});
-
-export const zCreateAgentProfileRequest = z.object({
-    name: zResourceName,
-    config: zAgentConfigId
 });
 
 export const zUpdateAgentProfileRequest = z.object({
@@ -2433,10 +2441,6 @@ export const zSecretGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zCreateOrganizationRequest = z.object({
-    name: zResourceName
-});
-
 export const zOrganization = z.object({
     id: zOrganizationId,
     name: zResourceName,
@@ -3062,10 +3066,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zCreateProjectRequest = z.object({
-    name: zResourceName
-});
-
 export const zUpdateProjectRequest = z.object({
     name: zResourceName
 });
@@ -3136,6 +3136,115 @@ export const zOrgOverviewAgentProfileReference = z.object({
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
+export const zBudgetId = z.string().regex(/^bdg_[a-z2-7]{26}$/);
+
+export const zBudgetScopeType = z.enum([
+    'org',
+    'project',
+    'profile',
+    'agent'
+]);
+
+export const zOrgBudgetScope = z.object({
+    type: z.enum(['org'])
+});
+
+export const zProjectBudgetScope = z.object({
+    type: z.enum(['project']),
+    project_id: zProjectId
+});
+
+/**
+ * Counts the profile's top-level agents and their subagents.
+ */
+export const zAgentProfileBudgetScope = z.object({
+    type: z.enum(['profile']),
+    project_id: zProjectId,
+    agent_profile_id: zAgentProfileId
+});
+
+/**
+ * Counts a top-level agent and its subagents.
+ */
+export const zAgentBudgetScope = z.object({
+    type: z.enum(['agent']),
+    project_id: zProjectId,
+    agent_id: zAgentId
+});
+
+export const zBudgetScope = z.discriminatedUnion('type', [
+    zOrgBudgetScope.extend({ type: z.literal('org') }),
+    zProjectBudgetScope.extend({ type: z.literal('project') }),
+    zAgentProfileBudgetScope.extend({ type: z.literal('profile') }),
+    zAgentBudgetScope.extend({ type: z.literal('agent') })
+]);
+
+/**
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ */
+export const zBudgetInterval = z.enum([
+    'day',
+    'week',
+    'month',
+    'lifetime'
+]);
+
+/**
+ * Amount in USD as a positive decimal string.
+ */
+export const zBudgetAmount = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$/);
+
+export const zBudgetAttachment = z.object({
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zCreateAgentProfileRequest = z.object({
+    name: zResourceName,
+    config: zAgentConfigId,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateOrganizationRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateProjectRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zBudgetUsage = z.object({
+    amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
+export const zBudget = z.object({
+    id: zBudgetId,
+    org_id: zOrganizationId,
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount,
+    usage: zBudgetUsage.optional(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateBudgetRequest = z.object({
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zUpdateBudgetRequest = z.object({
+    amount_usd: zBudgetAmount
+});
+
+export const zListBudgetsResponse = z.object({
+    data: z.array(zBudget),
+    next_cursor: z.string().nullable()
+});
+
 export const zUsageTimeseriesInterval = z.enum([
     'hour',
     'day',
@@ -3144,7 +3253,7 @@ export const zUsageTimeseriesInterval = z.enum([
 ]);
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export const zUsageTimeseriesMetric = z.enum([
     'sum_tokens',
@@ -3186,7 +3295,9 @@ export const zUsageTokenTotals = z.object({
 
 export const zUsageCostTotals = z.object({
     provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    effective_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_effective_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
 export const zUsageTotals = z.object({
@@ -3675,6 +3786,7 @@ export const zCreateAgentRequest = z.intersection(z.union([
     message: z.string().optional(),
     tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
     subscriptions: z.array(zIntegrationSubscriptionAttachment).max(16).optional(),
+    budgets: z.array(zBudgetAttachment).max(4).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 }));
@@ -4054,6 +4166,67 @@ export const zGetOrgOverviewPath = z.object({
  * Overview data for the organization.
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
+
+export const zListBudgetsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListBudgetsQuery = z.object({
+    scope_type: zBudgetScopeType.optional(),
+    project_id: zProjectId.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    agent_id: zAgentId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Budgets matching the requested scope.
+ */
+export const zListBudgetsResponse2 = zListBudgetsResponse;
+
+export const zCreateBudgetBody = zCreateBudgetRequest;
+
+export const zCreateBudgetPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Budget created.
+ */
+export const zCreateBudgetResponse = zBudget;
+
+export const zDeleteBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget deleted.
+ */
+export const zDeleteBudgetResponse = z.void();
+
+export const zGetBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * The budget.
+ */
+export const zGetBudgetResponse = zBudget;
+
+export const zUpdateBudgetBody = zUpdateBudgetRequest;
+
+export const zUpdateBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget updated.
+ */
+export const zUpdateBudgetResponse = zBudget;
 
 export const zGetOrgUsagePath = z.object({
     orgID: zOrganizationId

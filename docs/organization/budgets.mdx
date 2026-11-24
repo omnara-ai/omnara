@@ -1,0 +1,68 @@
+---
+title: Budgets
+description: Cap model spend for an organization, project, agent profile, or agent per day, week, month, or lifetime
+icon: "wallet"
+---
+
+A **budget** caps how much an organization, a project, an agent profile, or an agent can spend on model calls in an interval: a day, a week, a month, or its lifetime. Once spend reaches a budget, new model calls stop until an admin raises the budget or the interval resets.
+
+An organization, each project, each agent profile, and each top-level agent can have one budget per interval, so a project can have a daily and a monthly budget at the same time. Subagents can't have their own budget; they count toward their top-level agent's. Only organization owners and admins can see and change budgets.
+
+## Set a budget
+
+Choose **Add budget** on the **Budgets** card, then **Edit** on a row to change or remove it. The card is on:
+
+- **Usage** for the organization or a project.
+- The **Usage** tab of an agent profile.
+- The sidebar of a top-level agent.
+
+You can also give a new agent profile a budget under **Advanced** on **New agent**.
+
+With the API, send the amount as a decimal string in US dollars:
+
+<CodeGroup>
+```bash CLI
+npx omnara budgets create --scope-type project --scope-project-id "$PROJ" \
+  --interval month --amount-usd 200
+```
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/budgets" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"scope": {"type": "project", "project_id": "'"$PROJ"'"}, "interval": "month", "amount_usd": "200"}'
+```
+</CodeGroup>
+
+For an organization budget, use `{"type": "org"}` as the scope, or `--scope-type org` with the CLI. For an agent profile, use `{"type": "profile", "project_id": …, "agent_profile_id": …}` (`--scope-agent-profile-id`), and for an agent, `{"type": "agent", "project_id": …, "agent_id": …}` (`--scope-agent-id`). Listing or fetching a budget returns its spend so far in the current interval as `usage`.
+
+Creating an organization, project, agent profile, or agent also accepts `budgets`, a list of `{"interval": …, "amount_usd": …}` created with it, one per interval.
+
+## Intervals
+
+Intervals follow UTC:
+
+| `interval` | Resets |
+| --- | --- |
+| `day` | Every day at 00:00 UTC |
+| `week` | Every Monday at 00:00 UTC |
+| `month` | On the 1st of every month at 00:00 UTC |
+| `lifetime` | Never. It counts spend from when budgets were introduced; earlier usage isn't included |
+
+A call counts toward the interval it started in.
+
+## What counts
+
+- **Model calls only.** Each call counts at the cost described in [How costs are calculated](/organization/costs). Machines and web search aren't counted.
+- **Models need a price.** While a budget applies, calls to a model are refused unless it has [your own prices](/organization/model-providers#set-model-prices), runs through OpenRouter, or has a public list price.
+- **Models priced at 0 keep running.** Budgets never stop a model whose [own prices](/organization/model-providers#set-model-prices) are all 0, such as a self-hosted model, because its calls add no spend.
+- **Every project counts toward the organization.** An organization budget includes spend from all of its projects, including deleted ones.
+- **Subagents count toward their top-level agent.** An agent budget includes the agent's subagents. A profile budget includes every top-level agent started from the profile and their subagents, even subagents started from a different profile.
+
+## When a budget is reached
+
+New model calls in that organization, project, profile, or agent stop, including calls from subagents and context compaction, unless the model is priced at 0. The agent shows a message naming the budget that was reached. Calls that are already running finish, so spend can exceed the budget by the cost of those calls, at most one per running agent.
+
+Every budget applies on its own, and the first one reached stops calls. A project budget can be higher than the organization's, and the same goes for profile and agent budgets. When several are reached, the message names the broadest: organization, then project, then profile, then agent.
+
+To continue, raise or remove the budget, or wait for its interval to reset, then send the agent a new message.

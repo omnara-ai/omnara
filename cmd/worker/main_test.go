@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +18,8 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
@@ -140,4 +145,69 @@ func TestOutboundClientsKeepGrantsSeparate(t *testing.T) {
 	if err := get(mcpAuth.HTTPClient, endpoint.URL); !errors.Is(err, ssrf.ErrBlockedAddress) {
 		t.Fatalf("OAuth client plain HTTP outside development mode error = %v, want ErrBlockedAddress", err)
 	}
+}
+
+func TestLoadStoredModelPrices(t *testing.T) {
+	prices, err := modelprice.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundled := prices.Version()
+	log := slog.New(slog.DiscardHandler)
+	load := func(data []byte, readErr error) error {
+		return loadStoredModelPrices(t.Context(), log, prices, func(_ context.Context, version string) ([]byte, error) {
+			if version != bundled {
+				t.Fatalf("read asked for changes since %q, want %q", version, bundled)
+			}
+			return data, readErr
+		})
+	}
+	unavailable := errors.New("database unavailable")
+	if err := load(nil, unavailable); !errors.Is(err, unavailable) {
+		t.Fatalf("read error = %v, want %v so startup stops", err, unavailable)
+	}
+	for _, data := range [][]byte{nil, []byte(`{"not":`)} {
+		if err := load(data, nil); err != nil {
+			t.Fatalf("load(%q) = %v, want nil so the worker keeps its prices", data, err)
+		}
+		if prices.Version() != bundled {
+			t.Fatalf("version = %q, want the bundled prices kept", prices.Version())
+		}
+	}
+
+	if err := load(storedPriceData(t), nil); err != nil {
+		t.Fatal(err)
+	}
+	if prices.Version() == bundled {
+		t.Fatal("a valid stored copy must replace the bundled prices")
+	}
+	cost := prices.Estimate(t.Context(), modelprice.Input{
+		BaseURL: "https://api.openai.com/v1", ServedModel: "gpt-4o", CreatedAt: time.Now(),
+		Usage: modelenvelope.Usage{InputTokens: 1_000_000, UncachedInputTokens: 1_000_000, OutputTokens: 1_000_000},
+	})
+	if cost != "2" {
+		t.Fatalf("estimate = %q, want the stored $1 per million tokens", cost)
+	}
+}
+
+func storedPriceData(t *testing.T) []byte {
+	t.Helper()
+	models := make([]map[string]any, 0, 50)
+	for index := range 50 {
+		id := "gpt-4o"
+		if index > 0 {
+			id = fmt.Sprintf("model-%d", index)
+		}
+		models = append(models, map[string]any{
+			"id": id, "match": map[string]string{"equals": id},
+			"prices": map[string]any{"input_mtok": 1, "output_mtok": 1},
+		})
+	}
+	data, err := json.Marshal([]map[string]any{{
+		"id": "openai", "name": "OpenAI", "api_pattern": `https://api\.openai\.com`, "models": models,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

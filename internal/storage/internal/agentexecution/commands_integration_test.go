@@ -692,7 +692,7 @@ func prepareBlockedCandidate(ctx context.Context,
 	a,
 	lease uuid.UUID,
 	decision agentexecution.ModelDecision) error {
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	unit, err := agentexecution.BeginTestUnit(ctx, cell)
 	if err != nil {
 		return err

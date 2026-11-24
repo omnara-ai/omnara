@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
@@ -218,6 +219,7 @@ type ConfiguredModelRevision struct {
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
 	CreatedAt                 time.Time
+	Pricing                   *modelprice.Pricing
 }
 
 type EffectiveResourceLimit struct {

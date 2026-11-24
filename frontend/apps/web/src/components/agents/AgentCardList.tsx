@@ -181,13 +181,13 @@ export function AgentCardStat({
   value,
 }: {
   icon?: ComponentType<SVGProps<SVGSVGElement>>
-  label: string
+  label: ReactNode
   value: ReactNode
 }) {
   return (
     <div className="flex items-center gap-1.5">
       {Icon && <Icon className="text-muted-foreground size-4" aria-hidden="true" />}
-      <dt className="text-muted-foreground order-last">{label}</dt>
+      <dt className="text-muted-foreground order-last flex items-center gap-1">{label}</dt>
       <dd className="font-medium tabular-nums">{value ?? '—'}</dd>
     </div>
   )

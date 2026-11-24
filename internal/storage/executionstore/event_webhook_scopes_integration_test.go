@@ -128,7 +128,7 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 		webhooks[1].ID, filteredToolID).Scan(&count))
 	require.Zero(t, count)
 
-	require.NoError(t, store.DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID))
+	require.NoError(t, store.DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID, true))
 	endpoint, err = store.GetEventWebhookEndpoint(f.ctx, testOrgID, webhooks[1].ID, first.Agent.ID)
 	require.NoError(t, err)
 	require.Empty(t, endpoint.URL)

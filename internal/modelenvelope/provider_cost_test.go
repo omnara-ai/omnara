@@ -84,3 +84,30 @@ func TestSumProviderReportedCostUSD(t *testing.T) {
 		})
 	}
 }
+
+func TestCostTotalsExceedOneCallsRange(t *testing.T) {
+	const twoMaxCalls = "1999999999999999.999999999999998"
+	if _, ok := ParseProviderReportedCostUSD(twoMaxCalls); ok {
+		t.Fatal("one call's cost stays within 15 integral digits")
+	}
+	for raw, want := range map[string]ProviderReportedCostUSD{
+		twoMaxCalls:                        twoMaxCalls,
+		"2000000000000000.000000000000000": "2000000000000000",
+	} {
+		if got, ok := ParseCostTotalUSD(raw); got != want || !ok {
+			t.Fatalf("ParseCostTotalUSD(%q) = %q, %v; want %q", raw, got, ok, want)
+		}
+	}
+	for _, raw := range []string{"-1", "1.", "01", "1e131072"} {
+		if got, ok := ParseCostTotalUSD(raw); ok {
+			t.Fatalf("ParseCostTotalUSD(%q) = %q, want rejected", raw, got)
+		}
+	}
+	maxCall := "999999999999999.999999999999999"
+	if _, ok := SumProviderReportedCostUSD(maxCall, maxCall); ok {
+		t.Fatal("one call's parts stay within 15 integral digits")
+	}
+	if got, ok := SumCostTotalsUSD(maxCall, maxCall); got != twoMaxCalls || !ok {
+		t.Fatalf("SumCostTotalsUSD = %q, %v; want %q", got, ok, twoMaxCalls)
+	}
+}

@@ -32,7 +32,6 @@ type ProvisionOrganizationInput struct {
 
 type GetOrgCreationReplayInput struct {
 	UserID         uuid.UUID
-	Name           string
 	IdempotencyKey string
 }
 
@@ -41,6 +40,7 @@ type CreateProjectForPrincipalInput struct {
 	Creator        PrincipalRecord
 	Name           string
 	IdempotencyKey string
+	Budgets        []BudgetAttachment
 }
 
 type ProjectRecord struct {

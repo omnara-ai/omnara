@@ -38,6 +38,10 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
 				return deleteExpiredWebhookDeliveries(log, func(context.Context, int32) (int64, error) { return 1, err }, nil)
 			}},
+		{"refresh model prices", "stored new model prices", "refresh model prices",
+			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
+				return refreshModelPrices(log, func(context.Context) (string, int, error) { return "v1", 50, err })
+			}},
 		{"cleanup auth state", "cleaned inactive auth state", "cleanup inactive auth state",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
 				return cleanupAuthState(log, func(context.Context) (identitystore.AuthStateCleanupResult, error) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 )
 
 const createExecutionAttempt = `-- name: CreateExecutionAttempt :one
@@ -63,6 +64,48 @@ func (q *Queries) CreateExecutionAttempt(ctx context.Context, db DBTX, arg Creat
 	return id, err
 }
 
+const executionBudgetReached = `-- name: ExecutionBudgetReached :one
+SELECT CASE WHEN b.agent_id IS NOT NULL THEN 'agent' WHEN b.agent_profile_id IS NOT NULL THEN 'profile'
+ WHEN b.project_id IS NOT NULL THEN 'project' ELSE 'org' END::text AS scope,b.interval
+FROM budgets b
+CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.agent_profile_id,b.agent_id,b.interval) cost
+WHERE b.org_id=$1 AND (
+ (b.project_id IS NULL AND b.agent_profile_id IS NULL AND b.agent_id IS NULL)
+ OR (b.project_id=$2::uuid AND b.agent_profile_id IS NULL AND b.agent_id IS NULL)
+ OR (b.project_id=$2::uuid AND b.agent_profile_id=$3::uuid
+  AND b.agent_id IS NULL)
+ OR (b.project_id=$2::uuid AND b.agent_profile_id IS NULL AND b.agent_id=$4::uuid))
+ AND cost.effective_cost_usd>=b.amount_usd
+ORDER BY CASE WHEN b.agent_id IS NOT NULL THEN 3 WHEN b.agent_profile_id IS NOT NULL THEN 2
+ WHEN b.project_id IS NOT NULL THEN 1 ELSE 0 END,
+ CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
+LIMIT 1
+`
+
+type ExecutionBudgetReachedParams struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	RootAgentID    uuid.UUID
+}
+
+type ExecutionBudgetReachedRow struct {
+	Scope    string
+	Interval string
+}
+
+func (q *Queries) ExecutionBudgetReached(ctx context.Context, db DBTX, arg ExecutionBudgetReachedParams) (ExecutionBudgetReachedRow, error) {
+	row := db.QueryRow(ctx, executionBudgetReached,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.AgentProfileID,
+		arg.RootAgentID,
+	)
+	var i ExecutionBudgetReachedRow
+	err := row.Scan(&i.Scope, &i.Interval)
+	return i, err
+}
+
 const executionCompactionBoundary = `-- name: ExecutionCompactionBoundary :one
 SELECT coalesce((SELECT summarized_through_event_sequence FROM context_checkpoints
  WHERE agent_id=$1 AND summarized_through_event_sequence<=$2
@@ -83,30 +126,56 @@ func (q *Queries) ExecutionCompactionBoundary(ctx context.Context, db DBTX, arg 
 
 const executionModelRevision = `-- name: ExecutionModelRevision :one
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
- ELSE true END::boolean AS allowed
-FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+ ELSE true END::boolean AS allowed,c.org_id,root.agent_profile_id AS root_agent_profile_id,
+ r.provider_model_slug,r.pricing,p.base_url,p.api_variant,
+ EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (
+ (b.project_id IS NULL AND b.agent_profile_id IS NULL AND b.agent_id IS NULL)
+ OR (b.project_id=c.project_id AND b.agent_profile_id IS NULL AND b.agent_id IS NULL)
+ OR (b.project_id=c.project_id AND b.agent_profile_id=root.agent_profile_id AND b.agent_id IS NULL)
+ OR (b.project_id=c.project_id AND b.agent_profile_id IS NULL AND b.agent_id=root.id)))::boolean AS budgeted
+FROM agent_configs c JOIN agents root ON root.project_id=c.project_id AND root.id=$1
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
+JOIN configured_model_revisions r ON r.org_id=m.org_id AND r.id=m.current_revision_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
-WHERE c.project_id=$1 AND c.id=$2
+WHERE c.project_id=$2 AND c.id=$3
 `
 
 type ExecutionModelRevisionParams struct {
-	ProjectID uuid.UUID
-	ConfigID  uuid.UUID
+	RootAgentID uuid.UUID
+	ProjectID   uuid.UUID
+	ConfigID    uuid.UUID
 }
 
 type ExecutionModelRevisionRow struct {
-	CurrentRevisionID uuid.UUID
-	Allowed           bool
+	CurrentRevisionID  uuid.UUID
+	Allowed            bool
+	OrgID              uuid.UUID
+	RootAgentProfileID *uuid.UUID
+	ProviderModelSlug  string
+	Pricing            *modelprice.Pricing
+	BaseUrl            string
+	ApiVariant         string
+	Budgeted           bool
 }
 
 // @sqlc-vet-disable configured-models-deleted-at
 // @sqlc-vet-disable model-provider-configs-deleted-at
 func (q *Queries) ExecutionModelRevision(ctx context.Context, db DBTX, arg ExecutionModelRevisionParams) (ExecutionModelRevisionRow, error) {
-	row := db.QueryRow(ctx, executionModelRevision, arg.ProjectID, arg.ConfigID)
+	row := db.QueryRow(ctx, executionModelRevision, arg.RootAgentID, arg.ProjectID, arg.ConfigID)
 	var i ExecutionModelRevisionRow
-	err := row.Scan(&i.CurrentRevisionID, &i.Allowed)
+	err := row.Scan(
+		&i.CurrentRevisionID,
+		&i.Allowed,
+		&i.OrgID,
+		&i.RootAgentProfileID,
+		&i.ProviderModelSlug,
+		&i.Pricing,
+		&i.BaseUrl,
+		&i.ApiVariant,
+		&i.Budgeted,
+	)
 	return i, err
 }
 
@@ -158,7 +227,8 @@ func (q *Queries) FenceExecutionRuntime(ctx context.Context, db DBTX, arg FenceE
 	return id, err
 }
 
-const finishExecutionAttempt = `-- name: FinishExecutionAttempt :execrows
+const finishExecutionAttempt = `-- name: FinishExecutionAttempt :one
+WITH finished AS (
 UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  retry_at=CASE WHEN $3::bigint IS NULL THEN NULL
  ELSE statement_timestamp()+$3::bigint*interval '1 microsecond' END,
@@ -168,11 +238,23 @@ UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  input_tokens_total=$12::integer,uncached_input_tokens=$13::integer,
  cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
  output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
- provider_reported_cost_usd=$18::text::numeric,provider_metadata=$19::jsonb,
- input_fingerprint=$20::text,completed_at=statement_timestamp()
-WHERE c.agent_id=$21 AND c.id=$22 AND c.state='started' AND c.runtime_lock_id=$23
+ provider_reported_cost_usd=$18::text::numeric,effective_cost_usd=$19::text::numeric,
+ effective_cost_kind=$20::text,
+ provider_metadata=$21::jsonb,
+ input_fingerprint=$22::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$23 AND c.id=$24 AND c.state='started' AND c.runtime_lock_id=$25
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
- AND r.id=$23 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
+ AND r.id=$25 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
+RETURNING c.id,c.org_id,c.project_id,c.agent_id,c.created_at,c.effective_cost_usd
+), pending AS (
+INSERT INTO pending_model_costs(model_call_context_id,org_id,project_id,agent_profile_id,agent_id,day,effective_cost_usd)
+SELECT f.id,f.org_id,f.project_id,root.agent_profile_id,f.agent_id,(f.created_at AT TIME ZONE 'UTC')::date,
+ f.effective_cost_usd
+FROM finished f JOIN agents agent ON agent.project_id=f.project_id AND agent.id=f.agent_id
+JOIN agents root ON root.project_id=agent.project_id AND root.id=agent.root_agent_id
+WHERE f.effective_cost_usd IS NOT NULL
+)
+SELECT count(*)::bigint FROM finished
 `
 
 type FinishExecutionAttemptParams struct {
@@ -194,6 +276,8 @@ type FinishExecutionAttemptParams struct {
 	OutputTokens      *int32
 	ReasoningTokens   *int32
 	Cost              *string
+	EffectiveCost     *string
+	EffectiveCostKind *string
 	ProviderMetadata  json.RawMessage
 	InputFingerprint  *string
 	AgentID           uuid.UUID
@@ -202,7 +286,7 @@ type FinishExecutionAttemptParams struct {
 }
 
 func (q *Queries) FinishExecutionAttempt(ctx context.Context, db DBTX, arg FinishExecutionAttemptParams) (int64, error) {
-	result, err := db.Exec(ctx, finishExecutionAttempt,
+	row := db.QueryRow(ctx, finishExecutionAttempt,
 		arg.State,
 		arg.Recovery,
 		arg.RetryMicroseconds,
@@ -221,16 +305,17 @@ func (q *Queries) FinishExecutionAttempt(ctx context.Context, db DBTX, arg Finis
 		arg.OutputTokens,
 		arg.ReasoningTokens,
 		arg.Cost,
+		arg.EffectiveCost,
+		arg.EffectiveCostKind,
 		arg.ProviderMetadata,
 		arg.InputFingerprint,
 		arg.AgentID,
 		arg.ID,
 		arg.RuntimeID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const latestExecutionAttempt = `-- name: LatestExecutionAttempt :one
@@ -286,11 +371,12 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.error_kind,c.error_code,c.error_message,c.error_details,c.input_tokens_total,c.uncached_input_tokens,
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
- r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ r.provider_model_slug,r.pricing,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
- AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
+ AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
+ c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
 WHERE c.agent_id=$1 AND c.id=$2
 `
@@ -333,8 +419,10 @@ type ReadExecutionAttemptRow struct {
 	ProviderReportedCostUsd     string
 	ProviderMetadata            json.RawMessage
 	ProviderModelSlug           string
+	Pricing                     *modelprice.Pricing
 	InputFingerprint            string
 	SourceExcerptReductionCount int64
+	CreatedAt                   time.Time
 }
 
 func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExecutionAttemptParams) (ReadExecutionAttemptRow, error) {
@@ -373,8 +461,10 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 		&i.ProviderReportedCostUsd,
 		&i.ProviderMetadata,
 		&i.ProviderModelSlug,
+		&i.Pricing,
 		&i.InputFingerprint,
 		&i.SourceExcerptReductionCount,
+		&i.CreatedAt,
 	)
 	return i, err
 }

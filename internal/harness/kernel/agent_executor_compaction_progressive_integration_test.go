@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,10 +23,10 @@ type progressiveSeedTurn struct {
 }
 
 func seedProgressiveHistory(
-	t *testing.T, ctx context.Context, turns []progressiveSeedTurn,
+	t *testing.T, ctx context.Context, turns []progressiveSeedTurn, opts ...storage.Option,
 ) (kernelFixture, uuid.UUID, uuid.UUID) {
 	t.Helper()
-	fixture := newKernelFixture(t, ctx)
+	fixture := newKernelFixture(t, ctx, opts...)
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
 	for index, turn := range turns {
 		response := completeProgressiveSummaryResponse(turn.output)

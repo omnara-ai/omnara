@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { BudgetDraft } from '@/components/usage/budget-form'
 import { useDebouncedValue } from '@/hooks/use-resource-list'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
@@ -84,6 +85,7 @@ export function AgentConfigMcpServersField({
   onServersChange,
   builderDraft,
   agentName = null,
+  budget = null,
   onBeforeOAuthRedirect,
 }: {
   orgId: string
@@ -93,6 +95,7 @@ export function AgentConfigMcpServersField({
   onServersChange: (servers: BasicMcpServer[]) => void
   builderDraft: BasicConfig
   agentName?: string | null
+  budget?: BudgetDraft | null
   onBeforeOAuthRedirect?: () => void
 }) {
   function updateServer(id: string, patch: Partial<BasicMcpServer>) {
@@ -112,9 +115,9 @@ export function AgentConfigMcpServersField({
     })
   }
 
-  const pendingOAuthContextRef = useRef({ builderDraft, agentName })
+  const pendingOAuthContextRef = useRef({ builderDraft, agentName, budget })
   useEffect(() => {
-    pendingOAuthContextRef.current = { builderDraft, agentName }
+    pendingOAuthContextRef.current = { builderDraft, agentName, budget }
   })
 
   return (
@@ -164,6 +167,7 @@ export function AgentConfigMcpServersField({
                   returnPath: window.location.pathname,
                   serverId: server.id,
                   agentName: pendingOAuthContextRef.current.agentName,
+                  budget: pendingOAuthContextRef.current.budget,
                   draft: pendingOAuthContextRef.current.builderDraft,
                 })
                 onBeforeOAuthRedirect?.()
