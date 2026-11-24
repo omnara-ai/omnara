@@ -32,6 +32,7 @@ type compat struct {
 	reportsOpenRouterLimits      bool
 	reportsServedProviderAndCost bool
 	reportsNativeFinishReason    bool
+	looksUpGenerationUsage       bool
 	parsesPDFDocuments           bool
 	routesFallbackModels         bool
 	acceptsM4AAndFLACAudio       bool
@@ -48,6 +49,7 @@ func compatFor(route model.ProviderRoute) compat {
 			reportsOpenRouterLimits:      true,
 			reportsServedProviderAndCost: true,
 			reportsNativeFinishReason:    true,
+			looksUpGenerationUsage:       true,
 			parsesPDFDocuments:           true,
 			routesFallbackModels:         true,
 			acceptsM4AAndFLACAudio:       true,

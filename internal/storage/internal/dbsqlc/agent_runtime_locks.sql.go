@@ -196,9 +196,19 @@ type GetAgentRuntimeLockForReleaseParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetAgentRuntimeLockForRelease(ctx context.Context, arg GetAgentRuntimeLockForReleaseParams) (AgentRuntimeLock, error) {
+type GetAgentRuntimeLockForReleaseRow struct {
+	ID                uuid.UUID
+	AgentID           uuid.UUID
+	WorkerProcessID   uuid.UUID
+	StartedAt         time.Time
+	RenewedAt         time.Time
+	LeaseExpiresAt    time.Time
+	CancelRequestedAt *time.Time
+}
+
+func (q *Queries) GetAgentRuntimeLockForRelease(ctx context.Context, arg GetAgentRuntimeLockForReleaseParams) (GetAgentRuntimeLockForReleaseRow, error) {
 	row := q.db.QueryRow(ctx, getAgentRuntimeLockForRelease, arg.ProjectID, arg.AgentID, arg.ID)
-	var i AgentRuntimeLock
+	var i GetAgentRuntimeLockForReleaseRow
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,

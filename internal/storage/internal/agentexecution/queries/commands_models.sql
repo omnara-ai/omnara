@@ -125,3 +125,25 @@ SELECT id FROM model_call_contexts
 WHERE agent_id=sqlc.arg(agent_id) AND operation_kind=sqlc.arg(operation)
  AND input_event_sequence=sqlc.arg(watermark)
 ORDER BY source_event_sequence_end ASC,attempt_number DESC LIMIT 1;
+
+-- name: WriteExecutionRecoveredUsage :one
+WITH recovered AS (
+UPDATE model_call_contexts c SET provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,
+ input_tokens_total=sqlc.narg(input_tokens)::integer,uncached_input_tokens=sqlc.narg(uncached_tokens)::integer,
+ cache_read_input_tokens=sqlc.narg(cache_read_tokens)::integer,cache_write_input_tokens=sqlc.narg(cache_write_tokens)::integer,
+ output_tokens_total=sqlc.narg(output_tokens)::integer,reasoning_output_tokens=sqlc.narg(reasoning_tokens)::integer,
+ effective_cost_usd=sqlc.narg(effective_cost)::text::numeric,effective_cost_kind=sqlc.narg(effective_cost_kind)::text
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state IN ('failed','canceled')
+ AND c.provider_response_id=sqlc.arg(response_id) AND c.provider_reported_cost_usd IS NULL
+ AND num_nonnulls(c.input_tokens_total,c.uncached_input_tokens,c.cache_read_input_tokens,
+ c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens)=0
+RETURNING c.id,c.org_id,c.project_id,c.agent_id,c.created_at,c.effective_cost_usd
+), pending AS (
+INSERT INTO pending_model_costs(model_call_context_id,org_id,project_id,agent_profile_id,agent_id,day,effective_cost_usd)
+SELECT r.id,r.org_id,r.project_id,root.agent_profile_id,r.agent_id,(r.created_at AT TIME ZONE 'UTC')::date,
+ r.effective_cost_usd
+FROM recovered r JOIN agents agent ON agent.project_id=r.project_id AND agent.id=r.agent_id
+JOIN agents root ON root.project_id=agent.project_id AND root.id=agent.root_agent_id
+WHERE r.effective_cost_usd IS NOT NULL
+)
+SELECT count(*)::bigint FROM recovered;

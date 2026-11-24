@@ -75,6 +75,28 @@ func ModelResponseProviderCostBYOKComponentMissing(ctx context.Context) {
 	log.Level(ctx, log.WarnLevel)
 }
 
+func ModelResponseGenerationIDMissing(ctx context.Context) {
+	log.Attach(ctx, log.Fields{
+		"model_response.generation_id.unavailable_reason": "header_missing",
+	})
+	log.Level(ctx, log.WarnLevel)
+}
+
+func ModelResponseGenerationIDMismatch(ctx context.Context, headerID, chunkID string) {
+	log.Attach(ctx, log.Fields{
+		"model_response.generation_id.header": headerID,
+		"model_response.generation_id.chunk":  chunkID,
+	})
+	log.Level(ctx, log.WarnLevel)
+}
+
+func ModelResponseGenerationIDSaveFailed(ctx context.Context, err error) {
+	log.Attach(ctx, log.Fields{
+		"model_response.generation_id.save_error": err.Error(),
+	})
+	log.Level(ctx, log.WarnLevel)
+}
+
 type ModelCallOutcome string
 
 const (

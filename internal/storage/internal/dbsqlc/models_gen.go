@@ -133,16 +133,6 @@ type AgentMcpConnection struct {
 	CatalogID          *uuid.UUID
 }
 
-type AgentRuntimeLock struct {
-	ID                uuid.UUID
-	AgentID           uuid.UUID
-	WorkerProcessID   uuid.UUID
-	StartedAt         time.Time
-	RenewedAt         time.Time
-	LeaseExpiresAt    time.Time
-	CancelRequestedAt *time.Time
-}
-
 type AuthConnector struct {
 	ID                    uuid.UUID
 	Slug                  string

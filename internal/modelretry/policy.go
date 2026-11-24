@@ -62,7 +62,7 @@ func Decide(
 		decision.Action = ActionStop
 		return evidence, decision
 	}
-	providerRetryDelay, representable := retryAfterDelay(evidence.Provider.RetryAfter, now)
+	providerRetryDelay, representable := RetryAfterDelay(evidence.Provider.RetryAfter, now)
 	if !representable {
 		decision.Action = ActionStop
 		return evidence, decision
@@ -76,7 +76,7 @@ func Decide(
 	return evidence, decision
 }
 
-func retryAfterDelay(retryAfter *model.RetryAfter, now time.Time) (time.Duration, bool) {
+func RetryAfterDelay(retryAfter *model.RetryAfter, now time.Time) (time.Duration, bool) {
 	providerRetryDelay := time.Duration(0)
 	if retryAfter == nil {
 		return providerRetryDelay, true

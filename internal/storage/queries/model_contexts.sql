@@ -127,3 +127,29 @@ WHERE context.agent_id = sqlc.arg(agent_id)
     WHERE scoped_agent.project_id = sqlc.arg(project_id)
       AND scoped_agent.id = sqlc.arg(agent_id)
   );
+
+-- name: ReadModelUsageRecoveryClock :one
+SELECT statement_timestamp()::timestamptz AS database_now;
+
+-- name: ListModelUsageRecoveries :many
+WITH schedule AS (
+  SELECT delay.microseconds * interval '1 microsecond' AS delay,
+    max(delay.microseconds) OVER () * interval '1 microsecond' AS last_delay
+  FROM unnest(sqlc.arg(delay_microseconds)::bigint[]) AS delay(microseconds)
+)
+SELECT context.org_id, context.project_id, context.agent_id, context.id,
+  context.provider_response_id, revision.model_provider_config_id,
+  bool_or(schedule.delay = schedule.last_delay)::boolean AS final
+FROM schedule
+JOIN model_call_contexts context ON context.completed_at > sqlc.arg(after)::timestamptz - schedule.delay
+  AND context.completed_at <= sqlc.arg(until)::timestamptz - schedule.delay
+JOIN configured_model_revisions revision ON revision.org_id = context.org_id
+  AND revision.id = context.configured_model_revision_id
+WHERE context.state IN ('failed', 'canceled')
+  AND context.api_variant = 'openrouter'
+  AND context.provider_response_id <> ''
+  AND context.provider_reported_cost_usd IS NULL
+  AND context.input_tokens_total IS NULL
+  AND context.output_tokens_total IS NULL
+GROUP BY context.id, revision.model_provider_config_id
+ORDER BY context.completed_at, context.id;

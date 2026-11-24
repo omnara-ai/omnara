@@ -24,6 +24,7 @@ func TestCompatForVariant(t *testing.T) {
 			refinesErrorsFromRawDetails:  true,
 			reportsOpenRouterLimits:      true,
 			reportsNativeFinishReason:    true,
+			looksUpGenerationUsage:       true,
 			reportsServedProviderAndCost: true, parsesPDFDocuments: true, routesFallbackModels: true,
 			acceptsM4AAndFLACAudio: true,
 		},
