@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -164,9 +164,7 @@ function BudgetCardSection({ status, empty, rows, dialog, onAdd }: BudgetsView) 
         </div>
         {empty ? <p className="text-muted-foreground text-sm">No budgets set.</p> : rows}
       </div>
-      <p className="text-muted-foreground px-4 py-2 text-xs">
-        Model calls only, not machines · Days, weeks, and months are UTC; weeks start Monday
-      </p>
+      <p className="text-muted-foreground px-4 py-2 text-xs">Model calls only, not machines</p>
       {dialog}
     </section>
   )
@@ -348,10 +346,6 @@ function BudgetDialog({
                   setValue(event.target.value)
                 }}
               />
-              <FieldDescription>
-                Spend uses your model prices when set, otherwise the provider-reported cost or a
-                list-price estimate.
-              </FieldDescription>
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
