@@ -249,6 +249,11 @@ func parseProviderOptions(
 		}
 	}
 	for i, domain := range options.InternetAllowlist {
+		domain = strings.TrimSpace(domain)
+		options.InternetAllowlist[i] = domain
+		if domain == "" {
+			return providerOptions{}, fmt.Errorf("blaxel machine config internet_allowlist[%d] is empty", i)
+		}
 		if host, _, _ := strings.Cut(domain, "/"); host[strings.LastIndex(host, ":")+1:] == "*" {
 			return providerOptions{}, fmt.Errorf(
 				"blaxel machine config internet_allowlist[%d] allows every domain; omit internet_allowlist instead", i,

@@ -1675,8 +1675,15 @@ func TestFirewalledPassesNetworkEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a POSIX shell")
 	}
-	t.Setenv("HTTPS_PROXY", "http://localhost:49152")
-	t.Setenv("NO_PROXY", "daemon")
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+	}
+	t.Setenv("https_proxy", "http://localhost:49152")
+	t.Setenv("HTTP_PROXY", "http://localhost:49152")
+	t.Setenv("no_proxy", "localhost")
 	t.Setenv("STALE_SECRET", "revoked")
 	for _, enabled := range []bool{true, false} {
 		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
@@ -1686,19 +1693,22 @@ func TestFirewalledPassesNetworkEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
 				ID: "prc_firewalled_" + strconv.FormatBool(enabled),
 				Process: Process{
 					ExecutionSpec: processcmd.ForShell(
-						`printf 'proxy=%s no_proxy=%s stale=%s\n' "${HTTPS_PROXY:-unset}" "${NO_PROXY:-unset}" "${STALE_SECRET:-unset}"`,
+						`printf 'https_proxy=%s HTTPS_PROXY=%s http_proxy=%s HTTP_PROXY=%s no_proxy=%s NO_PROXY=%s `+
+							`STALE_SECRET=%s\n' "${https_proxy:-unset}" "${HTTPS_PROXY:-unset}" "${http_proxy:-unset}" `+
+							`"${HTTP_PROXY:-unset}" "${no_proxy:-unset}" "${NO_PROXY:-unset}" "${STALE_SECRET:-unset}"`,
 						"default", "pipe",
 					),
 					Cwd: t.TempDir(),
 				},
-				Env: map[string]string{"NO_PROXY": "process"},
+				Env: map[string]string{"http_proxy": "configured", "NO_PROXY": "configured"},
 			})
 			fixture.acceptAndStart(t, ctx)
-			want := "proxy=unset no_proxy=process stale=unset"
+			inherited := "https_proxy=unset"
 			if enabled {
-				want = "proxy=http://localhost:49152 no_proxy=process stale=unset"
+				inherited = "https_proxy=http://localhost:49152"
 			}
-			fixture.waitForOutput(t, ctx, want)
+			fixture.waitForOutput(t, ctx, inherited+" HTTPS_PROXY=unset http_proxy=configured HTTP_PROXY=unset "+
+				"no_proxy=unset NO_PROXY=configured STALE_SECRET=unset")
 		})
 	}
 }

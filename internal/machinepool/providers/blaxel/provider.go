@@ -266,8 +266,10 @@ func machineNetwork(apiURL, releaseURL, machineToken string, internetAllowlist [
 			return nil, err
 		}
 		release, err := url.Parse(releaseURL)
-		if err != nil || release.Hostname() == "" {
-			return nil, fmt.Errorf("blaxel internet_allowlist needs the daemon release URL: %w", providers.ErrPermanent)
+		if err != nil || release.Hostname() == "" || (release.Port() != "" && release.Port() != "443") {
+			return nil, fmt.Errorf(
+				"blaxel internet_allowlist needs the daemon release URL on port 443: %w", providers.ErrPermanent,
+			)
 		}
 		network.Firewall = &sandboxFirewall{Rulesets: []string{"proxy"}}
 		network.Proxy.AllowedDomains = []string{

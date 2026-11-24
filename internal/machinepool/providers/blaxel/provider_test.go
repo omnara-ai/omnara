@@ -264,7 +264,7 @@ func TestBlaxelProviderProvisionWithInternetAllowlistTurnsOnFirewall(t *testing.
 		testInstallationID(),
 		uuid.New(),
 		testMachineProvisioning(t, map[string]any{
-			"internet_allowlist": []string{"GET:docs.example.com"},
+			"internet_allowlist": []string{" GET:docs.example.com"},
 			"startup_script":     startupScript,
 		}),
 		"machine-token",
@@ -333,18 +333,20 @@ func TestBlaxelProviderProvisionWithInternetAllowlistTurnsOnFirewall(t *testing.
 		}
 	}
 
-	provider.daemonReleaseURL = ""
-	_, err = provider.ProvisionMachine(
-		context.Background(),
-		testInstallationID(),
-		uuid.New(),
-		testMachineProvisioning(t, map[string]any{"internet_allowlist": []string{}}),
-		"machine-token",
-		nil,
-		true,
-	)
-	if !errors.Is(err, providers.ErrPermanent) || !strings.Contains(err.Error(), "daemon release URL") {
-		t.Fatalf("provision without release URL error = %v, want permanent release URL error", err)
+	for _, releaseURL := range []string{"", "https://releases.example.test:8443/omnarad/latest"} {
+		provider.daemonReleaseURL = releaseURL
+		_, err = provider.ProvisionMachine(
+			context.Background(),
+			testInstallationID(),
+			uuid.New(),
+			testMachineProvisioning(t, map[string]any{"internet_allowlist": []string{}}),
+			"machine-token",
+			nil,
+			true,
+		)
+		if !errors.Is(err, providers.ErrPermanent) || !strings.Contains(err.Error(), "daemon release URL") {
+			t.Fatalf("provision with release URL %q error = %v, want permanent release URL error", releaseURL, err)
+		}
 	}
 }
 

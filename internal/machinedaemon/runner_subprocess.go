@@ -424,18 +424,19 @@ func supervisorIdentityBootstrapFileName(
 }
 
 var networkEnvNames = []string{
-	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
 	"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
 }
 
 func fillNetworkEnv(env map[string]string) map[string]string {
-	out := maps.Clone(env)
-	if out == nil {
-		out = map[string]string{}
+	out := make(map[string]string, len(env)+len(networkEnvNames))
+	configured := make(map[string]bool, len(env))
+	for name, value := range env {
+		out[name] = value
+		configured[strings.ToUpper(name)] = true
 	}
 	for _, name := range networkEnvNames {
-		value, found := os.LookupEnv(name)
-		if _, set := out[name]; found && !set {
+		if value, found := os.LookupEnv(name); found && !configured[strings.ToUpper(name)] {
 			out[name] = value
 		}
 	}
