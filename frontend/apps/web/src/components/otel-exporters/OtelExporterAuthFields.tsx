@@ -42,6 +42,7 @@ function credentialCopy(variant: OtelTraceVariant, authKind: OtelExporterAuthKin
 
 export function OtelExporterAuthFields({
   orgId,
+  projectId,
   variant,
   authKind,
   authHeaderName,
@@ -53,6 +54,8 @@ export function OtelExporterAuthFields({
   onCredentialSecretIdChange,
 }: {
   orgId: string
+  /** The exporter's project, whose available secrets are offered. Empty until one is chosen. */
+  projectId: string
   variant: OtelTraceVariant
   authKind: OtelExporterAuthKind
   authHeaderName: string
@@ -122,7 +125,8 @@ export function OtelExporterAuthFields({
         <div className="sm:col-span-2">
           <CredentialSecretField
             orgId={orgId}
-            enabled
+            projectId={projectId}
+            enabled={projectId !== ''}
             value={credentialSecretId}
             onChange={onCredentialSecretIdChange}
             label={copy.secretLabel}

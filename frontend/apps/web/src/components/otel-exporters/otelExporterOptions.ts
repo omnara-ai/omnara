@@ -1,9 +1,4 @@
-import type {
-  OtelExporterAuthKind,
-  OtelExporterEncoding,
-  OtelExporterScope,
-  OtelTraceVariant,
-} from '@omnara/sdk'
+import type { OtelExporterAuthKind, OtelExporterEncoding, OtelTraceVariant } from '@omnara/sdk'
 
 import {
   type SecretRow,
@@ -80,6 +75,23 @@ const variantPresets: Record<OtelTraceVariant, VariantPreset> = {
 }
 
 /**
+ * Braintrust files spans under the parent its x-bt-parent header names, as `kind:value`. The
+ * preset fills in only the kind, and Braintrust rejects every export until a value follows.
+ */
+export function braintrustParentError(variant: OtelTraceVariant, headerRows: TextRow[]) {
+  if (variant !== 'braintrust') return undefined
+  const incomplete = headerRows.some((row) => {
+    if (row.key.trim().toLowerCase() !== 'x-bt-parent') return false
+    const value = (row.value ?? '').trim()
+    const separator = value.indexOf(':')
+    return separator < 1 || value.slice(separator + 1).trim() === ''
+  })
+  return incomplete
+    ? 'Finish the x-bt-parent header with your Braintrust project, such as project_id:<id>.'
+    : undefined
+}
+
+/**
  * The endpoint to show after switching variant: the new backend's own, unless the user has
  * typed one that is not just another backend's default.
  */
@@ -152,9 +164,4 @@ export function applyVariantSwitch(input: VariantSwitchInput) {
     headerRows: nextHeaderRows,
     secretHeaderRows: originChanged ? [] : input.secretHeaderRows,
   }
-}
-
-/** Whether the scope's project has been chosen. */
-export function otelExporterScopeComplete(scope: OtelExporterScope) {
-  return !!scope.project_id
 }

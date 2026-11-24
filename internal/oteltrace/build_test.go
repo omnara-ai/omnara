@@ -162,6 +162,15 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 			t.Errorf("%s span %d %s = %q, want %q", test.variant, test.role, test.key, got, test.value)
 		}
 	}
+	// A Langfuse model span leaves its output to gen_ai.output.messages, so a
+	// tool call beside the text is not flattened away.
+	model := buildSpans(turn, VariantLangfuse)[2]
+	if got := attribute(t, model, "langfuse.observation.output"); got != "" {
+		t.Errorf("langfuse model span output = %q, want none", got)
+	}
+	if attribute(t, model, "gen_ai.output.messages") == "" {
+		t.Error("langfuse model span has no gen_ai.output.messages")
+	}
 }
 
 func TestBuildSkipsTurnWithNothingToPlace(t *testing.T) {

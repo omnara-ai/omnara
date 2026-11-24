@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
@@ -53,22 +54,6 @@ func (body turnTraceResponse) VisitGetTurnTraceResponse(w http.ResponseWriter) e
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write(body)
 	return err
-}
-
-var errInvalidOtelExporterScope = apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid exporter scope")
-
-// parseOtelExporterScope returns the project an exporter scope names.
-func parseOtelExporterScope(input openapi.OtelExporterScope) (uuid.UUID, error) {
-	projectID, ok := parseOpenAPIPublicID(publicid.KindProject, input.ProjectId)
-	if !ok || input.Type != openapi.OtelExporterScopeTypeProject {
-		return uuid.Nil, errInvalidOtelExporterScope
-	}
-	return projectID, nil
-}
-
-func otelExporterScopeResponse(projectID uuid.UUID) (openapi.OtelExporterScope, error) {
-	id, err := publicID(publicid.KindProject, projectID)
-	return openapi.OtelExporterScope{Type: openapi.OtelExporterScopeTypeProject, ProjectId: id}, err
 }
 
 func parseOtelExporterAuthOptions(input *openapi.OtelExporterAuthOptions) otelconfig.AuthOptions {
@@ -119,12 +104,12 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 	if err != nil {
 		return openapi.OtelExporter{}, err
 	}
-	scope, err := otelExporterScopeResponse(record.ProjectID)
+	projectID, err := publicID(publicid.KindProject, record.ProjectID)
 	if err != nil {
 		return openapi.OtelExporter{}, err
 	}
 	result := openapi.OtelExporter{
-		Id: id, OrgId: orgID, Scope: scope, Endpoint: record.Settings.Endpoint,
+		Id: id, OrgId: orgID, ProjectId: projectID, Endpoint: record.Settings.Endpoint,
 		Variant:       openapi.OtelTraceVariant(record.Settings.Variant),
 		Encoding:      openapi.OtelExporterEncoding(record.Settings.Encoding),
 		AuthKind:      openapi.OtelExporterAuthKind(record.Settings.AuthKind),
@@ -154,16 +139,12 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 	ctx context.Context,
 	request openapi.CreateOtelExporterRequestObject,
 ) (openapi.CreateOtelExporterResponseObject, error) {
-	org, err := orgScopeFromContext(ctx)
+	projectScope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	projectID, err := parseOtelExporterScope(request.Body.Scope)
-	if err != nil {
-		return nil, err
 	}
 	settings := otelconfig.Settings{
 		Endpoint: request.Body.Endpoint, Variant: oteltrace.VariantOTel,
@@ -200,10 +181,10 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 		settings.SamplePercent = *request.Body.SamplePercent
 	}
 	record, err := s.server.store.Execution().CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-		OrgID: org.ID, ProjectID: projectID, Settings: settings,
+		ProjectID: projectScope.project.ID, Settings: settings,
 	})
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return nil, apierror.ProjectScoped(err)
 	}
 	response, err := otelExporterResponseFromRecord(record)
 	if err != nil {
@@ -216,69 +197,90 @@ func (s strictOpenAPIServer) ListOtelExporters(
 	ctx context.Context,
 	request openapi.ListOtelExportersRequestObject,
 ) (openapi.ListOtelExportersResponseObject, error) {
-	org, err := orgScopeFromContext(ctx)
+	projectScope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	limit, err := parseOpenAPIPageLimit(request.Params.Limit)
+	response, err := s.listOtelExporters(ctx, request.Params.Limit, request.Params.Cursor,
+		projectListScope(projectScope.project))
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, err
 	}
-	input := executionstore.ListOtelExportersInput{OrgID: org.ID, Limit: limit}
-	if request.Params.ProjectId != nil {
-		projectID, ok := parseOpenAPIPublicID(publicid.KindProject, *request.Params.ProjectId)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
-		}
-		input.ProjectID = projectID
+	return openapi.ListOtelExporters200JSONResponse(response), nil
+}
+
+// ListOrgOtelExporters is the read-only organization-wide view: the exporters
+// of every project the caller can read.
+func (s strictOpenAPIServer) ListOrgOtelExporters(
+	ctx context.Context,
+	request openapi.ListOrgOtelExportersRequestObject,
+) (openapi.ListOrgOtelExportersResponseObject, error) {
+	scope, err := s.orgListScope(ctx, identitystore.ProjectActionRead)
+	if err != nil {
+		return nil, err
 	}
-	// The cursor is bound to the organization and the project filter, so one
-	// list's position cannot be replayed against another.
+	response, err := s.listOtelExporters(ctx, request.Params.Limit, request.Params.Cursor, scope)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListOrgOtelExporters200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) listOtelExporters(
+	ctx context.Context, rawLimit *openapi.PageLimit, cursor *string, scope resourceListScope,
+) (openapi.ListOtelExportersResponse, error) {
+	limit, err := parseOpenAPIPageLimit(rawLimit)
+	if err != nil {
+		return openapi.ListOtelExportersResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	// The cursor is bound to the project or organization it was issued for, so
+	// one list's position cannot be replayed against another.
 	sort := "created_at"
 	options, err := parseResourceListQuery(resourceListQueryInput{
-		Cursor: request.Params.Cursor, Sort: &sort, AllowedSorts: sortSet(sort),
-		ListKind: "otel_exporters", Scope: org.ID.String(),
-		IDKind: publicid.KindOtelExporter, Extra: input.ProjectID,
+		Cursor: cursor, Sort: &sort, AllowedSorts: sortSet(sort),
+		ListKind: "otel_exporters", Scope: scope.key, IDKind: publicid.KindOtelExporter,
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListOtelExportersResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	input := executionstore.ListOtelExportersInput{ProjectIDs: scope.projectIDs, Limit: limit}
 	if options.After.Set {
 		createdAt, err := listing.ParseTimestampKey(options.After.Key)
 		if err != nil || createdAt.IsZero() || options.After.IsNull {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, errMalformedCursor.Error())
+			return openapi.ListOtelExportersResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, errMalformedCursor.Error())
 		}
 		input.After = listing.KeysetCursor{Set: true, CreatedAt: createdAt, ID: options.After.ID}
 	}
 	page, err := s.server.store.Execution().ListOtelExporters(ctx, input)
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return openapi.ListOtelExportersResponse{}, apierror.ProjectScoped(err)
 	}
 	response := openapi.ListOtelExportersResponse{Data: make([]openapi.OtelExporter, 0, len(page.Exporters))}
 	var last executionstore.OtelExporterRecord
 	for _, record := range page.Exporters {
 		exporter, err := otelExporterResponseFromRecord(record)
 		if err != nil {
-			return nil, err
+			return openapi.ListOtelExportersResponse{}, err
 		}
 		response.Data = append(response.Data, exporter)
 		last = record
 	}
 	next, err := encodeResourceListNextCursor(page.HasMore,
 		listing.Cursor{Set: last.ID != uuid.Nil, Key: listing.TimestampKey(last.CreatedAt), ID: last.ID},
-		options, "otel_exporters", org.ID.String(), publicid.KindOtelExporter, input.ProjectID)
+		options, "otel_exporters", scope.key, publicid.KindOtelExporter, nil)
 	if err != nil {
-		return nil, err
+		return openapi.ListOtelExportersResponse{}, err
 	}
 	response.NextCursor = nullableFromPtr(next)
-	return openapi.ListOtelExporters200JSONResponse(response), nil
+	return response, nil
 }
 
 func (s strictOpenAPIServer) GetOtelExporter(
 	ctx context.Context,
 	request openapi.GetOtelExporterRequestObject,
 ) (openapi.GetOtelExporterResponseObject, error) {
-	org, err := orgScopeFromContext(ctx)
+	projectScope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -286,9 +288,9 @@ func (s strictOpenAPIServer) GetOtelExporter(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	record, err := s.server.store.Execution().GetOtelExporter(ctx, org.ID, id)
+	record, err := s.server.store.Execution().GetOtelExporter(ctx, projectScope.project.ID, id)
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return nil, apierror.ProjectScoped(err)
 	}
 	response, err := otelExporterResponseFromRecord(record)
 	if err != nil {
@@ -301,7 +303,7 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 	ctx context.Context,
 	request openapi.UpdateOtelExporterRequestObject,
 ) (openapi.UpdateOtelExporterResponseObject, error) {
-	org, err := orgScopeFromContext(ctx)
+	projectScope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +315,8 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
 	input := executionstore.UpdateOtelExporterInput{
-		OrgID: org.ID, ExporterID: id, Endpoint: request.Body.Endpoint, SamplePercent: request.Body.SamplePercent,
+		ProjectID: projectScope.project.ID, ExporterID: id,
+		Endpoint: request.Body.Endpoint, SamplePercent: request.Body.SamplePercent,
 	}
 	if request.Body.Variant != nil {
 		variant := oteltrace.Variant(*request.Body.Variant)
@@ -355,7 +358,7 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 	}
 	record, err := s.server.store.Execution().UpdateOtelExporter(ctx, input)
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return nil, apierror.ProjectScoped(err)
 	}
 	response, err := otelExporterResponseFromRecord(record)
 	if err != nil {
@@ -368,7 +371,7 @@ func (s strictOpenAPIServer) DeleteOtelExporter(
 	ctx context.Context,
 	request openapi.DeleteOtelExporterRequestObject,
 ) (openapi.DeleteOtelExporterResponseObject, error) {
-	org, err := orgScopeFromContext(ctx)
+	projectScope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -376,8 +379,8 @@ func (s strictOpenAPIServer) DeleteOtelExporter(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	if err := s.server.store.Execution().DeleteOtelExporter(ctx, org.ID, id); err != nil {
-		return nil, apierror.OrgScoped(err)
+	if err := s.server.store.Execution().DeleteOtelExporter(ctx, projectScope.project.ID, id); err != nil {
+		return nil, apierror.ProjectScoped(err)
 	}
 	return openapi.DeleteOtelExporter204Response{}, nil
 }

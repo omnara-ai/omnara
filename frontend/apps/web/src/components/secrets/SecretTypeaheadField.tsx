@@ -149,6 +149,7 @@ export function SecretSelect({
 
 export function SecretTypeaheadField({
   orgId,
+  projectId,
   enabled,
   value,
   onChange,
@@ -161,6 +162,7 @@ export function SecretTypeaheadField({
   status,
 }: {
   orgId: string
+  projectId?: string
   enabled: boolean
   value: string
   onChange: (value: string) => void
@@ -179,6 +181,7 @@ export function SecretTypeaheadField({
       <SecretSelect
         inputId={inputId}
         orgId={orgId}
+        projectId={projectId}
         enabled={enabled}
         value={value}
         onChange={onChange}

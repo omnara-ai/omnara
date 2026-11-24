@@ -135,6 +135,7 @@ const (
 	operationDeleteEventWebhook            operationID = "DeleteEventWebhook"
 	operationCreateOtelExporter            operationID = "CreateOtelExporter"
 	operationListOtelExporters             operationID = "ListOtelExporters"
+	operationListOrgOtelExporters          operationID = "ListOrgOtelExporters"
 	operationGetOtelExporter               operationID = "GetOtelExporter"
 	operationUpdateOtelExporter            operationID = "UpdateOtelExporter"
 	operationDeleteOtelExporter            operationID = "DeleteOtelExporter"
@@ -490,11 +491,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListTurns:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurnEvents:                accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationGetTurnTrace:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationCreateOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListOtelExporters:             accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetOtelExporter:               accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationUpdateOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListOtelExporters:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListOrgOtelExporters:          accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOtelExporter:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationStreamEvents:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListAgentInteractions:         accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationGetArtifact:                   accountPolicy(agentScope(identitystore.AgentActionRead)),

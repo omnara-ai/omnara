@@ -104,7 +104,14 @@ func (s *Store) DeleteExpiredOtelExportDeliveries(ctx context.Context, limit int
 func (s *Store) GetOtelExportDestination(
 	ctx context.Context, orgID, exporterID uuid.UUID,
 ) (OtelExportDestination, error) {
-	record, err := s.GetOtelExporter(ctx, orgID, exporterID)
+	row, err := s.q.GetOtelExporterForExport(ctx, dbsqlc.GetOtelExporterForExportParams{OrgID: orgID, ID: exporterID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OtelExportDestination{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return OtelExportDestination{}, err
+	}
+	record, err := otelExporterRecordFromSQLC(row)
 	if err != nil {
 		return OtelExportDestination{}, err
 	}
@@ -118,7 +125,7 @@ func (s *Store) GetOtelExportDestination(
 	}
 	maps.Copy(destination.Headers, record.Settings.Headers)
 	if record.Settings.AuthKind != otelconfig.AuthKindNone && record.Settings.AuthKind != "" {
-		value, err := s.readOtelExporterSecret(ctx, nil, orgID, record.Settings.CredentialSecretID)
+		value, err := s.readOtelExporterSecret(ctx, nil, orgID, record.ProjectID, record.Settings.CredentialSecretID)
 		if errors.Is(err, storeerr.ErrNotFound) {
 			return OtelExportDestination{}, fmt.Errorf(
 				"%w: credential secret is unavailable", ErrOtelExporterMisconfigured)
@@ -137,7 +144,7 @@ func (s *Store) GetOtelExportDestination(
 		}
 	}
 	for name, secretID := range record.Settings.SecretHeaders {
-		value, err := s.readOtelExporterSecret(ctx, nil, orgID, secretID)
+		value, err := s.readOtelExporterSecret(ctx, nil, orgID, record.ProjectID, secretID)
 		if errors.Is(err, storeerr.ErrNotFound) {
 			// Extra header secrets do not block their own deletion, so a
 			// deleted one is left out rather than failing the export.

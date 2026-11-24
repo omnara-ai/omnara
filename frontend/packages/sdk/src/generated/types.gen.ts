@@ -659,14 +659,6 @@ export type OtelTrace = {
 };
 
 /**
- * Exports every agent in one project.
- */
-export type OtelExporterScope = {
-    type: 'project';
-    project_id: ProjectId;
-};
-
-/**
  * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
  */
 export type OtelExporterAuthKind = 'none' | 'bearer_token' | 'api_key_header' | 'basic';
@@ -693,7 +685,7 @@ export type OtelExporterHeaders = {
 };
 
 /**
- * Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
+ * Extra request headers whose values come from generic secrets available to the project, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
  */
 export type OtelExporterSecretHeaders = {
     [key: string]: SecretId;
@@ -709,13 +701,12 @@ export type CreateOtelExporterRequest = {
      * Full OTLP/HTTP traces URL, used exactly as given (for example a URL ending in /v1/traces).
      */
     endpoint: string;
-    scope: OtelExporterScope;
     variant?: OtelTraceVariant;
     encoding?: OtelExporterEncoding;
     auth_kind?: OtelExporterAuthKind;
     auth_options?: OtelExporterAuthOptions;
     /**
-     * Organization-owned generic secret required when auth_kind is bearer_token, api_key_header, or basic.
+     * Generic secret available to the project, required when auth_kind is bearer_token, api_key_header, or basic.
      */
     credential_secret_id?: SecretId;
     headers?: OtelExporterHeaders;
@@ -733,7 +724,7 @@ export type UpdateOtelExporterRequest = {
     auth_kind?: OtelExporterAuthKind;
     auth_options?: OtelExporterAuthOptions;
     /**
-     * Organization-owned generic secret for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
+     * Generic secret available to the project for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
      */
     credential_secret_id?: SecretId | null;
     headers?: OtelExporterHeaders;
@@ -744,17 +735,17 @@ export type UpdateOtelExporterRequest = {
 export type OtelExporter = {
     id: OtelExporterId;
     org_id: OrganizationId;
+    project_id: ProjectId;
     /**
      * Full OTLP/HTTP traces URL.
      */
     endpoint: string;
-    scope: OtelExporterScope;
     variant: OtelTraceVariant;
     encoding: OtelExporterEncoding;
     auth_kind: OtelExporterAuthKind;
     auth_options: OtelExporterAuthOptions;
     /**
-     * Organization-owned generic secret used for authentication. Omitted when auth_kind is none.
+     * Generic secret available to the project, used for authentication. Omitted when auth_kind is none.
      */
     credential_secret_id?: SecretId;
     headers: OtelExporterHeaders;
@@ -6512,16 +6503,12 @@ export type UpdateEventWebhookResponses = {
 
 export type UpdateEventWebhookResponse = UpdateEventWebhookResponses[keyof UpdateEventWebhookResponses];
 
-export type ListOtelExportersData = {
+export type ListOrgOtelExportersData = {
     body?: never;
     path: {
-        /**
-         * Organization ID (org_...).
-         */
-        orgID: string;
+        orgID: OrganizationId;
     };
     query?: {
-        project_id?: ProjectId;
         /**
          * Maximum number of items to return in one page.
          */
@@ -6532,6 +6519,83 @@ export type ListOtelExportersData = {
         cursor?: string;
     };
     url: '/orgs/{orgID}/otel-exporters';
+};
+
+export type ListOrgOtelExportersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgOtelExportersError = ListOrgOtelExportersErrors[keyof ListOrgOtelExportersErrors];
+
+export type ListOrgOtelExportersResponses = {
+    /**
+     * Exporters across the caller's readable projects.
+     */
+    200: ListOtelExportersResponse;
+};
+
+export type ListOrgOtelExportersResponse = ListOrgOtelExportersResponses[keyof ListOrgOtelExportersResponses];
+
+export type ListOtelExportersData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters';
 };
 
 export type ListOtelExportersErrors = {
@@ -6585,7 +6649,7 @@ export type ListOtelExportersError = ListOtelExportersErrors[keyof ListOtelExpor
 
 export type ListOtelExportersResponses = {
     /**
-     * The organization's exporters, or one project's when project_id is given.
+     * The project's exporters.
      */
     200: ListOtelExportersResponse;
 };
@@ -6595,13 +6659,11 @@ export type ListOtelExportersResponse2 = ListOtelExportersResponses[keyof ListOt
 export type CreateOtelExporterData = {
     body: CreateOtelExporterRequest;
     path: {
-        /**
-         * Organization ID (org_...).
-         */
-        orgID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
     };
     query?: never;
-    url: '/orgs/{orgID}/otel-exporters';
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters';
 };
 
 export type CreateOtelExporterErrors = {
@@ -6665,14 +6727,12 @@ export type CreateOtelExporterResponse = CreateOtelExporterResponses[keyof Creat
 export type DeleteOtelExporterData = {
     body?: never;
     path: {
-        /**
-         * Organization ID (org_...).
-         */
-        orgID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         exporterID: OtelExporterId;
     };
     query?: never;
-    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
 };
 
 export type DeleteOtelExporterErrors = {
@@ -6736,14 +6796,12 @@ export type DeleteOtelExporterResponse = DeleteOtelExporterResponses[keyof Delet
 export type GetOtelExporterData = {
     body?: never;
     path: {
-        /**
-         * Organization ID (org_...).
-         */
-        orgID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         exporterID: OtelExporterId;
     };
     query?: never;
-    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
 };
 
 export type GetOtelExporterErrors = {
@@ -6807,14 +6865,12 @@ export type GetOtelExporterResponse = GetOtelExporterResponses[keyof GetOtelExpo
 export type UpdateOtelExporterData = {
     body: UpdateOtelExporterRequest;
     path: {
-        /**
-         * Organization ID (org_...).
-         */
-        orgID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         exporterID: OtelExporterId;
     };
     query?: never;
-    url: '/orgs/{orgID}/otel-exporters/{exporterID}';
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
 };
 
 export type UpdateOtelExporterErrors = {

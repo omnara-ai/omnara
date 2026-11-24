@@ -14,16 +14,29 @@ SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exp
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
-WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
+JOIN projects project ON project.id = exporter.project_id AND project.deleted_at IS NULL
+WHERE exporter.project_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
 
--- name: ListOtelExporters :many
+-- name: GetOtelExporterForExport :one
+-- A queued delivery names its exporter by organization, not by project.
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
        exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
-WHERE exporter.org_id = sqlc.arg(org_id)
-  AND (sqlc.narg(project_id)::uuid IS NULL OR exporter.project_id = sqlc.narg(project_id)::uuid)
+JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.id = exporter.project_id AND project.deleted_at IS NULL
+WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
+
+-- name: ListOtelExporters :many
+-- One project's exporters, or those of every listed project for the
+-- organization-wide view.
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.created_at, exporter.updated_at, exporter.deleted_at
+FROM otel_exporters exporter
+WHERE exporter.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
     coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
@@ -32,21 +45,21 @@ WHERE exporter.org_id = sqlc.arg(org_id)
 ORDER BY exporter.created_at, exporter.id
 LIMIT sqlc.arg(row_limit);
 
--- name: CountOrgOtelExporters :one
+-- name: CountProjectOtelExporters :one
 SELECT count(*) FROM otel_exporters
-WHERE org_id = $1 AND deleted_at IS NULL;
+WHERE project_id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateOtelExporter :one
 UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind = $6, auth_options = $7,
     credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
     updated_at = statement_timestamp()
-WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
+WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at;
 
 -- name: DeleteOtelExporter :execrows
 UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
+WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: DeleteOtelExporterDeliveries :exec
 -- Deleting an exporter drops the turns still queued for it.

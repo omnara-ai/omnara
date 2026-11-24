@@ -31,7 +31,7 @@ func createOtelExporterForTest(
 ) executionstore.OtelExporterRecord {
 	t.Helper()
 	record, err := fixture.Store.Execution().CreateOtelExporter(t.Context(), executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID, ProjectID: testProjectID, Settings: settings,
+		ProjectID: testProjectID, Settings: settings,
 	})
 	require.NoError(t, err)
 	return record
@@ -104,12 +104,12 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	store := fixture.Store.Execution()
 	owner := createSecretTestUser(t, ctx, fixture.Store, "Otel Export Owner", "owner")
 	secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: "otel-auth",
+		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID, Name: "otel-auth",
 		Material: secrets.GenericMaterial{Value: "sk-lf-secret"}, Actor: userPrincipal(owner.ID),
 	})
 	require.NoError(t, err)
 	extraSecret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: "otel-extra",
+		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID, Name: "otel-extra",
 		Material: secrets.GenericMaterial{Value: "extra-token"}, Actor: userPrincipal(owner.ID),
 	})
 	require.NoError(t, err)
@@ -134,12 +134,12 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.Equal(t, otelconfig.AuthKindNone, secondExporter.Settings.AuthKind)
 
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID, ProjectID: testProjectID,
-		Settings: otelconfig.Settings{Endpoint: "https://otel.example.com/v1/traces", SamplePercent: 100},
+		ProjectID: testProjectID,
+		Settings:  otelconfig.Settings{Endpoint: "https://otel.example.com/v1/traces", SamplePercent: 100},
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID, ProjectID: testProjectID,
+		ProjectID: testProjectID,
 		Settings: otelconfig.Settings{Endpoint: "https://other.example.com", SamplePercent: 100,
 			AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: uuid.New()},
 	})
@@ -277,10 +277,23 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.NotContains(t, destination.Headers, "x-extra-auth")
 	require.Contains(t, destination.Headers, "Authorization")
 
-	sampleRate := 12.345
+	// The stored reference to the deleted header secret does not fail an update
+	// that leaves secret_headers alone; sending it again is still validated.
+	sampleRate := 50.0
+	kept, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
+		ProjectID: testProjectID, ExporterID: projectExporter.ID, SamplePercent: &sampleRate,
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]uuid.UUID{"x-extra-auth": extraSecret.ID}, kept.Settings.SecretHeaders)
+	_, err = store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
+		ProjectID: testProjectID, ExporterID: projectExporter.ID, SecretHeaders: kept.Settings.SecretHeaders,
+	})
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+
+	sampleRate = 12.345
 	noneAuth := otelconfig.AuthKindNone
 	updated, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
-		OrgID: testOrgID, ExporterID: projectExporter.ID, SamplePercent: &sampleRate,
+		ProjectID: testProjectID, ExporterID: projectExporter.ID, SamplePercent: &sampleRate,
 		AuthKind: &noneAuth, SecretHeaders: map[string]uuid.UUID{},
 	})
 	require.NoError(t, err)
@@ -290,20 +303,23 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 	require.Empty(t, updated.Settings.SecretHeaders)
 	require.Equal(t, map[string]string{"x-langfuse-ingestion-version": "4"}, updated.Settings.Headers)
 
-	listed, err := store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{OrgID: testOrgID, Limit: 100})
-	require.NoError(t, err)
-	require.Len(t, listed.Exporters, 3)
-	listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
-		OrgID: testOrgID, Limit: 100, ProjectID: testProjectID,
+	listed, err := store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
+		ProjectIDs: []uuid.UUID{testProjectID, uuid.New()}, Limit: 100,
 	})
 	require.NoError(t, err)
 	require.Len(t, listed.Exporters, 3)
 	require.Equal(t, projectExporter.ID, listed.Exporters[0].ID)
-	listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
-		OrgID: testOrgID, Limit: 100, ProjectID: uuid.New(),
-	})
-	require.NoError(t, err)
-	require.Empty(t, listed.Exporters)
+	for _, projectIDs := range [][]uuid.UUID{nil, {uuid.New()}} {
+		listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
+			ProjectIDs: projectIDs, Limit: 100,
+		})
+		require.NoError(t, err)
+		require.Empty(t, listed.Exporters)
+	}
+	// An exporter is only reachable through its own project.
+	_, err = store.GetOtelExporter(ctx, uuid.New(), projectExporter.ID)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.ErrorIs(t, store.DeleteOtelExporter(ctx, uuid.New(), secondExporter.ID), storeerr.ErrNotFound)
 
 	_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
 		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(owner.ID),
@@ -312,11 +328,11 @@ func TestOtelExportersQueueFinishedTurnsAndClaimDeliveries(t *testing.T) {
 
 	// Deleting an exporter drops the turns still queued for it.
 	require.NotEmpty(t, otelDeliveryTurns(t, fixture, secondExporter.ID))
-	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, secondExporter.ID))
+	require.NoError(t, store.DeleteOtelExporter(ctx, testProjectID, secondExporter.ID))
 	require.Empty(t, otelDeliveryTurns(t, fixture, secondExporter.ID))
 	_, err = store.GetOtelExportDestination(ctx, testOrgID, secondExporter.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testOrgID, secondExporter.ID), storeerr.ErrNotFound)
+	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testProjectID, secondExporter.ID), storeerr.ErrNotFound)
 
 	// Expired deliveries are returned with metadata so maintenance can log them.
 	_, err = fixture.Store.pool.Exec(ctx, `
@@ -444,7 +460,7 @@ func TestOtelExporterMutationsNeedOneConnection(t *testing.T) {
 	owner := createSecretTestUser(t, ctx, fixture.Store, "Otel One Conn Owner", "owner")
 	newSecret := func(name string) uuid.UUID {
 		secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: name,
+			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID, Name: name,
 			Material: secrets.GenericMaterial{Value: "token-val"}, Actor: userPrincipal(owner.ID),
 		})
 		require.NoError(t, err)
@@ -463,7 +479,7 @@ func TestOtelExporterMutationsNeedOneConnection(t *testing.T) {
 	mutationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	created, err := store.CreateOtelExporter(mutationCtx, executionstore.CreateOtelExporterInput{
-		OrgID: testOrgID, ProjectID: testProjectID,
+		ProjectID: testProjectID,
 		Settings: otelconfig.Settings{
 			Endpoint: "https://one-conn.example.com/v1/traces", SamplePercent: 100,
 			AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: credentialID,
@@ -471,7 +487,7 @@ func TestOtelExporterMutationsNeedOneConnection(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = store.UpdateOtelExporter(mutationCtx, executionstore.UpdateOtelExporterInput{
-		OrgID: testOrgID, ExporterID: created.ID,
+		ProjectID: testProjectID, ExporterID: created.ID,
 		SecretHeaders: map[string]uuid.UUID{"x-extra-auth": headerID},
 	})
 	require.NoError(t, err)
@@ -560,7 +576,7 @@ func TestOtelExporterCreateAndUpdateSerializeWithSecretDeletion(t *testing.T) {
 
 	newSecret := func(name string) uuid.UUID {
 		s, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: name,
+			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID, Name: name,
 			Material: secrets.GenericMaterial{Value: "token-val"}, Actor: userPrincipal(owner.ID),
 		})
 		require.NoError(t, err)
@@ -588,7 +604,7 @@ func TestOtelExporterCreateAndUpdateSerializeWithSecretDeletion(t *testing.T) {
 
 	createDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
-			OrgID: testOrgID, ProjectID: testProjectID,
+			ProjectID: testProjectID,
 			Settings: otelconfig.Settings{
 				Endpoint: "https://race-create.example.com/v1/traces", SamplePercent: 100,
 				AuthKind: otelconfig.AuthKindBearerToken, CredentialSecretID: createSecretID,
@@ -624,7 +640,7 @@ func TestOtelExporterCreateAndUpdateSerializeWithSecretDeletion(t *testing.T) {
 	updateDone := integrationdb.RunAsyncError(func() error {
 		bearer := otelconfig.AuthKindBearerToken
 		_, updateErr := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
-			OrgID: testOrgID, ExporterID: existing.ID,
+			ProjectID: testProjectID, ExporterID: existing.ID,
 			AuthKind: &bearer, SetCredentialSecretID: true, CredentialSecretID: updateSecretID,
 		})
 		return updateErr

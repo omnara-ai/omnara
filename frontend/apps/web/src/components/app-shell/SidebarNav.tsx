@@ -109,10 +109,7 @@ export function SidebarNav() {
           scoped('agents', 'Agents', Bot, true),
           scoped('integrations', 'Integrations', BoltIcon, true),
           ...(projectId ? [scoped('webhooks', 'Webhooks', SendHorizontal, true)] : []),
-          // Exporters belong to the organization, so only its admins can see them.
-          ...(canManageOrg(activeOrg.role)
-            ? [scoped('otel-exporters', 'Traces', Signal, true)]
-            : []),
+          scoped('otel-exporters', 'Traces', Signal, true),
           scoped('usage', 'Usage', ChartBar, true),
         ]}
       >

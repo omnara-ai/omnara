@@ -1,4 +1,4 @@
-import { useDeleteOtelExporter, useOtelExporters } from '@omnara/react'
+import { useDeleteOtelExporter, useOrgOtelExporters, useOtelExporters } from '@omnara/react'
 import type { OtelExporter } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
@@ -15,18 +15,20 @@ import {
   otelEncodingLabels,
   otelVariantLabels,
 } from '@/components/otel-exporters/otelExporterOptions'
-import { OtelExporterScopeLabel } from '@/components/otel-exporters/OtelExporterScopeField'
+import { OtelExporterProjectLabel } from '@/components/otel-exporters/OtelExporterProjectField'
 import { OtelVariantLogo } from '@/components/otel-exporters/OtelVariantLogo'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
+import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { errorMessage } from '@/lib/submit-status'
 
 /**
- * The organization's exporters fetched in a single list. Inside a project the list narrows
- * to the project's own exporters. The heading shares a row with the add button.
+ * A project's exporters, or without a project the exporters of every project the viewer can
+ * read. Adding, editing and deleting need management of the exporter's project, so those
+ * actions show per project. The heading shares a row with the add button.
  */
 export function OtelExportersSection({
   orgId,
@@ -37,25 +39,35 @@ export function OtelExportersSection({
   projectId?: string
   heading: ReactNode
 }) {
-  const query = useOtelExporters(orgId)
-  const exporters = useInfiniteQueryItems(query).filter(
-    (exporter) => projectId === undefined || exporter.scope.project_id === projectId,
-  )
+  const projectQuery = useOtelExporters(orgId, projectId ?? '', {
+    enabled: projectId !== undefined,
+  })
+  const orgQuery = useOrgOtelExporters(orgId, { enabled: projectId === undefined })
+  const query = projectId === undefined ? orgQuery : projectQuery
+  const exporters = useInfiniteQueryItems(query)
+  const { loaded: projects } = useProjectDirectory(orgId)
+  const canManage = (id: string) => projects.get(id)?.access.can_manage ?? false
+  const canAdd =
+    projectId === undefined
+      ? [...projects.values()].some((project) => project.access.can_manage)
+      : canManage(projectId)
   const remove = useDeleteOtelExporter(orgId)
   const [editing, setEditing] = useState<OtelExporter | 'new' | null>(null)
   return (
     <section className="flex min-w-0 flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         {heading}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setEditing('new')
-          }}
-        >
-          <PlusIcon /> Add exporter
-        </Button>
+        {canAdd && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setEditing('new')
+            }}
+          >
+            <PlusIcon /> Add exporter
+          </Button>
+        )}
       </div>
       {exporters.length > 0 && (
         <ul className="flex flex-col gap-2">
@@ -91,24 +103,29 @@ export function OtelExportersSection({
                   meta={
                     <>
                       <AgentCardTime label="Updated" value={exporter.updated_at} />
-                      <ResourceRowActions
-                        onEdit={() => {
-                          setEditing(exporter)
-                        }}
-                        onDelete={() => {
-                          if (window.confirm('Delete exporter ' + exporter.endpoint + '?'))
-                            remove.mutate(exporter.id)
-                        }}
-                      />
+                      {canManage(exporter.project_id) && (
+                        <ResourceRowActions
+                          onEdit={() => {
+                            setEditing(exporter)
+                          }}
+                          onDelete={() => {
+                            if (window.confirm('Delete exporter ' + exporter.endpoint + '?'))
+                              remove.mutate({
+                                projectID: exporter.project_id,
+                                exporterID: exporter.id,
+                              })
+                          }}
+                        />
+                      )}
                     </>
                   }
                   footer={
                     <span className="flex min-w-0 items-center gap-1.5">
                       <Folder className="size-4 shrink-0" aria-hidden="true" />
-                      <OtelExporterScopeLabel
+                      <OtelExporterProjectLabel
                         orgId={orgId}
-                        projectId={projectId}
-                        scope={exporter.scope}
+                        currentProjectId={projectId}
+                        projectId={exporter.project_id}
                       />
                     </span>
                   }

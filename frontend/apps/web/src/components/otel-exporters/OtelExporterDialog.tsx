@@ -5,7 +5,6 @@ import type {
   OtelExporterAuthKind,
   OtelExporterAuthOptions,
   OtelExporterEncoding,
-  OtelExporterScope,
   OtelTraceVariant,
 } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
@@ -24,14 +23,14 @@ import { OverridesCollapsible } from '@/components/machines/MachineOverrideField
 import { OtelExporterAuthFields } from '@/components/otel-exporters/OtelExporterAuthFields'
 import {
   applyVariantSwitch,
+  braintrustParentError,
   otelEncodingLabels,
-  otelExporterScopeComplete,
   variantEncodings,
 } from '@/components/otel-exporters/otelExporterOptions'
 import {
-  OtelExporterScopeField,
-  OtelExporterScopeLabel,
-} from '@/components/otel-exporters/OtelExporterScopeField'
+  OtelExporterProjectField,
+  OtelExporterProjectLabel,
+} from '@/components/otel-exporters/OtelExporterProjectField'
 import { OtelVariantSelect } from '@/components/otel-exporters/OtelVariantSelect'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,7 +55,7 @@ import { errorMessage } from '@/lib/submit-status'
 const endpointHint = 'Enter the full traces URL, such as https://otel.example.com/v1/traces.'
 
 interface OtelExporterFormValues {
-  scope: OtelExporterScope
+  projectId: string
   endpoint: string
   variant: OtelTraceVariant
   encoding: OtelExporterEncoding
@@ -112,7 +111,7 @@ function authValid(
 
 function defaultFormValues(exporter?: OtelExporter, projectId?: string): OtelExporterFormValues {
   return {
-    scope: exporter?.scope ?? { type: 'project', project_id: projectId ?? '' },
+    projectId: exporter?.project_id ?? projectId ?? '',
     endpoint: exporter?.endpoint ?? '',
     variant: exporter?.variant ?? 'otel',
     encoding: exporter?.encoding ?? 'protobuf',
@@ -233,15 +232,22 @@ export function OtelExporterDialog({
       const baseSettings = buildBaseSettings(value)
       try {
         if (exporter) {
-          await update.mutateAsync({
-            ...baseSettings,
+          // Unchanged secret headers are left out, so one whose secret was deleted
+          // does not block saving other settings.
+          const { secret_headers, ...settings } = baseSettings
+          const request: Parameters<typeof update.mutateAsync>[0] = {
+            ...settings,
             credential_secret_id: value.authKind === 'none' ? null : value.credentialSecretId,
+            projectID: exporter.project_id,
             exporterID: exporter.id,
-          })
+          }
+          if (!sameRecord(secret_headers, exporter.secret_headers))
+            request.secret_headers = secret_headers
+          await update.mutateAsync(request)
         } else {
-          const request: CreateOtelExporterRequest = { ...baseSettings, scope: value.scope }
+          const request: CreateOtelExporterRequest = { ...baseSettings }
           if (value.authKind !== 'none') request.credential_secret_id = value.credentialSecretId
-          await create.mutateAsync(request)
+          await create.mutateAsync({ ...request, projectID: value.projectId })
         }
         onClose()
       } catch (err) {
@@ -271,6 +277,17 @@ export function OtelExporterDialog({
     form.setFieldValue('credentialSecretId', updated.credentialSecretId)
     form.setFieldValue('headerRows', updated.headerRows)
     form.setFieldValue('secretHeaderRows', updated.secretHeaderRows)
+  }
+
+  /** Secrets are offered per project, so one picked for another project no longer applies. */
+  function handleProjectChange(next: string) {
+    if (next === form.getFieldValue('projectId')) return
+    form.setFieldValue('projectId', next)
+    form.setFieldValue('credentialSecretId', '')
+    form.setFieldValue(
+      'secretHeaderRows',
+      form.getFieldValue('secretHeaderRows').map((row) => ({ ...row, secretId: '' })),
+    )
   }
 
   function handleAuthKindChange(nextKind: OtelExporterAuthKind) {
@@ -319,21 +336,21 @@ export function OtelExporterDialog({
                   <Field>
                     <div className="type-label">Export traces from</div>
                     <div className="flex min-h-9 items-center text-sm">
-                      <OtelExporterScopeLabel
+                      <OtelExporterProjectLabel
                         orgId={orgId}
-                        projectId={projectId}
-                        scope={exporter.scope}
+                        currentProjectId={projectId}
+                        projectId={exporter.project_id}
                       />
                     </div>
                   </Field>
                 ) : (
-                  <form.Field name="scope">
+                  <form.Field name="projectId">
                     {(field) => (
-                      <OtelExporterScopeField
+                      <OtelExporterProjectField
                         orgId={orgId}
                         projectId={projectId}
                         value={field.state.value}
-                        onChange={field.handleChange}
+                        onChange={handleProjectChange}
                       />
                     )}
                   </form.Field>
@@ -362,6 +379,7 @@ export function OtelExporterDialog({
               </form.Field>
               <form.Subscribe
                 selector={(state) => ({
+                  projectId: state.values.projectId,
                   variant: state.values.variant,
                   authKind: state.values.authKind,
                   authHeaderName: state.values.authHeaderName,
@@ -372,6 +390,7 @@ export function OtelExporterDialog({
                 {(auth) => (
                   <OtelExporterAuthFields
                     orgId={orgId}
+                    projectId={auth.projectId}
                     variant={auth.variant}
                     authKind={auth.authKind}
                     authHeaderName={auth.authHeaderName}
@@ -392,24 +411,32 @@ export function OtelExporterDialog({
               </form.Subscribe>
               <form.Subscribe
                 selector={(state) => ({
+                  projectId: state.values.projectId,
+                  variant: state.values.variant,
                   headerRows: state.values.headerRows,
                   secretHeaderRows: state.values.secretHeaderRows,
                 })}
               >
-                {({ headerRows, secretHeaderRows }) => (
-                  <KeyValueEditor
-                    orgId={orgId}
-                    enabled
-                    label="Extra headers"
-                    itemLabel="Header"
-                    keyPlaceholder="x-custom-header"
-                    textRows={headerRows}
-                    secretRows={secretHeaderRows}
-                    onChange={({ textRows, secretRows }) => {
-                      form.setFieldValue('headerRows', textRows)
-                      form.setFieldValue('secretHeaderRows', secretRows)
-                    }}
-                  />
+                {({ projectId: secretsProjectId, variant, headerRows, secretHeaderRows }) => (
+                  <>
+                    <KeyValueEditor
+                      orgId={orgId}
+                      projectId={secretsProjectId}
+                      enabled={secretsProjectId !== ''}
+                      label="Extra headers"
+                      itemLabel="Header"
+                      keyPlaceholder="x-custom-header"
+                      textRows={headerRows}
+                      secretRows={secretHeaderRows}
+                      onChange={({ textRows, secretRows }) => {
+                        form.setFieldValue('headerRows', textRows)
+                        form.setFieldValue('secretHeaderRows', secretRows)
+                      }}
+                    />
+                    {braintrustParentError(variant, headerRows) && (
+                      <FieldError>{braintrustParentError(variant, headerRows)}</FieldError>
+                    )}
+                  </>
                 )}
               </form.Subscribe>
               <form.Subscribe
@@ -461,14 +488,20 @@ export function OtelExporterDialog({
   )
 }
 
+function sameRecord(left: Record<string, string>, right: Record<string, string>) {
+  const keys = Object.keys(left)
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key])
+}
+
 function valid(value: OtelExporterFormValues) {
   return (
-    otelExporterScopeComplete(value.scope) &&
+    value.projectId !== '' &&
     !endpointError(value.endpoint) &&
     authValid(value) &&
     !samplePercentError(value.samplePercent) &&
     textRowsValid(value.headerRows) &&
     value.headerRows.every((row) => !!row.value) &&
+    !braintrustParentError(value.variant, value.headerRows) &&
     secretRowsValid(value.secretHeaderRows)
   )
 }

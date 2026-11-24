@@ -20,12 +20,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
-	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const MaxOtelExportersPerOrg = 100
+const MaxOtelExportersPerProject = 100
 
 type OtelExporterRecord struct {
 	ID        uuid.UUID
@@ -37,17 +36,16 @@ type OtelExporterRecord struct {
 }
 
 type CreateOtelExporterInput struct {
-	OrgID     uuid.UUID
 	ProjectID uuid.UUID
 	Settings  otelconfig.Settings
 }
 
 type ListOtelExportersInput struct {
-	OrgID uuid.UUID
-	// ProjectID, when set, returns only that project's exporters.
-	ProjectID uuid.UUID
-	Limit     int
-	After     listing.KeysetCursor
+	// ProjectIDs is one project, or every project the caller can read for the
+	// organization-wide list.
+	ProjectIDs []uuid.UUID
+	Limit      int
+	After      listing.KeysetCursor
 }
 
 type ListOtelExportersResult struct {
@@ -56,7 +54,7 @@ type ListOtelExportersResult struct {
 }
 
 type UpdateOtelExporterInput struct {
-	OrgID                 uuid.UUID
+	ProjectID             uuid.UUID
 	ExporterID            uuid.UUID
 	Endpoint              *string
 	Variant               *oteltrace.Variant
@@ -95,21 +93,24 @@ func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, er
 	return record, nil
 }
 
-// readOtelExporterSecret reads through tx when the caller holds one, so an
-// exporter mutation never waits on the pool for a second connection.
-func (s *Store) readOtelExporterSecret(ctx context.Context, tx pgx.Tx, orgID, secretID uuid.UUID) (string, error) {
+// readOtelExporterSecret reads a generic secret available to the exporter's
+// project. It reads through tx when the caller holds one, so an exporter
+// mutation never waits on the pool for a second connection.
+func (s *Store) readOtelExporterSecret(
+	ctx context.Context, tx pgx.Tx, orgID, projectID, secretID uuid.UUID,
+) (string, error) {
 	if s.secrets == nil {
 		return "", errors.New("secret store is required")
 	}
-	input := secretstore.ReadOrgOwnedSecretPayloadInput{
-		OrgID: orgID, SecretID: secretID, ManagementKind: management.Tenant, Kind: secrets.KindGeneric,
+	input := secretstore.ReadProjectAvailableSecretPayloadInput{
+		OrgID: orgID, ProjectID: projectID, SecretID: secretID, Kind: secrets.KindGeneric,
 	}
 	var record secretstore.SecretPayloadRecord
 	var err error
 	if tx != nil {
-		record, err = s.secrets.ReadOrgOwnedSecretPayloadTx(ctx, tx, input)
+		record, err = s.secrets.ReadProjectAvailableSecretPayloadTx(ctx, tx, input)
 	} else {
-		record, err = s.secrets.ReadOrgOwnedSecretPayload(ctx, input)
+		record, err = s.secrets.ReadProjectAvailableSecretPayload(ctx, input)
 	}
 	if err != nil {
 		return "", err
@@ -129,30 +130,35 @@ func otelExporterReferencedSecretIDs(settings otelconfig.Settings) []uuid.UUID {
 	return slices.Compact(ids)
 }
 
+var errOtelExporterSecretUnavailable = storeerr.InvalidRequest(
+	errors.New("referenced secret must be a generic secret available to the project"))
+
+// lockAndValidateOtelExporterSecretsTx checks the secrets a mutation sets. An
+// update that leaves secret_headers alone passes checkSecretHeaders false: a
+// header secret can be deleted from under the exporter, and export then leaves
+// that header out, so a stored reference to one must not fail unrelated edits.
 func (s *Store) lockAndValidateOtelExporterSecretsTx(
-	ctx context.Context, tx pgx.Tx, orgID uuid.UUID, settings otelconfig.Settings,
+	ctx context.Context, tx pgx.Tx, orgID, projectID uuid.UUID, settings otelconfig.Settings,
+	checkSecretHeaders bool,
 ) error {
+	if !checkSecretHeaders {
+		settings.SecretHeaders = nil
+	}
 	referenced := otelExporterReferencedSecretIDs(settings)
 	if len(referenced) == 0 {
 		return nil
 	}
 	values := make(map[uuid.UUID]string, len(referenced))
 	for _, secretID := range referenced {
-		facts, err := secretops.LockReference(ctx, tx, orgID, secretID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
-		}
-		if err != nil {
+		// The lock keeps a concurrent secret deletion from missing this reference.
+		if _, err := secretops.LockReference(ctx, tx, orgID, secretID); errors.Is(err, pgx.ErrNoRows) {
+			return errOtelExporterSecretUnavailable
+		} else if err != nil {
 			return err
 		}
-		if facts.OwnerKind != secretstore.SecretOwnerOrg ||
-			facts.ManagementKind != management.Tenant ||
-			facts.Kind != secrets.KindGeneric {
-			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
-		}
-		value, err := s.readOtelExporterSecret(ctx, tx, orgID, secretID)
-		if errors.Is(err, storeerr.ErrNotFound) {
-			return storeerr.InvalidRequest(errors.New("referenced secret must be an organization-owned generic secret"))
+		value, err := s.readOtelExporterSecret(ctx, tx, orgID, projectID, secretID)
+		if errors.Is(err, storeerr.ErrNotFound) || errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+			return errOtelExporterSecretUnavailable
 		}
 		if err != nil {
 			return err
@@ -209,36 +215,36 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	project, err := q.GetProjectByID(ctx, dbsqlc.GetProjectByIDParams{ID: input.ProjectID})
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && project.OrgID != input.OrgID) {
+	project, err := loadProjectTx(ctx, q, input.ProjectID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound
 	}
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
-	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	if err := lockResourceCreation(ctx, q, "otel_exporters", input.OrgID.String()); err != nil {
+	if err := lockResourceCreation(ctx, q, "otel_exporters", input.ProjectID.String()); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	if err := s.lockAndValidateOtelExporterSecretsTx(ctx, tx, input.OrgID, settings); err != nil {
+	if err := s.lockAndValidateOtelExporterSecretsTx(ctx, tx, project.OrgID, input.ProjectID, settings, true); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	existing, err := q.CountOrgOtelExporters(ctx, dbsqlc.CountOrgOtelExportersParams{OrgID: input.OrgID})
+	existing, err := q.CountProjectOtelExporters(ctx, dbsqlc.CountProjectOtelExportersParams{ProjectID: input.ProjectID})
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
-	if existing >= MaxOtelExportersPerOrg {
+	if existing >= MaxOtelExportersPerProject {
 		return OtelExporterRecord{}, resourceguard.LimitExceeded(
-			"OpenTelemetry exporters per organization", MaxOtelExportersPerOrg)
+			"OpenTelemetry exporters per project", MaxOtelExportersPerProject)
 	}
 	authOptions, headers, secretHeaders, err := encodeOtelExporterJSON(settings)
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
 	row, err := q.InsertOtelExporter(ctx, dbsqlc.InsertOtelExporterParams{
-		OrgID: input.OrgID, ProjectID: input.ProjectID,
+		OrgID: project.OrgID, ProjectID: input.ProjectID,
 		Endpoint: settings.Endpoint, Variant: string(settings.Variant),
 		Encoding: string(settings.Encoding), AuthKind: string(settings.AuthKind), AuthOptions: authOptions,
 		CredentialSecretID: storeutil.IDFromNil(settings.CredentialSecretID),
@@ -254,13 +260,13 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 }
 
 func (s *Store) ListOtelExporters(ctx context.Context, input ListOtelExportersInput) (ListOtelExportersResult, error) {
-	if input.OrgID == uuid.Nil || input.Limit < 1 || input.Limit > 100 {
-		return ListOtelExportersResult{}, storeerr.InvalidRequest(
-			errors.New("organization and limit between 1 and 100 are required"))
+	if input.Limit < 1 || input.Limit > 100 {
+		return ListOtelExportersResult{}, storeerr.InvalidRequest(errors.New("limit between 1 and 100 is required"))
 	}
-	params := dbsqlc.ListOtelExportersParams{
-		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.ProjectID), RowLimit: int32(input.Limit) + 1,
+	if len(input.ProjectIDs) == 0 {
+		return ListOtelExportersResult{Exporters: []OtelExporterRecord{}}, nil
 	}
+	params := dbsqlc.ListOtelExportersParams{ProjectIds: input.ProjectIDs, RowLimit: int32(input.Limit) + 1}
 	if input.After.Set {
 		params.CursorCreatedAt = &input.After.CreatedAt
 		params.CursorID = &input.After.ID
@@ -284,8 +290,8 @@ func (s *Store) ListOtelExporters(ctx context.Context, input ListOtelExportersIn
 	return result, nil
 }
 
-func (s *Store) GetOtelExporter(ctx context.Context, orgID, id uuid.UUID) (OtelExporterRecord, error) {
-	row, err := s.q.GetOtelExporter(ctx, dbsqlc.GetOtelExporterParams{OrgID: orgID, ID: id})
+func (s *Store) GetOtelExporter(ctx context.Context, projectID, id uuid.UUID) (OtelExporterRecord, error) {
+	row, err := s.q.GetOtelExporter(ctx, dbsqlc.GetOtelExporterParams{ProjectID: projectID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound
 	}
@@ -296,19 +302,25 @@ func (s *Store) GetOtelExporter(ctx context.Context, orgID, id uuid.UUID) (OtelE
 }
 
 func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporterInput) (OtelExporterRecord, error) {
+	record, err := s.GetOtelExporter(ctx, input.ProjectID, input.ExporterID)
+	if err != nil {
+		return OtelExporterRecord{}, err
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OtelExporterRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, record.OrgID, input.ProjectID); err != nil {
 		return OtelExporterRecord{}, err
 	}
 	q := dbsqlc.New(tx)
-	if err := lockResourceCreation(ctx, q, "otel_exporters", input.OrgID.String()); err != nil {
+	// Share the project's creation lock so duplicate checks and partial updates
+	// observe the latest committed exporter.
+	if err := lockResourceCreation(ctx, q, "otel_exporters", input.ProjectID.String()); err != nil {
 		return OtelExporterRecord{}, err
 	}
-	row, err := q.GetOtelExporter(ctx, dbsqlc.GetOtelExporterParams{OrgID: input.OrgID, ID: input.ExporterID})
+	row, err := q.GetOtelExporter(ctx, dbsqlc.GetOtelExporterParams{ProjectID: input.ProjectID, ID: input.ExporterID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound
 	}
@@ -354,7 +366,9 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	if settings, err = otelconfig.Validate(settings, s.endpointAllowlist); err != nil {
 		return OtelExporterRecord{}, storeerr.InvalidRequest(err)
 	}
-	if err := s.lockAndValidateOtelExporterSecretsTx(ctx, tx, input.OrgID, settings); err != nil {
+	if err := s.lockAndValidateOtelExporterSecretsTx(
+		ctx, tx, record.OrgID, input.ProjectID, settings, input.SecretHeaders != nil,
+	); err != nil {
 		return OtelExporterRecord{}, err
 	}
 	authOptions, headers, secretHeaders, err := encodeOtelExporterJSON(settings)
@@ -362,7 +376,7 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 		return OtelExporterRecord{}, err
 	}
 	row, err = q.UpdateOtelExporter(ctx, dbsqlc.UpdateOtelExporterParams{
-		OrgID: input.OrgID, ID: input.ExporterID, Endpoint: settings.Endpoint, Variant: string(settings.Variant),
+		ProjectID: input.ProjectID, ID: input.ExporterID, Endpoint: settings.Endpoint, Variant: string(settings.Variant),
 		Encoding: string(settings.Encoding), AuthKind: string(settings.AuthKind), AuthOptions: authOptions,
 		CredentialSecretID: storeutil.IDFromNil(settings.CredentialSecretID),
 		Headers:            headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
@@ -380,14 +394,18 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 }
 
 // DeleteOtelExporter deletes the exporter and drops the turns queued for it.
-func (s *Store) DeleteOtelExporter(ctx context.Context, orgID, id uuid.UUID) error {
+func (s *Store) DeleteOtelExporter(ctx context.Context, projectID, id uuid.UUID) error {
+	record, err := s.GetOtelExporter(ctx, projectID, id)
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	count, err := q.DeleteOtelExporter(ctx, dbsqlc.DeleteOtelExporterParams{OrgID: orgID, ID: id})
+	count, err := q.DeleteOtelExporter(ctx, dbsqlc.DeleteOtelExporterParams{ProjectID: projectID, ID: id})
 	if err != nil {
 		return err
 	}
@@ -395,7 +413,7 @@ func (s *Store) DeleteOtelExporter(ctx context.Context, orgID, id uuid.UUID) err
 		return storeerr.ErrNotFound
 	}
 	if err := q.DeleteOtelExporterDeliveries(ctx, dbsqlc.DeleteOtelExporterDeliveriesParams{
-		OrgID: orgID, ExporterID: id,
+		OrgID: record.OrgID, ExporterID: id,
 	}); err != nil {
 		return err
 	}

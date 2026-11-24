@@ -2,7 +2,12 @@ import { expect, it } from 'vitest'
 
 import { secretRowsFromRecord, textRowsFromRecord } from '@/components/key-value/keyValueRows'
 
-import { applyVariantSwitch, endpointForVariant, variantEndpoints } from './otelExporterOptions'
+import {
+  applyVariantSwitch,
+  braintrustParentError,
+  endpointForVariant,
+  variantEndpoints,
+} from './otelExporterOptions'
 
 it("fills in a backend's endpoint, auth preset, and headers until customized", () => {
   expect(endpointForVariant('langfuse', '')).toBe(variantEndpoints.langfuse)
@@ -74,4 +79,15 @@ it("fills in a backend's endpoint, auth preset, and headers until customized", (
   expect(custom.secretHeaderRows.map((row) => [row.key, row.secretId])).toEqual([
     ['x-extra', 'sec_extra'],
   ])
+})
+
+it('requires a value after the kind in the Braintrust parent header', () => {
+  const rows = (value: string) => textRowsFromRecord({ 'x-bt-parent': value })
+  expect(braintrustParentError('braintrust', rows('project_id:'))).toBeDefined()
+  expect(braintrustParentError('braintrust', rows('project_id: '))).toBeDefined()
+  expect(braintrustParentError('braintrust', rows('abc'))).toBeDefined()
+  expect(braintrustParentError('braintrust', rows('project_id:abc'))).toBeUndefined()
+  expect(braintrustParentError('braintrust', rows('project_name:my project'))).toBeUndefined()
+  expect(braintrustParentError('braintrust', [])).toBeUndefined()
+  expect(braintrustParentError('otel', rows('project_id:'))).toBeUndefined()
 })

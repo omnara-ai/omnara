@@ -223,6 +223,7 @@ export {
 export {
   useCreateOtelExporter,
   useDeleteOtelExporter,
+  useOrgOtelExporters,
   useOtelExporters,
   useUpdateOtelExporter,
 } from './domains/otel-exporters'

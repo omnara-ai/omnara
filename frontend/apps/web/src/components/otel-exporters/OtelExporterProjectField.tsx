@@ -1,4 +1,3 @@
-import type { OtelExporterScope } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useId } from 'react'
 
@@ -13,10 +12,10 @@ import {
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 
 /**
- * Picks the project an exporter covers. Inside a project the project is fixed, so there is
- * nothing to choose and the field only states what is exported.
+ * Picks the project a new exporter belongs to, from the projects the viewer can manage.
+ * Inside a project the project is fixed, so the field only states what is exported.
  */
-export function OtelExporterScopeField({
+export function OtelExporterProjectField({
   orgId,
   projectId,
   value,
@@ -25,9 +24,11 @@ export function OtelExporterScopeField({
   orgId: string
   /** The project the exporter is being added from, when there is one. */
   projectId?: string
-  value: OtelExporterScope
-  onChange: (value: OtelExporterScope) => void
+  value: string
+  onChange: (projectId: string) => void
 }) {
+  const id = useId()
+  const { loaded } = useProjectDirectory(orgId)
   if (projectId !== undefined)
     return (
       <Field>
@@ -35,29 +36,9 @@ export function OtelExporterScopeField({
         <div className="flex min-h-9 items-center text-sm">All agents in this project</div>
       </Field>
     )
-  return (
-    <ProjectPicker
-      orgId={orgId}
-      value={value.project_id}
-      onChange={(project_id) => {
-        onChange({ type: 'project', project_id })
-      }}
-    />
-  )
-}
-
-function ProjectPicker({
-  orgId,
-  value,
-  onChange,
-}: {
-  orgId: string
-  value: string
-  onChange: (projectId: string) => void
-}) {
-  const id = useId()
-  const { loaded } = useProjectDirectory(orgId)
-  const projects = [...loaded.values()].sort((left, right) => left.name.localeCompare(right.name))
+  const projects = [...loaded.values()]
+    .filter((project) => project.access.can_manage)
+    .sort((left, right) => left.name.localeCompare(right.name))
   return (
     <Field>
       <FieldLabel htmlFor={id}>Export traces from</FieldLabel>
@@ -77,27 +58,24 @@ function ProjectPicker({
   )
 }
 
-export function OtelExporterScopeLabel({
+export function OtelExporterProjectLabel({
   orgId,
+  currentProjectId,
   projectId,
-  scope,
 }: {
   orgId: string
   /** The project the list is shown in, when there is one. */
-  projectId?: string
-  scope: OtelExporterScope
+  currentProjectId?: string
+  /** The project the exporter belongs to. */
+  projectId: string
 }) {
   const { loaded } = useProjectDirectory(orgId)
-  if (scope.project_id === projectId) return <>All agents in this project</>
+  if (projectId === currentProjectId) return <>All agents in this project</>
   return (
     <span className="flex min-w-0 items-center gap-1">
       Project:{' '}
-      <Link
-        to="/projects/$projectId"
-        params={{ projectId: scope.project_id }}
-        className="truncate hover:underline"
-      >
-        {loaded.get(scope.project_id)?.name ?? scope.project_id}
+      <Link to="/projects/$projectId" params={{ projectId }} className="truncate hover:underline">
+        {loaded.get(projectId)?.name ?? projectId}
       </Link>
     </span>
   )

@@ -75,7 +75,10 @@ func (variant Variant) putAttributes(
 		if input != "" {
 			attributes.PutStr("langfuse.observation.input", input)
 		}
-		if output != "" {
+		// A model output can hold tool calls as well as text. The flattened text
+		// would hide the calls, so a model span leaves the output to
+		// gen_ai.output.messages, which Langfuse reads when this is absent.
+		if output != "" && role != spanRoleModel {
 			attributes.PutStr("langfuse.observation.output", output)
 		}
 		if costUSD != "" {

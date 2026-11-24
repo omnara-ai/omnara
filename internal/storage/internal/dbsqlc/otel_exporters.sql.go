@@ -89,17 +89,17 @@ func (q *Queries) CompleteOtelExportDelivery(ctx context.Context, arg CompleteOt
 	return err
 }
 
-const countOrgOtelExporters = `-- name: CountOrgOtelExporters :one
+const countProjectOtelExporters = `-- name: CountProjectOtelExporters :one
 SELECT count(*) FROM otel_exporters
-WHERE org_id = $1 AND deleted_at IS NULL
+WHERE project_id = $1 AND deleted_at IS NULL
 `
 
-type CountOrgOtelExportersParams struct {
-	OrgID uuid.UUID
+type CountProjectOtelExportersParams struct {
+	ProjectID uuid.UUID
 }
 
-func (q *Queries) CountOrgOtelExporters(ctx context.Context, arg CountOrgOtelExportersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOrgOtelExporters, arg.OrgID)
+func (q *Queries) CountProjectOtelExporters(ctx context.Context, arg CountProjectOtelExportersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countProjectOtelExporters, arg.ProjectID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -167,16 +167,16 @@ func (q *Queries) DeleteExpiredOtelExportDeliveries(ctx context.Context, arg Del
 
 const deleteOtelExporter = `-- name: DeleteOtelExporter :execrows
 UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
+WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
 type DeleteOtelExporterParams struct {
-	OrgID uuid.UUID
-	ID    uuid.UUID
+	ProjectID uuid.UUID
+	ID        uuid.UUID
 }
 
 func (q *Queries) DeleteOtelExporter(ctx context.Context, arg DeleteOtelExporterParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteOtelExporter, arg.OrgID, arg.ID)
+	result, err := q.db.Exec(ctx, deleteOtelExporter, arg.ProjectID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -270,16 +270,57 @@ SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exp
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
-WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL
+JOIN projects project ON project.id = exporter.project_id AND project.deleted_at IS NULL
+WHERE exporter.project_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL
 `
 
 type GetOtelExporterParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams) (OtelExporter, error) {
+	row := q.db.QueryRow(ctx, getOtelExporter, arg.ProjectID, arg.ID)
+	var i OtelExporter
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.Endpoint,
+		&i.Variant,
+		&i.Encoding,
+		&i.AuthKind,
+		&i.AuthOptions,
+		&i.CredentialSecretID,
+		&i.Headers,
+		&i.SecretHeaders,
+		&i.SamplePercent,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getOtelExporterForExport = `-- name: GetOtelExporterForExport :one
+SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exporter.variant,
+       exporter.encoding, exporter.auth_kind, exporter.auth_options, exporter.credential_secret_id,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
+       exporter.created_at, exporter.updated_at, exporter.deleted_at
+FROM otel_exporters exporter
+JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.id = exporter.project_id AND project.deleted_at IS NULL
+WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL
+`
+
+type GetOtelExporterForExportParams struct {
 	OrgID uuid.UUID
 	ID    uuid.UUID
 }
 
-func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams) (OtelExporter, error) {
-	row := q.db.QueryRow(ctx, getOtelExporter, arg.OrgID, arg.ID)
+// A queued delivery names its exporter by organization, not by project.
+func (q *Queries) GetOtelExporterForExport(ctx context.Context, arg GetOtelExporterForExportParams) (OtelExporter, error) {
+	row := q.db.QueryRow(ctx, getOtelExporterForExport, arg.OrgID, arg.ID)
 	var i OtelExporter
 	err := row.Scan(
 		&i.ID,
@@ -462,29 +503,28 @@ SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.endpoint, exp
        exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
-WHERE exporter.org_id = $1
-  AND ($2::uuid IS NULL OR exporter.project_id = $2::uuid)
+WHERE exporter.project_id = ANY($1::uuid[])
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
-    coalesce($3::timestamptz, '-infinity'::timestamptz),
-    coalesce($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce($2::timestamptz, '-infinity'::timestamptz),
+    coalesce($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
 ORDER BY exporter.created_at, exporter.id
-LIMIT $5
+LIMIT $4
 `
 
 type ListOtelExportersParams struct {
-	OrgID           uuid.UUID
-	ProjectID       *uuid.UUID
+	ProjectIds      []uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int32
 }
 
+// One project's exporters, or those of every listed project for the
+// organization-wide view.
 func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersParams) ([]OtelExporter, error) {
 	rows, err := q.db.Query(ctx, listOtelExporters,
-		arg.OrgID,
-		arg.ProjectID,
+		arg.ProjectIds,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
@@ -982,13 +1022,13 @@ const updateOtelExporter = `-- name: UpdateOtelExporter :one
 UPDATE otel_exporters SET endpoint = $3, variant = $4, encoding = $5, auth_kind = $6, auth_options = $7,
     credential_secret_id = $8, headers = $9, secret_headers = $10, sample_percent = $11,
     updated_at = statement_timestamp()
-WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
+WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 RETURNING id, org_id, project_id, endpoint, variant, encoding, auth_kind, auth_options, credential_secret_id,
           headers, secret_headers, sample_percent, created_at, updated_at, deleted_at
 `
 
 type UpdateOtelExporterParams struct {
-	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
 	ID                 uuid.UUID
 	Endpoint           string
 	Variant            string
@@ -1003,7 +1043,7 @@ type UpdateOtelExporterParams struct {
 
 func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporterParams) (OtelExporter, error) {
 	row := q.db.QueryRow(ctx, updateOtelExporter,
-		arg.OrgID,
+		arg.ProjectID,
 		arg.ID,
 		arg.Endpoint,
 		arg.Variant,

@@ -391,14 +391,6 @@ export const zOtelTrace = z.object({
 });
 
 /**
- * Exports every agent in one project.
- */
-export const zOtelExporterScope = z.object({
-    type: z.enum(['project']),
-    project_id: zProjectId
-});
-
-/**
  * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
  */
 export const zOtelExporterAuthKind = z.enum([
@@ -681,13 +673,12 @@ export const zListEventWebhooksResponse = z.object({
 });
 
 /**
- * Extra request headers whose values come from organization-owned generic secrets, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
+ * Extra request headers whose values come from generic secrets available to the project, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
  */
 export const zOtelExporterSecretHeaders = z.record(z.string(), zSecretId);
 
 export const zCreateOtelExporterRequest = z.object({
     endpoint: z.string().min(1).max(2048),
-    scope: zOtelExporterScope,
     variant: zOtelTraceVariant.optional(),
     encoding: zOtelExporterEncoding.optional().default('protobuf'),
     auth_kind: zOtelExporterAuthKind.optional().default('none'),
@@ -713,8 +704,8 @@ export const zUpdateOtelExporterRequest = z.object({
 export const zOtelExporter = z.object({
     id: zOtelExporterId,
     org_id: zOrganizationId,
+    project_id: zProjectId,
     endpoint: z.string().min(1).max(2048),
-    scope: zOtelExporterScope,
     variant: zOtelTraceVariant,
     encoding: zOtelExporterEncoding,
     auth_kind: zOtelExporterAuthKind,
@@ -4154,25 +4145,40 @@ export const zUpdateEventWebhookPath = z.object({
  */
 export const zUpdateEventWebhookResponse = zEventWebhook;
 
-export const zListOtelExportersPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+export const zListOrgOtelExportersPath = z.object({
+    orgID: zOrganizationId
 });
 
-export const zListOtelExportersQuery = z.object({
-    project_id: zProjectId.optional(),
+export const zListOrgOtelExportersQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
 
 /**
- * The organization's exporters, or one project's when project_id is given.
+ * Exporters across the caller's readable projects.
+ */
+export const zListOrgOtelExportersResponse = zListOtelExportersResponse;
+
+export const zListOtelExportersPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListOtelExportersQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * The project's exporters.
  */
 export const zListOtelExportersResponse2 = zListOtelExportersResponse;
 
 export const zCreateOtelExporterBody = zCreateOtelExporterRequest;
 
 export const zCreateOtelExporterPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId
 });
 
 /**
@@ -4181,7 +4187,8 @@ export const zCreateOtelExporterPath = z.object({
 export const zCreateOtelExporterResponse = zOtelExporter;
 
 export const zDeleteOtelExporterPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     exporterID: zOtelExporterId
 });
 
@@ -4191,7 +4198,8 @@ export const zDeleteOtelExporterPath = z.object({
 export const zDeleteOtelExporterResponse = z.void();
 
 export const zGetOtelExporterPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     exporterID: zOtelExporterId
 });
 
@@ -4203,7 +4211,8 @@ export const zGetOtelExporterResponse = zOtelExporter;
 export const zUpdateOtelExporterBody = zUpdateOtelExporterRequest;
 
 export const zUpdateOtelExporterPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     exporterID: zOtelExporterId
 });
 
