@@ -65,7 +65,7 @@ func TestAssistantPresetPreservesOperatorPolicy(t *testing.T) {
 func TestAssistantPresetUsesOnlyReferencedCredentialAndModel(t *testing.T) {
 	modelID, secretID := uuid.New(), uuid.New()
 	compiled, err := compileAssistantPreset(CreateAssistantAgentInput{
-		MCPURL: "https://api.example.com/mcp", ReadOnlyTools: []string{"agents_list"},
+		MCPURL: "https://api.example.com/mcp",
 	}, modelstore.ConfiguredModelSummaryRecord{ID: modelID, Name: "model", ProviderConfigName: "provider"}, secretID)
 	require.NoError(t, err)
 	contract, err := agentconfig.RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
@@ -76,17 +76,24 @@ func TestAssistantPresetUsesOnlyReferencedCredentialAndModel(t *testing.T) {
 		return tool.Name == "web_fetch"
 	})
 	require.NotEqual(t, -1, webFetch)
-	require.Equal(t, toolpermission.ModeAlwaysAsk, contract.Tools[webFetch].Permission.Mode)
+	require.Equal(t, toolpermission.ModeAlwaysAllow, contract.Tools[webFetch].Permission.Mode)
 	require.Len(t, contract.MCPServers, 1)
 	server := contract.MCPServers[0]
 	require.Equal(t, secretID, server.Auth.SecretID)
-	read, ok := server.ResolveTool("agents_list")
-	require.True(t, ok)
-	require.Equal(t, toolpermission.ModeAlwaysAllow, read.Permission.Mode)
-	write, ok := server.ResolveTool("agents_launch")
-	require.True(t, ok)
-	require.Equal(t, toolpermission.ModeAlwaysAsk, write.Permission.Mode)
+	for _, name := range []string{"agents_list", "agents_launch", "secrets_delete", "a_tool_added_later"} {
+		tool, ok := server.ResolveTool(name)
+		require.True(t, ok)
+		require.Equal(t, toolpermission.ModeAlwaysAllow, tool.Permission.Mode, name)
+	}
 	require.True(t, server.DefersAnyTool())
+	for _, name := range []string{AssistantOpenPageTool, AssistantPointAtTool} {
+		index := slices.IndexFunc(contract.Tools, func(tool agentconfig.RuntimeTool) bool { return tool.Name == name })
+		require.NotEqual(t, -1, index, name)
+		pageTool := contract.Tools[index]
+		require.Equal(t, toolpermission.ModeAlwaysAllow, pageTool.Permission.Mode, name)
+		require.NotNil(t, pageTool.TimeoutSeconds, name)
+		require.Positive(t, *pageTool.TimeoutSeconds, name)
+	}
 	require.Contains(t, compiled.Source, "cannot click")
 	require.Contains(t, compiled.Source, "untrusted data")
 }

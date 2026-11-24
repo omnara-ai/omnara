@@ -33,6 +33,10 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
 				return expireProcessTools(log, func(context.Context, time.Duration) (int64, error) { return 1, err })
 			}},
+		{"expire custom tools", "expired custom tool calls", "expire custom tool calls",
+			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
+				return expireCustomTools(log, func(context.Context, int32) (int64, error) { return 1, err })
+			}},
 		{"delete expired webhook deliveries",
 			"cleaned expired event webhook deliveries", "cleanup expired event webhook deliveries",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {

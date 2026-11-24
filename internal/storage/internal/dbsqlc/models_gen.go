@@ -135,7 +135,6 @@ type AgentMcpConnection struct {
 type AgentPanelPreference struct {
 	UserID           uuid.UUID
 	AgentID          *uuid.UUID
-	Enabled          bool
 	Revision         int64
 	PendingProjectID *uuid.UUID
 }

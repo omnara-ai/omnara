@@ -58,7 +58,7 @@ func (q *Queries) EnqueueAgentPanelBootstrap(ctx context.Context, arg EnqueueAge
 }
 
 const getAgentPanelPreference = `-- name: GetAgentPanelPreference :one
-SELECT user_id, agent_id, enabled, revision, pending_project_id
+SELECT user_id, agent_id, revision, pending_project_id
 FROM agent_panel_preferences WHERE user_id = $1
 `
 
@@ -72,7 +72,6 @@ func (q *Queries) GetAgentPanelPreference(ctx context.Context, arg GetAgentPanel
 	err := row.Scan(
 		&i.UserID,
 		&i.AgentID,
-		&i.Enabled,
 		&i.Revision,
 		&i.PendingProjectID,
 	)
@@ -194,20 +193,19 @@ func (q *Queries) RevokeAssistantTokensForHome(ctx context.Context, arg RevokeAs
 }
 
 const setAgentPanelPreference = `-- name: SetAgentPanelPreference :exec
-INSERT INTO agent_panel_preferences(user_id, agent_id, enabled, revision)
-VALUES ($1, $2, $3, 1)
+INSERT INTO agent_panel_preferences(user_id, agent_id, revision)
+VALUES ($1, $2, 1)
 ON CONFLICT (user_id) DO UPDATE
-SET agent_id = EXCLUDED.agent_id, enabled = EXCLUDED.enabled,
+SET agent_id = EXCLUDED.agent_id,
     revision = agent_panel_preferences.revision + 1, pending_project_id = NULL
 `
 
 type SetAgentPanelPreferenceParams struct {
 	UserID  uuid.UUID
 	AgentID *uuid.UUID
-	Enabled bool
 }
 
 func (q *Queries) SetAgentPanelPreference(ctx context.Context, arg SetAgentPanelPreferenceParams) error {
-	_, err := q.db.Exec(ctx, setAgentPanelPreference, arg.UserID, arg.AgentID, arg.Enabled)
+	_, err := q.db.Exec(ctx, setAgentPanelPreference, arg.UserID, arg.AgentID)
 	return err
 }

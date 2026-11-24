@@ -35,13 +35,18 @@ type AgentPanelSelection struct {
 	CanOperate bool
 }
 
+const (
+	AssistantModelAvailable    = "available"
+	AssistantModelProvisioning = "provisioning"
+	AssistantModelRequired     = "required"
+)
+
 type AgentPanelSetup struct {
 	AgentPanelScope
-	Ready bool
+	Model string
 }
 
 type AgentPanelRecord struct {
-	Enabled   bool
 	Revision  int64
 	State     string
 	Selection *AgentPanelSelection
@@ -55,7 +60,7 @@ func agentPanelPreference(
 ) (dbsqlc.AgentPanelPreference, error) {
 	row, err := q.GetAgentPanelPreference(ctx, dbsqlc.GetAgentPanelPreferenceParams{UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return dbsqlc.AgentPanelPreference{UserID: userID, Enabled: true}, nil
+		return dbsqlc.AgentPanelPreference{UserID: userID}, nil
 	}
 	return row, err
 }
@@ -71,7 +76,7 @@ func (s *Service) GetAgentPanel(
 	if err != nil {
 		return AgentPanelRecord{}, err
 	}
-	result := AgentPanelRecord{Enabled: preference.Enabled, Revision: preference.Revision, State: "empty"}
+	result := AgentPanelRecord{Revision: preference.Revision, State: "empty"}
 	if preference.AgentID != nil {
 		result.State = "unavailable"
 		agent, err := s.q.GetAgent(ctx, dbsqlc.GetAgentParams{ID: *preference.AgentID})
@@ -100,20 +105,40 @@ func (s *Service) GetAgentPanel(
 			}
 		}
 	}
-	if preference.PendingProjectID != nil && preference.Enabled {
+	if preference.PendingProjectID != nil {
 		scope, found, err := s.agentPanelScope(ctx, principal, *preference.PendingProjectID, true)
 		if err != nil {
 			return AgentPanelRecord{}, err
 		}
 		if found {
-			_, ready, err := assistantModel(ctx, s.q, scope.OrgID, scope.ProjectID, uuid.Nil)
+			model, err := s.assistantModelStatus(ctx, scope)
 			if err != nil {
 				return AgentPanelRecord{}, err
 			}
-			result.Setup = &AgentPanelSetup{AgentPanelScope: scope, Ready: ready}
+			result.Setup = &AgentPanelSetup{AgentPanelScope: scope, Model: model}
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) assistantModelStatus(ctx context.Context, scope AgentPanelScope) (string, error) {
+	_, available, err := assistantModel(ctx, s.q, scope.OrgID, scope.ProjectID, uuid.Nil)
+	if err != nil {
+		return "", err
+	}
+	if available {
+		return AssistantModelAvailable, nil
+	}
+	provisioning, err := s.q.DefaultModelProviderProvisioningPending(
+		ctx, dbsqlc.DefaultModelProviderProvisioningPendingParams{OrganizationID: scope.OrgID},
+	)
+	if err != nil {
+		return "", err
+	}
+	if provisioning {
+		return AssistantModelProvisioning, nil
+	}
+	return AssistantModelRequired, nil
 }
 
 func (s *Service) agentPanelScope(
@@ -145,10 +170,8 @@ func (s *Service) agentPanelScope(
 }
 
 type UpdateAgentPanelInput struct {
-	Principal   identitystore.PrincipalRecord
-	ChangeAgent bool
-	AgentID     uuid.UUID
-	Enabled     *bool
+	Principal identitystore.PrincipalRecord
+	AgentID   uuid.UUID
 }
 
 func (s *Service) UpdateAgentPanel(ctx context.Context, input UpdateAgentPanelInput) error {
@@ -159,7 +182,7 @@ func (s *Service) UpdateAgentPanel(ctx context.Context, input UpdateAgentPanelIn
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
 	var agent dbsqlc.GetAgentRow
-	if input.ChangeAgent && input.AgentID != uuid.Nil {
+	if input.AgentID != uuid.Nil {
 		agent, err = q.GetAgent(ctx, dbsqlc.GetAgentParams{ID: input.AgentID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
@@ -174,29 +197,19 @@ func (s *Service) UpdateAgentPanel(ctx context.Context, input UpdateAgentPanelIn
 	if err := s.lockAgentPanelUser(ctx, q, tx, input.Principal); err != nil {
 		return err
 	}
-	preference, err := agentPanelPreference(ctx, q, input.Principal.ID)
-	if err != nil {
-		return err
-	}
-	if input.ChangeAgent {
-		if input.AgentID != uuid.Nil {
-			allowed, err := identitystore.AuthorizeProject(ctx, q, identitystore.AuthorizeProjectInput{
-				Principal: input.Principal, OrgID: agent.OrgID, ProjectID: agent.ProjectID, Action: identitystore.AgentActionRead,
-			})
-			if err != nil {
-				return err
-			}
-			if !allowed {
-				return storeerr.ErrNotFound
-			}
+	if input.AgentID != uuid.Nil {
+		allowed, err := identitystore.AuthorizeProject(ctx, q, identitystore.AuthorizeProjectInput{
+			Principal: input.Principal, OrgID: agent.OrgID, ProjectID: agent.ProjectID, Action: identitystore.AgentActionRead,
+		})
+		if err != nil {
+			return err
 		}
-		preference.AgentID = storeutil.IDFromNil(input.AgentID)
-	}
-	if input.Enabled != nil {
-		preference.Enabled = *input.Enabled
+		if !allowed {
+			return storeerr.ErrNotFound
+		}
 	}
 	if err := q.SetAgentPanelPreference(ctx, dbsqlc.SetAgentPanelPreferenceParams{
-		UserID: input.Principal.ID, AgentID: preference.AgentID, Enabled: preference.Enabled,
+		UserID: input.Principal.ID, AgentID: storeutil.IDFromNil(input.AgentID),
 	}); err != nil {
 		return err
 	}
@@ -231,7 +244,6 @@ type CreateAssistantAgentInput struct {
 	ExpectedRevision   int64
 	Automatic          bool
 	MCPURL             string
-	ReadOnlyTools      []string
 	AgentConfigOptions agentconfig.CompileOptions
 }
 
@@ -283,8 +295,7 @@ func (s *Service) createAssistantAgentOnce(ctx context.Context, input CreateAssi
 		return uuid.Nil, err
 	}
 	if preference.Revision != input.ExpectedRevision || (input.Automatic &&
-		(!preference.Enabled || preference.AgentID != nil ||
-			storeutil.IDFromPtr(preference.PendingProjectID) != input.ProjectID)) {
+		(preference.AgentID != nil || storeutil.IDFromPtr(preference.PendingProjectID) != input.ProjectID)) {
 		return uuid.Nil, storeerr.Tag(storeerr.ErrConflict,
 			errors.New("panel selection changed; refresh before creating an assistant"))
 	}
@@ -315,9 +326,14 @@ func (s *Service) createAssistantAgentOnce(ctx context.Context, input CreateAssi
 	if err != nil {
 		return uuid.Nil, storeerr.InvalidRequest(err)
 	}
+	greeting, err := assistantGreetingInput()
+	if err != nil {
+		return uuid.Nil, err
+	}
 	name := "Omnara assistant"
 	launched, err := s.execution.LaunchAgentInUnit(ctx, unit, executionstore.LaunchAgentInput{
 		ProjectID: input.ProjectID, LaunchedBy: input.Principal, Name: &name,
+		InitialInput: &executionstore.LaunchInitialInput{ContentBlocks: greeting},
 		DerivedConfig: &executionstore.CreateAgentConfigInput{
 			OrgID: input.OrgID, ProjectID: input.ProjectID, Source: compiled.Source,
 			SourceFormat: string(compiled.SourceFormat), ConfiguredModelID: model.ID,
@@ -335,7 +351,7 @@ func (s *Service) createAssistantAgentOnce(ctx context.Context, input CreateAssi
 		return uuid.Nil, fmt.Errorf("record assistant creation: %w", err)
 	}
 	if err := q.SetAgentPanelPreference(ctx, dbsqlc.SetAgentPanelPreferenceParams{
-		UserID: input.Principal.ID, AgentID: &launched.Agent.ID, Enabled: true,
+		UserID: input.Principal.ID, AgentID: &launched.Agent.ID,
 	}); err != nil {
 		return uuid.Nil, err
 	}

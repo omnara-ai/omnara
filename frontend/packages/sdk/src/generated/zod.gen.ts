@@ -75,6 +75,7 @@ export const zAgentConfigDefinitionTool = z.object({
     enabled: z.boolean().nullish(),
     input_schema: zAgentConfigDefinitionToolInputSchema.optional(),
     permission: zAgentConfigDefinitionToolPermission.optional(),
+    timeout_seconds: z.int().gte(0).lte(86400).optional(),
     type: z.enum(['built_in', 'custom']).optional()
 });
 
@@ -3287,11 +3288,14 @@ export const zAgentPanelSelection = z.object({
 export const zAgentPanelSetup = z.object({
     request_id: z.uuid(),
     scope: zAgentPanelScope,
-    ready: z.boolean()
+    model: z.enum([
+        'available',
+        'provisioning',
+        'required'
+    ])
 });
 
 export const zAgentPanel = z.object({
-    enabled: z.boolean(),
     revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     state: z.enum([
         'empty',
@@ -3304,8 +3308,7 @@ export const zAgentPanel = z.object({
 });
 
 export const zUpdateAgentPanelRequest = z.object({
-    agent_id: z.string().regex(/^agt_[a-z2-7]{26}$/).nullish(),
-    enabled: z.boolean().optional()
+    agent_id: z.string().regex(/^agt_[a-z2-7]{26}$/).nullable()
 });
 
 export const zCreateAssistantAgentRequest = z.object({
@@ -3405,7 +3408,8 @@ export const zCompiledTool = z.object({
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
     description: z.string().optional(),
-    input_schema: z.record(z.string(), z.unknown()).optional()
+    input_schema: z.record(z.string(), z.unknown()).optional(),
+    timeout_seconds: z.int().gte(0).lte(86400).optional()
 });
 
 export const zCompiledIntegrationCapability = z.object({

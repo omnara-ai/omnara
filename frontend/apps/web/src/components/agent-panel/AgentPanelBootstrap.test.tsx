@@ -1,19 +1,42 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { createOmnaraClient } from '@omnara/sdk'
+import { type AgentPanelSetup, createOmnaraClient } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 
 import { AgentPanelBootstrap } from './AgentPanelBootstrap'
+import { AssistantContext, useAutomaticAssistant } from './assistant-context'
 
-it('waits for a model, attempts once in StrictMode, and retries the same request after failure', async () => {
+const created = vi.fn()
+
+function Harness({ setup }: { setup: AgentPanelSetup }) {
+  const bootstrap = useAutomaticAssistant(setup, 0, created)
+  return (
+    <AssistantContext
+      value={{
+        bootstrap,
+        open: created,
+        ask: created,
+        registerSender: vi.fn(),
+        setDock: vi.fn(),
+        hideLauncher: vi.fn(),
+        point: vi.fn(),
+        follow: vi.fn(),
+      }}
+    >
+      <AgentPanelBootstrap />
+    </AssistantContext>
+  )
+}
+
+it('waits for a model, attempts once in StrictMode, retries the same request after failure, and reports creation', async () => {
   const restore = enableReactActEnvironment()
   const container = document.createElement('div')
   const root = createRoot(container)
@@ -40,7 +63,6 @@ it('waits for a model, attempts once in StrictMode, and retries the same request
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const setup = {
     request_id: crypto.randomUUID(),
-    ready: false,
     scope: { org_id: orgID, project_id: fakeId('proj'), org_name: 'Home', project_name: 'Default' },
   }
   async function render(ready: boolean) {
@@ -49,7 +71,7 @@ it('waits for a model, attempts once in StrictMode, and retries the same request
         <StrictMode>
           <OmnaraClientProvider client={client}>
             <QueryClientProvider client={cache}>
-              <AgentPanelBootstrap setup={{ ...setup, ready }} revision={0} />
+              <Harness setup={{ ...setup, model: ready ? 'available' : 'required' }} />
             </QueryClientProvider>
           </OmnaraClientProvider>
         </StrictMode>,
@@ -72,6 +94,7 @@ it('waits for a model, attempts once in StrictMode, and retries the same request
     })
     expect(calls).toBe(2)
     expect(api.requests[0]?.body).toEqual(api.requests[1]?.body)
+    expect(created).toHaveBeenCalledOnce()
   } finally {
     act(() => {
       root.unmount()

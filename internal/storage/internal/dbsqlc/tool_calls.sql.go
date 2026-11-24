@@ -440,6 +440,46 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listExpiredCustomToolCalls = `-- name: ListExpiredCustomToolCalls :many
+SELECT tool_call.project_id, tool_call.agent_id, tool_call.id
+FROM tool_calls tool_call
+WHERE tool_call.state = 'ready'
+  AND tool_call.type = 'custom'
+  AND tool_call.expires_at <= transaction_timestamp()
+ORDER BY tool_call.expires_at, tool_call.id
+LIMIT $1
+`
+
+type ListExpiredCustomToolCallsParams struct {
+	LimitCount int32
+}
+
+type ListExpiredCustomToolCallsRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) ListExpiredCustomToolCalls(ctx context.Context, arg ListExpiredCustomToolCallsParams) ([]ListExpiredCustomToolCallsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiredCustomToolCalls, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredCustomToolCallsRow{}
+	for rows.Next() {
+		var i ListExpiredCustomToolCallsRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,

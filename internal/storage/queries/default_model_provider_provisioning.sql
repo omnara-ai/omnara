@@ -92,3 +92,10 @@ WHERE organization_id = sqlc.arg(organization_id)
 -- name: DeleteDefaultModelProviderProvisioningForOrganization :exec
 DELETE FROM default_model_provider_provisioning_jobs
 WHERE organization_id = sqlc.arg(organization_id);
+
+-- name: DefaultModelProviderProvisioningPending :one
+SELECT EXISTS (
+    SELECT 1
+    FROM default_model_provider_provisioning_jobs
+    WHERE organization_id = sqlc.arg(organization_id)
+);

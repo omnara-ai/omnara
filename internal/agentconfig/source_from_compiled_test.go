@@ -92,6 +92,7 @@ tools:
     type: custom
     description: Look up an <order>.
     input_schema: {type: object, properties: {id: {type: string}}}
+    timeout_seconds: 0
   int__engineering-team__post_message: {deferred: true}
 mcp:
   docs:

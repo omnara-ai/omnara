@@ -382,6 +382,10 @@ export type AgentConfigDefinitionTool = {
      */
     permission?: AgentConfigDefinitionToolPermission;
     /**
+     * Custom tools only. Seconds a ready call waits for a result before Omnara completes it as failed. 0 completes the call immediately without waiting for a result. Omit to wait indefinitely.
+     */
+    timeout_seconds?: number;
+    /**
      * built_in for an Omnara tool, custom for a tool your system runs.
      */
     type?: 'built_in' | 'custom';
@@ -2150,6 +2154,7 @@ export type CompiledTool = {
     input_schema?: {
         [key: string]: unknown;
     };
+    timeout_seconds?: number;
 };
 
 export type CompiledIntegrationCapability = {
@@ -5489,16 +5494,12 @@ export type AgentPanelSetup = {
     request_id: string;
     scope: AgentPanelScope;
     /**
-     * Whether the project currently has a model that supports tools.
+     * Available means the project has a model that supports tools, so the assistant can be created. Provisioning means the installation is still setting up its managed model provider for the organization. Required means someone must add a model.
      */
-    ready: boolean;
+    model: 'available' | 'provisioning' | 'required';
 };
 
 export type AgentPanel = {
-    /**
-     * Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
-     */
-    enabled: boolean;
     /**
      * Current preference revision. Pass this as expected_revision when creating an assistant.
      */
@@ -5513,13 +5514,9 @@ export type AgentPanel = {
 
 export type UpdateAgentPanelRequest = {
     /**
-     * Agent to connect, or null to disconnect. Omit to preserve the selection.
+     * Agent to connect, or null to disconnect.
      */
-    agent_id?: string | null;
-    /**
-     * Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
-     */
-    enabled?: boolean;
+    agent_id: string | null;
 };
 
 export type CreateAssistantAgentRequest = {

@@ -8,14 +8,14 @@ VALUES (sqlc.arg(user_id), sqlc.arg(project_id))
 ON CONFLICT (user_id) DO NOTHING;
 
 -- name: GetAgentPanelPreference :one
-SELECT user_id, agent_id, enabled, revision, pending_project_id
+SELECT user_id, agent_id, revision, pending_project_id
 FROM agent_panel_preferences WHERE user_id = sqlc.arg(user_id);
 
 -- name: SetAgentPanelPreference :exec
-INSERT INTO agent_panel_preferences(user_id, agent_id, enabled, revision)
-VALUES (sqlc.arg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled), 1)
+INSERT INTO agent_panel_preferences(user_id, agent_id, revision)
+VALUES (sqlc.arg(user_id), sqlc.narg(agent_id), 1)
 ON CONFLICT (user_id) DO UPDATE
-SET agent_id = EXCLUDED.agent_id, enabled = EXCLUDED.enabled,
+SET agent_id = EXCLUDED.agent_id,
     revision = agent_panel_preferences.revision + 1, pending_project_id = NULL;
 
 -- name: GetAgentPanelProject :one

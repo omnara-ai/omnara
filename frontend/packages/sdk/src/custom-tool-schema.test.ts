@@ -17,4 +17,17 @@ describe('generated custom tool contract', () => {
     }
     expect(zAgentConfigDefinitionTool.parse(tool)).toEqual(tool)
   })
+
+  it('keeps a send-only timeout of zero', () => {
+    const tool = {
+      type: 'custom',
+      description: 'Show a notice.',
+      input_schema: { type: 'object' },
+      timeout_seconds: 0,
+    }
+    expect(zAgentConfigDefinitionTool.parse(tool)).toEqual(tool)
+    expect(zAgentConfigDefinitionTool.safeParse({ ...tool, timeout_seconds: 86401 }).success).toBe(
+      false,
+    )
+  })
 })

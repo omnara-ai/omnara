@@ -42,12 +42,11 @@ async function resetPanel(page: Page) {
   const reset = await fetchLocalAPI(page, panelURL, {
     method: 'PATCH',
     headers: { 'X-Omnara-CSRF': csrf.value, Origin: new URL(panelURL).origin },
-    data: { agent_id: null, enabled: true },
+    data: { agent_id: null },
   })
   expect(reset.ok()).toBe(true)
   expect(schemas.zGetAgentPanelResponse.parse(await reset.json())).toMatchObject({
     state: 'empty',
-    enabled: true,
   })
 }
 
@@ -73,9 +72,10 @@ test('creates a personal assistant and keeps its conversation across organizatio
   }
   await page.getByRole('button', { name: 'Assistant', exact: true }).click()
   const panel = page.getByRole('dialog', { name: 'Assistant', exact: true })
-  await panel.getByRole('button', { name: 'Create new', exact: true, pressed: false }).click()
-  await panel.getByRole('combobox', { name: 'Project', exact: true }).click()
-  await page.getByRole('option', { name: 'Default', exact: true }).click()
+  await expect(
+    panel.getByRole('button', { name: 'Create new', exact: true, pressed: true }),
+  ).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Create assistant', exact: true })).toBeEnabled()
   const creation = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' && response.url().endsWith('/assistant-agents'),
@@ -91,16 +91,19 @@ test('creates a personal assistant and keeps its conversation across organizatio
   await expect.poll(() => streams.size).toBe(0)
   await page.getByRole('button', { name: orgName }).click()
   await page.getByRole('menuitem', { name: otherOrg, exact: true }).click()
-  await page.getByRole('button', { name: 'Assistant', exact: true }).click()
+  // Switching organization lands on the overview, where the conversation lives in the page.
+  const home = page.getByRole('region', { name: 'Assistant', exact: true })
+  const homeComposer = home.getByRole('textbox')
   await expect.poll(() => streams.size).toBe(1)
-  await expect(composer).toHaveValue('Keep this draft')
-  await expect(panel.getByText(`${orgName} / Default`, { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveCount(0)
+  await expect(homeComposer).toHaveValue('Keep this draft')
+  await expect(home.getByText(`${orgName} / Default`, { exact: true })).toBeVisible()
   const sent = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       response.url().endsWith(`/agents/${created.agent_id}/inputs`),
   )
-  await composer.press('Enter')
+  await homeComposer.press('Enter')
   const accepted = await sent
   expect(accepted.ok()).toBe(true)
   const { agent_input: input } = schemas.zCreateAgentInputResponse.parse(await accepted.json())
@@ -112,33 +115,25 @@ test('creates a personal assistant and keeps its conversation across organizatio
   if (context?.type !== 'text') throw new Error('Missing page context')
   expect(context.text).toContain(otherOrg)
   expect(context.text).toContain(created.agent_id)
-  await expect(panel).not.toContainText('Dashboard page context')
-  await panel.getByRole('button', { name: 'Close assistant' }).click()
-  await expect.poll(() => streams.size).toBe(0)
-  await page.getByRole('button', { name: 'Assistant', exact: true }).click()
-  await expect.poll(() => streams.size).toBe(1)
-  await expect(panel.getByText('Keep this draft', { exact: true })).toHaveCount(1)
-  await composer.fill('Account page draft')
+  await expect(home).not.toContainText('Dashboard page context')
+  await expect(home.getByText('Keep this draft', { exact: true })).toHaveCount(1)
+  await homeComposer.fill('Account page draft')
   await page.getByRole('button', { name: new RegExp(email) }).click()
   await page.getByRole('menuitem', { name: 'Account', exact: true }).click()
   await expect(page).toHaveURL('/user/account')
-  await expect(composer).toHaveValue('Account page draft')
-  await expect.poll(() => streams.size).toBe(1)
-  await page.getByRole('button', { name: 'Turn off assistant panel', exact: true }).click()
+  // Away from the overview the same conversation waits, collapsed, in the corner.
   await expect.poll(() => streams.size).toBe(0)
-  await expect(panel).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Turn on assistant panel', exact: true }).click()
+  await page.getByRole('button', { name: 'Assistant', exact: true }).click()
+  await expect.poll(() => streams.size).toBe(1)
+  await expect(composer).toHaveValue('Account page draft')
+  await panel.getByRole('button', { name: 'Close assistant' }).click()
+  await expect.poll(() => streams.size).toBe(0)
+  await page.reload()
   await expect(page.getByRole('button', { name: 'Assistant', exact: true })).toHaveAttribute(
     'aria-expanded',
     'false',
   )
   await expect(panel).toBeHidden()
-  expect(streams.size).toBe(0)
-  await page.reload()
-  await expect(
-    page.getByRole('button', { name: 'Turn off assistant panel', exact: true }),
-  ).toBeVisible()
   expect(streams.size).toBe(0)
   await page.getByRole('button', { name: 'Assistant', exact: true }).click()
   await expect(panel.getByText('Omnara assistant', { exact: true })).toBeVisible()

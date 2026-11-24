@@ -9,13 +9,13 @@ FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_ou
 WHERE o.agent_id=sqlc.arg(agent_id) AND o.model_call_context_id=sqlc.arg(context_id);
 
 -- name: CreateExecutionToolProposal :exec
-INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,timeout_seconds,state,created_at)
 SELECT sqlc.arg(id),sqlc.arg(project_id),sqlc.arg(agent_id),o.id,sqlc.arg(provider_call_id),sqlc.arg(name),sqlc.arg(input)::jsonb,
- sqlc.arg(type),'awaiting_authorization',o.created_at FROM model_outputs o
+ sqlc.arg(type),sqlc.narg(timeout_seconds)::integer,'awaiting_authorization',o.created_at FROM model_outputs o
  WHERE o.agent_id=sqlc.arg(agent_id) AND o.id=sqlc.arg(output_id);
 
 -- name: ReadExecutionProposals :many
-SELECT id,provider_call_id,name,input,type FROM tool_calls
+SELECT id,provider_call_id,name,input,type,timeout_seconds FROM tool_calls
 WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id) ORDER BY provider_call_id;
 
 -- name: ValidateExecutionCheckpoint :one

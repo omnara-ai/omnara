@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServiceE2EAssistantUsesOwnMCPAndApprovesWrites(t *testing.T) {
+func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "assistant-panel")
@@ -38,6 +38,7 @@ func TestServiceE2EAssistantUsesOwnMCPAndApprovesWrites(t *testing.T) {
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var requests atomic.Int64
 	const projectName = "Created by assistant"
+	const openedPage = "Opened /models."
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			http.NotFound(w, r)
@@ -54,6 +55,14 @@ func TestServiceE2EAssistantUsesOwnMCPAndApprovesWrites(t *testing.T) {
 		var arguments any
 		switch requests.Add(1) {
 		case 1:
+			if !strings.Contains(string(mustJSON(body["input"])), "This first message is automatic") {
+				t.Error("creation did not ask the assistant to introduce itself")
+			}
+			_, _ = w.Write([]byte(`{"id":"greeting","status":"completed","output":[{"id":"hello",` +
+				`"type":"message","content":[{"type":"output_text","text":"Hi, I am your Omnara assistant."}]}],` +
+				`"usage":{"input_tokens":10,"output_tokens":5}}`))
+			return
+		case 2:
 			if !strings.Contains(string(mustJSON(body["tools"])), `"type":"tool_search"`) {
 				t.Error("expected deferred Omnara discovery")
 			}
@@ -62,21 +71,31 @@ func TestServiceE2EAssistantUsesOwnMCPAndApprovesWrites(t *testing.T) {
 				`"status":"completed","arguments":{"pattern":"whoami|projects_create"}}],` +
 				`"usage":{"input_tokens":10,"output_tokens":5}}`))
 			return
-		case 2:
+		case 3:
 			if !strings.Contains(string(mustJSON(body["input"])), `"type":"tool_search_output"`) ||
 				!strings.Contains(string(mustJSON(body["input"])), "whoami") {
 				t.Error("discovery did not return authenticated Omnara tools")
 			}
 			name, callID, arguments = "mcp__omnara__whoami", "identity", map[string]any{}
-		case 3:
+		case 4:
 			if !requestContainsToolResult(body, "identity", project.adminUserID) {
 				t.Error("MCP read did not authenticate as the assistant creator")
 			}
 			name, callID = "mcp__omnara__projects_create", "create"
 			arguments = map[string]any{"orgID": project.orgID, "name": projectName}
-		case 4:
+		case 5:
 			if !requestContainsToolResult(body, "create", projectName) {
-				t.Error("approved MCP write did not return created project")
+				t.Error("MCP write did not return created project")
+			}
+			name, callID, arguments = "dashboard_open_page", "open", map[string]any{"path": "/models"}
+		case 6:
+			if !requestContainsToolResult(body, "open", openedPage) {
+				t.Error("the dashboard's answer did not reach the assistant")
+			}
+			name, callID, arguments = "dashboard_point_at", "point", map[string]any{"target": "New provider"}
+		case 7:
+			if !requestContainsToolResult(body, "point", "No result was submitted within 15 seconds.") {
+				t.Error("a page tool nobody answered did not time out")
 			}
 			_, _ = w.Write([]byte(`{"id":"done","status":"completed","output":[{"id":"message",` +
 				`"type":"message","content":[{"type":"output_text","text":"Project created."}]}],` +
@@ -96,42 +115,38 @@ func TestServiceE2EAssistantUsesOwnMCPAndApprovesWrites(t *testing.T) {
 		}))
 	}))
 	defer model.Close()
-	var idle bool
-	require.NoError(t, env.db.QueryRow(ctx, `SELECT logical_ready_at IS NULL FROM agent_execution_state
-        WHERE agent_id=$1`, agentUUID).Scan(&idle))
-	require.True(t, idle, "config-only launch resolves its input without scheduling a model turn")
 	worker := env.startWorker(t, ctx, project.projectID,
 		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: model.URL, LogLevel: "info"})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var idle bool
 		err := env.db.QueryRow(ctx, `SELECT logical_ready_at IS NULL FROM agent_execution_state
             WHERE agent_id=$1`, agentUUID).Scan(&idle)
-		return err == nil && idle, "assistant did not settle idle: " + worker.logExcerpt()
+		return err == nil && idle && requests.Load() == 1, "assistant did not greet and settle: " + worker.logExcerpt()
 	})
-	require.Zero(t, requests.Load(), "creation must not start a model turn")
-	project.createInput(t, ctx, agentID, "Check my identity and create a project.")
-	var interactionID string
+	env.startMaintenance(t, ctx)
+	project.createInput(t, ctx, agentID, "Check my identity, create a project and show me where models are.")
+	var openCall uuid.UUID
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		interactions := env.requestJSON(t, ctx, "GET", project.projectPath+"/agents/"+agentID+"/interactions",
-			nil, "", project.adminToken, 200)
-		items := testutil.RequireType[[]any](t, interactions["data"])
-		if len(items) == 0 {
-			return false, "write approval not ready: " + worker.logExcerpt()
-		}
-		require.Len(t, items, 1)
-		interactionID = testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, items[0])["id"])
-		return true, ""
+		err := env.db.QueryRow(ctx, `SELECT id FROM tool_calls
+            WHERE agent_id=$1 AND name='dashboard_open_page' AND state='ready'`, agentUUID).Scan(&openCall)
+		return err == nil, "assistant did not ask the dashboard to open a page: " + worker.logExcerpt()
 	})
-	require.Equal(t, int64(3), requests.Load(), "read must run without asking; write must wait")
+	openCallID, err := publicid.Encode(publicid.KindToolCall, openCall)
+	require.NoError(t, err)
+	env.requestBrowserJSON(t, ctx, "POST", project.projectPath+"/agents/"+agentID+"/tool-calls/"+openCallID+"/result",
+		map[string]any{
+			"outcome":        "succeeded",
+			"content_blocks": []map[string]string{{"type": "text", "text": openedPage}},
+		}, "", project.adminSession, project.adminCSRF, 201)
 	var count int
-	require.NoError(t, env.db.QueryRow(ctx, `SELECT count(*) FROM projects WHERE name=$1`, projectName).Scan(&count))
-	require.Zero(t, count, "unapproved write must not execute")
-	require.True(t, project.resolvePermissionInteraction(ctx, agentID, interactionID))
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		err := env.db.QueryRow(ctx, `SELECT count(*) FROM projects WHERE name=$1`, projectName).Scan(&count)
-		return err == nil && count == 1 && requests.Load() == 4,
-			fmt.Sprintf("approved write incomplete: projects=%d requests=%d", count, requests.Load())
+		return err == nil && count == 1 && requests.Load() == 7,
+			fmt.Sprintf("journey incomplete: projects=%d requests=%d: %s", count, requests.Load(), worker.logExcerpt())
 	})
+	interactions := env.requestJSON(t, ctx, "GET", project.projectPath+"/agents/"+agentID+"/interactions",
+		nil, "", project.adminToken, 200)
+	require.Empty(t, testutil.RequireType[[]any](t, interactions["data"]), "no tool asks for approval")
 	var machines int
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT count(*) FROM machines`).Scan(&machines))
 	require.Zero(t, machines)

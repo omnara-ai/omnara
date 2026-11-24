@@ -9,11 +9,13 @@ import { ActiveOrgContext } from '@/lib/active-org-context'
 export function AgentPanelHeader({
   selection,
   settings,
+  docked,
   onSettings,
   onClose,
 }: {
   selection: AgentPanelSelection | undefined
   settings: boolean
+  docked: boolean
   onSettings: () => void
   onClose: () => void
 }) {
@@ -48,18 +50,22 @@ export function AgentPanelHeader({
           <ArrowUpRight className="size-4" />
         </Button>
       )}
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Assistant settings"
-        aria-pressed={settings}
-        onClick={onSettings}
-      >
-        <SettingsIcon className="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon" aria-label="Close assistant" onClick={onClose}>
-        <X className="size-4" />
-      </Button>
+      {selection != null && (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Assistant settings"
+          aria-pressed={settings}
+          onClick={onSettings}
+        >
+          <SettingsIcon className="size-4" />
+        </Button>
+      )}
+      {!docked && (
+        <Button variant="ghost" size="icon" aria-label="Close assistant" onClick={onClose}>
+          <X className="size-4" />
+        </Button>
+      )}
     </header>
   )
 }

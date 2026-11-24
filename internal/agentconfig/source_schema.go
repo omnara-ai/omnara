@@ -94,6 +94,8 @@ type AgentConfigToolSource struct {
 	Deferred    bool                      `json:"deferred,omitempty"`
 	Description string                    `json:"description,omitempty"`
 	InputSchema json.RawMessage           `json:"input_schema,omitempty"`
+	// nil waits for a result indefinitely; 0 completes the call without waiting.
+	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
 }
 
 type AgentConfigMCPSource struct {

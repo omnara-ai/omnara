@@ -59,6 +59,9 @@ func compileIntegrationTool(name string, source AgentConfigToolSource, opts Comp
 			"integration tools cannot redefine type, description or input_schema",
 		)
 	}
+	if source.TimeoutSeconds != nil {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "timeout_seconds"), "applies to custom tools only")
+	}
 	integration, err := opts.ResolveIntegrationName(integrationName)
 	if err != nil {
 		return ToolCompiled{}, issueOr(jsonPointer("tools", name), err)

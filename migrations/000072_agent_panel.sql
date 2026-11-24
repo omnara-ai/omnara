@@ -8,7 +8,6 @@ ALTER TABLE users ALTER COLUMN agent_panel_bootstrap_eligible SET DEFAULT true;
 CREATE TABLE agent_panel_preferences (
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     agent_id uuid REFERENCES agents(id) ON DELETE SET NULL,
-    enabled boolean NOT NULL DEFAULT true,
     revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
     pending_project_id uuid REFERENCES projects(id) ON DELETE SET NULL
 );

@@ -8,6 +8,7 @@ import {
   useMe,
 } from '@omnara/react'
 import type { AgentPanelSelection } from '@omnara/sdk'
+import { useContext } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConversation } from '@/components/agents/AgentConversation'
@@ -15,6 +16,10 @@ import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import { cancelAgentChatTurn } from '@/components/agents/cancel-agent-chat-turn'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
+
+import { AssistantContext } from './assistant-context'
+import { AssistantWelcome } from './AssistantWelcome'
+import { usePageActions } from './usePageActions'
 
 export function AgentPanelChat({
   selection,
@@ -28,6 +33,7 @@ export function AgentPanelChat({
   const { org_id: orgID, project_id: projectID } = selection.scope
   const agentID = selection.agent_id
   const scope = { orgID, projectID, agentID }
+  const { registerSender } = useContext(AssistantContext)
   const chat = useAgentChat(scope, { source: 'web', getContext })
   const agentQuery = useAgentQuery(orgID, projectID, agentID, {
     refetchInterval: (detail) =>
@@ -43,12 +49,17 @@ export function AgentPanelChat({
   const currentActorId = useCurrentActorId(orgID, projectID, me.user.id)
   const archived = panelArchived || agentQuery.data?.agent.state === 'archived'
   const canOperate = selection.can_operate && !archived && agentQuery.isSuccess
+  usePageActions(scope, chat.messages, canOperate)
   const canSendNow =
     canOperate &&
     interactions.data != null &&
     !interactions.data.data.some((interaction) => interaction.agent_id === agentID)
   const failedConnection = agentQuery.data?.mcp_connections.find(
     (connection) => connection.state === 'failed',
+  )
+
+  const replied = chat.messages.some(
+    (message) => message.role === 'assistant' && message.parts.some((part) => part.type === 'text'),
   )
 
   return (
@@ -66,7 +77,12 @@ export function AgentPanelChat({
           </p>
         )}
         <div className="min-h-0 flex-1">
-          <AgentConversation chat={chat} currentActorId={currentActorId} {...scope} />
+          <AgentConversation
+            chat={chat}
+            currentActorId={currentActorId}
+            {...scope}
+            intro={<AssistantWelcome canAsk={canOperate} greeted={replied} />}
+          />
         </div>
         <div className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto p-3">
           {!archived && <AgentInteractions {...scope} canOperate={canOperate} />}
@@ -90,6 +106,7 @@ export function AgentPanelChat({
                 canOperate={canOperate}
                 hidden={false}
                 fileDropScope="composer"
+                onAskable={registerSender}
               />
             </>
           )}

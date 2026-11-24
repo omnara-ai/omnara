@@ -12,7 +12,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { act, Suspense } from 'react'
+import { act, Suspense, useContext } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 
@@ -22,12 +22,18 @@ import { enableReactActEnvironment } from '@/test/react-act'
 import { waitForUI } from '@/test/secret-editor'
 
 import { AgentPanel } from './AgentPanel'
-import { AgentPanelSetting } from './AgentPanelSetting'
+import { AssistantContext } from './assistant-context'
+
+function Home() {
+  const { setDock } = useContext(AssistantContext)
+  return <section ref={setDock} aria-label="Home" />
+}
 
 async function mountPanel({
   actorsUnavailable = false,
   panelRefresh,
-}: { actorsUnavailable?: boolean; panelRefresh?: Promise<void> } = {}) {
+  queued = false,
+}: { actorsUnavailable?: boolean; panelRefresh?: Promise<void>; queued?: boolean } = {}) {
   const restore = enableReactActEnvironment()
   const container = document.createElement('div')
   document.body.append(container)
@@ -39,18 +45,34 @@ async function mountPanel({
   const agentPath = `${projectPath}/agents/${agentID}`
   const historyPath = `${agentPath}/events`
   const historyRequests: Request[] = []
-  let panel: Panel = {
-    enabled: true,
+  const scope = {
+    org_id: org.id,
+    org_name: org.name,
+    project_id: projectID,
+    project_name: 'Default',
+  }
+  const connected: Panel = {
     revision: 1,
     state: 'ready',
-    selection: {
-      agent_id: agentID,
-      name: 'Omnara assistant',
-      can_operate: true,
-      scope: { org_id: org.id, org_name: org.name, project_id: projectID, project_name: 'Default' },
-    },
+    selection: { agent_id: agentID, name: 'Omnara assistant', can_operate: true, scope },
   }
+  let panel: Panel = queued
+    ? {
+        revision: 0,
+        state: 'empty',
+        setup: { request_id: crypto.randomUUID(), model: 'available', scope },
+      }
+    : connected
+  const createPath = `/api/v1/orgs/${org.id}/assistant-agents`
   const api = fakeApi([
+    {
+      method: 'POST',
+      path: createPath,
+      respond: () => {
+        panel = connected
+        return jsonResponse({ agent_id: agentID, panel })
+      },
+    },
     ...[agentPath, historyPath, `${agentPath}/inputs`, `${agentPath}/interactions`].map((path) => ({
       method: 'GET',
       path,
@@ -81,8 +103,8 @@ async function mountPanel({
       method: 'PATCH',
       path: '/api/v1/me/agent-panel',
       respond: ({ body }) => {
-        const update = schemas.zUpdateAgentPanelRequest.parse(body)
-        panel = { ...panel, enabled: update.enabled ?? panel.enabled, revision: panel.revision + 1 }
+        schemas.zUpdateAgentPanelRequest.parse(body)
+        panel = { revision: panel.revision + 1, state: 'empty' }
         return jsonResponse(panel)
       },
     },
@@ -110,10 +132,11 @@ async function mountPanel({
   const page = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    component: AgentPanelSetting,
+    component: () => null,
   })
+  const home = createRoute({ getParentRoute: () => rootRoute, path: '/home', component: Home })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([page]),
+    routeTree: rootRoute.addChildren([page, home]),
     history: createMemoryHistory(),
   })
   function button(label: string) {
@@ -144,17 +167,16 @@ async function mountPanel({
       )
       await router.load()
     })
-    return { container, api, historyRequests, button, cleanup }
+    return { container, api, createPath, historyRequests, button, cleanup, router }
   } catch (error) {
     cleanup()
     throw error
   }
 }
 
-it('loads chat only after opening and aborts its pending history when turned off', async () => {
-  const { container, api, historyRequests, button, cleanup } = await mountPanel()
+it('loads chat only after opening and aborts its pending history when disconnected', async () => {
+  const { api, historyRequests, button, cleanup } = await mountPanel()
   try {
-    expect(button('Turn off assistant panel')).toBeDefined()
     expect(api.requests).toHaveLength(0)
     act(() => {
       button('Assistant').click()
@@ -165,12 +187,67 @@ it('loads chat only after opening and aborts its pending history when turned off
     })
     expect(historyRequests[0]?.signal.aborted).toBe(false)
     act(() => {
-      button('Turn off assistant panel').click()
+      button('Assistant settings').click()
+    })
+    await act(() => vi.dynamicImportSettled())
+    await waitForUI(() => {
+      expect(button('Disconnect')).toBeDefined()
+    })
+    act(() => {
+      button('Disconnect').click()
     })
     await waitForUI(() => {
       expect(historyRequests[0]?.signal.aborted).toBe(true)
     })
-    expect(container.querySelector('#agent-panel')).toBeNull()
+  } finally {
+    cleanup()
+  }
+})
+
+it('creates the queued assistant while collapsed, then opens its chat', async () => {
+  const { api, createPath, historyRequests, button, cleanup } = await mountPanel({ queued: true })
+  try {
+    await waitForUI(() => {
+      expect(button('Assistant').getAttribute('aria-expanded')).toBe('true')
+    })
+    await act(() => vi.dynamicImportSettled())
+    await waitForUI(() => {
+      expect(historyRequests).toHaveLength(1)
+    })
+    expect(api.requestsTo('POST', createPath).map(({ body }) => body)).toMatchObject([
+      { automatic: true },
+    ])
+  } finally {
+    cleanup()
+  }
+})
+
+it('moves the conversation into a page that offers it a home and back to the corner without restarting it', async () => {
+  const { container, historyRequests, button, cleanup, router } = await mountPanel()
+  try {
+    await act(async () => {
+      router.history.push('/home')
+      await router.load()
+    })
+    await act(() => vi.dynamicImportSettled())
+    const dock = container.querySelector('section[aria-label="Home"]')
+    await waitForUI(() => {
+      expect(dock?.querySelector('[data-assistant-surface]')).not.toBeNull()
+      expect(historyRequests).toHaveLength(1)
+    })
+    const conversation = dock?.querySelector('[data-assistant-surface]')
+    expect(container.querySelector('[data-floating-launcher]')).toBeNull()
+    expect(dock?.querySelector('[aria-label="Close assistant"]')).toBeNull()
+
+    await act(async () => {
+      router.history.push('/')
+      await router.load()
+    })
+    await waitForUI(() => {
+      expect(button('Assistant').getAttribute('aria-expanded')).toBe('false')
+    })
+    expect(container.querySelector('#agent-panel')?.firstElementChild).toBe(conversation)
+    expect(historyRequests).toHaveLength(1)
   } finally {
     cleanup()
   }
@@ -192,67 +269,10 @@ it('keeps the agent picker accessible when the selected conversation fails to lo
     await act(() => vi.dynamicImportSettled())
     await waitForUI(() => {
       expect(button('Connect existing').getAttribute('aria-pressed')).toBe('true')
-      expect(container.querySelector('#panel-organization')).not.toBeNull()
+      expect(container.querySelector('#panel-project')).not.toBeNull()
     })
     expect(button('Disconnect')).toBeDefined()
   } finally {
     cleanup()
   }
 })
-
-it.each(['Turn off panel', 'Turn off assistant panel'])(
-  'stays collapsed after %s and re-enabling from Account',
-  async (offLabel) => {
-    let finishRefresh: () => void = () => undefined
-    const panelRefresh = new Promise<void>((resolve) => {
-      finishRefresh = resolve
-    })
-    const { container, api, historyRequests, button, cleanup } = await mountPanel({ panelRefresh })
-    try {
-      act(() => {
-        button('Assistant').click()
-        button('Assistant settings').click()
-      })
-      await act(() => vi.dynamicImportSettled())
-      await waitForUI(() => {
-        expect(button('Turn off panel')).toBeDefined()
-      })
-      act(() => {
-        button(offLabel).click()
-      })
-      await waitForUI(() => {
-        expect(button('Turn on assistant panel')).toBeDefined()
-        expect(container.textContent).not.toContain('Turn off panel')
-        expect(api.requestsTo('GET', '/api/v1/me/agent-panel')).toHaveLength(1)
-      })
-      // The PATCH response unmounts setup before its invalidation request finishes.
-      await act(async () => {
-        finishRefresh()
-        await panelRefresh
-      })
-      await waitForUI(() => {
-        expect(button('Turn on assistant panel').disabled).toBe(false)
-      })
-      const historyCount = historyRequests.length
-      act(() => {
-        button('Turn on assistant panel').click()
-      })
-      await waitForUI(() => {
-        expect(button('Turn off assistant panel')).toBeDefined()
-        expect(button('Assistant').getAttribute('aria-expanded')).toBe('false')
-        expect(container.querySelector('#agent-panel')?.hasAttribute('open')).toBe(false)
-      })
-      expect(historyRequests).toHaveLength(historyCount)
-      act(() => {
-        button('Assistant').click()
-      })
-      await waitForUI(() => {
-        expect(historyRequests).toHaveLength(historyCount + 1)
-        expect(container.textContent).not.toContain('Turn off panel')
-      })
-    } finally {
-      finishRefresh()
-      cleanup()
-    }
-  },
-)

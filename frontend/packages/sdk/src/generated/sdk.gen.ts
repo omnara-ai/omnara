@@ -327,7 +327,7 @@ export const getAgentPanel = <ThrowOnError extends boolean = true>(options?: Opt
 });
 
 /**
- * Connect, disconnect or disable the user's dashboard agent
+ * Connect or disconnect the user's dashboard agent
  *
  * Any explicit update cancels pending automatic setup. Other agent resources are unaffected.
  */

@@ -22,6 +22,21 @@ describe('describeTool', () => {
     })
   })
 
+  it("describes the dashboard assistant's page actions", () => {
+    expect(describeTool('dashboard_open_page', { path: '/models' }, 'done')).toEqual({
+      verb: 'Opened',
+      target: '/models',
+    })
+    expect(describeTool('dashboard_point_at', { target: 'New model' }, 'done')).toEqual({
+      verb: 'Pointed at',
+      target: '"New model"',
+    })
+    expect(describeTool('dashboard_point_at', { target: 'link "Usage"' }, 'failed')).toEqual({
+      verb: "Couldn't point at",
+      target: '"Usage"',
+    })
+  })
+
   it('says when a call was denied or canceled instead of describing it as done', () => {
     expect(describeTool('run_command', { command: 'rm -rf build' }, 'denied').verb).toBe(
       "Wasn't allowed to run",

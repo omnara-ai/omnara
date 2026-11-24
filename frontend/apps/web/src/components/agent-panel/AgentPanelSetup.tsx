@@ -2,49 +2,29 @@ import {
   useAgents,
   useCreateAssistantAgent,
   useMe,
-  useProjectModelGrants,
   useUpdateAgentPanel,
   useVisibleProjectsList,
 } from '@omnara/react'
-import type {
-  Agent,
-  AgentPanel,
-  CurrentUserOrg,
-  ProjectModelGrantListItem,
-  VisibleProject,
-} from '@omnara/sdk'
-import { useContext, useRef, useState } from 'react'
+import type { AgentPanel, CurrentUserOrg } from '@omnara/sdk'
+import { useContext, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { ActiveOrgContext } from '@/lib/active-org-context'
 
-const OrgPicker = createResourceCombobox<CurrentUserOrg>({
-  itemKey: (org) => org.id,
-  itemLabel: (org) => org.name,
-  placeholder: 'Choose organization',
-})
-const ProjectPicker = createResourceCombobox<VisibleProject>({
-  itemKey: (project) => project.id,
-  itemLabel: (project) => project.name,
-  placeholder: 'Choose project',
-})
-const AgentPicker = createResourceCombobox<Agent>({
-  itemKey: (agent) => agent.id,
-  itemLabel: (agent) => agent.name || agent.id,
-  placeholder: 'Choose agent',
-})
-const ModelPicker = createResourceCombobox<ProjectModelGrantListItem>({
-  itemKey: (item) => item.model.id,
-  itemLabel: (item) => `${item.model.provider_config}/${item.model.name}`,
-  placeholder: 'Automatic model selection',
-})
+import { AssistantCreateForm } from './AssistantCreateForm'
+import { AgentPicker, OrgPicker, ProjectPicker } from './pickers'
 
-interface Actions {
-  create: ReturnType<typeof useCreateAssistantAgent>
-  update: ReturnType<typeof useUpdateAgentPanel>
+type Mode = 'create' | 'connect'
+
+const modes: { value: Mode; label: string }[] = [
+  { value: 'create', label: 'Create new' },
+  { value: 'connect', label: 'Connect existing' },
+]
+
+function initialMode(panel: AgentPanel, orgs: CurrentUserOrg[]): Mode {
+  return panel.selection == null && orgs.some((org) => org.role === 'owner') ? 'create' : 'connect'
 }
 
 export function AgentPanelSetup({
@@ -58,22 +38,21 @@ export function AgentPanelSetup({
 }) {
   const create = useCreateAssistantAgent()
   const update = useUpdateAgentPanel()
-  const actions = { create, update }
   const { data: me } = useMe()
   const activeOrg = useContext(ActiveOrgContext)?.activeOrg
-  const [mode, setMode] = useState<'connect' | 'create'>('connect')
+  const [mode, setMode] = useState(() => initialMode(panel, me.orgs))
   const [selectedOrg, setSelectedOrg] = useState('')
   const orgs = mode === 'create' ? me.orgs.filter((org) => org.role === 'owner') : me.orgs
   const org =
     orgs.find((item) => item.id === selectedOrg) ??
     orgs.find((item) => item.id === activeOrg?.id) ??
     orgs[0]
-  const pending = actions.create.isPending || actions.update.isPending
+  const pending = create.isPending || update.isPending
   function resetActions() {
-    actions.create.reset()
-    actions.update.reset()
+    create.reset()
+    update.reset()
   }
-  function chooseMode(value: 'connect' | 'create') {
+  function chooseMode(value: Mode) {
     setMode(value)
     resetActions()
   }
@@ -81,32 +60,21 @@ export function AgentPanelSetup({
   return (
     <>
       <div className="space-y-4 overflow-y-auto p-4">
-        <p className="text-muted-foreground text-sm">
-          Connect an agent to keep it with you across organizations and pages.
-        </p>
         <div className="flex gap-2" role="group" aria-label="Assistant setup">
-          <Button
-            size="sm"
-            variant={mode === 'connect' ? 'secondary' : 'outline'}
-            aria-pressed={mode === 'connect'}
-            disabled={pending}
-            onClick={() => {
-              chooseMode('connect')
-            }}
-          >
-            Connect existing
-          </Button>
-          <Button
-            size="sm"
-            variant={mode === 'create' ? 'secondary' : 'outline'}
-            aria-pressed={mode === 'create'}
-            disabled={pending}
-            onClick={() => {
-              chooseMode('create')
-            }}
-          >
-            Create new
-          </Button>
+          {modes.map(({ value, label }) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={mode === value ? 'secondary' : 'outline'}
+              aria-pressed={mode === value}
+              disabled={pending}
+              onClick={() => {
+                chooseMode(value)
+              }}
+            >
+              {label}
+            </Button>
+          ))}
         </div>
         {orgs.length === 0 ? (
           <p className="text-muted-foreground text-sm">
@@ -116,30 +84,44 @@ export function AgentPanelSetup({
           </p>
         ) : (
           <>
-            <div className="space-y-2">
-              <Label htmlFor="panel-organization">Organization</Label>
-              <OrgPicker
-                id="panel-organization"
-                items={orgs}
-                value={org ?? null}
-                clearable={false}
-                disabled={pending}
-                onValueChange={(value) => {
-                  setSelectedOrg(value?.id ?? '')
-                  resetActions()
-                }}
-              />
-            </div>
-            {org != null && (
-              <PanelConnectionForm
-                key={`${mode}:${org.id}`}
-                org={org}
-                mode={mode}
-                panel={panel}
-                actions={actions}
-                onConnected={onConnected}
-              />
+            {orgs.length > 1 && (
+              <div className="space-y-2">
+                <Label htmlFor="panel-organization">Organization</Label>
+                <OrgPicker
+                  id="panel-organization"
+                  items={orgs}
+                  value={org ?? null}
+                  clearable={false}
+                  disabled={pending}
+                  onValueChange={(value) => {
+                    setSelectedOrg(value?.id ?? '')
+                    resetActions()
+                  }}
+                />
+              </div>
             )}
+            {org != null &&
+              (mode === 'create' ? (
+                <AssistantCreateForm
+                  key={org.id}
+                  idPrefix="panel"
+                  org={org}
+                  panel={panel}
+                  create={create}
+                  disabled={pending}
+                  onChange={resetActions}
+                  onCreated={onConnected}
+                />
+              ) : (
+                <PanelConnectForm
+                  key={org.id}
+                  org={org}
+                  update={update}
+                  disabled={pending}
+                  onChange={resetActions}
+                  onConnected={onConnected}
+                />
+              ))}
           </>
         )}
         {create.error != null && (
@@ -153,29 +135,17 @@ export function AgentPanelSetup({
           </p>
         )}
       </div>
-      {settings && (
+      {settings && panel.selection != null && (
         <footer className="flex shrink-0 gap-2 border-t p-3">
-          {panel.selection != null && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() => {
-                update.mutate({ agent_id: null })
-              }}
-            >
-              Disconnect
-            </Button>
-          )}
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
             disabled={pending}
             onClick={() => {
-              update.mutate({ enabled: false })
+              update.mutate({ agent_id: null })
             }}
           >
-            Turn off panel
+            Disconnect
           </Button>
         </footer>
       )}
@@ -183,56 +153,25 @@ export function AgentPanelSetup({
   )
 }
 
-function PanelConnectionForm({
+function PanelConnectForm({
   org,
-  mode,
-  panel,
-  actions,
+  update,
+  disabled,
+  onChange,
   onConnected,
 }: {
   org: CurrentUserOrg
-  mode: 'connect' | 'create'
-  panel: AgentPanel
-  actions: Actions
+  update: ReturnType<typeof useUpdateAgentPanel>
+  disabled: boolean
+  onChange: () => void
   onConnected: () => void
 }) {
   const [projectID, setProjectID] = useState('')
   const [agentID, setAgentID] = useState('')
-  const [modelID, setModelID] = useState('')
-  const requestID = useRef<string | null>(null)
   const orgID = org.id
   const projectsQuery = useVisibleProjectsList(orgID, {})
   const projects = useInfiniteQueryItems(projectsQuery).filter((item) => item.org_id === orgID)
   const project = projects.find((item) => item.id === projectID) ?? null
-  const pending = actions.create.isPending || actions.update.isPending
-
-  function resetRequest() {
-    requestID.current = null
-    actions.create.reset()
-    actions.update.reset()
-  }
-  function submit() {
-    if (mode === 'connect') {
-      actions.update.mutate({ agent_id: agentID, enabled: true }, { onSuccess: onConnected })
-    } else {
-      // A fresh click may follow a rejected stale revision. Keep the request ID
-      // so an ambiguous earlier success still replays without reselecting.
-      requestID.current ??= crypto.randomUUID()
-      actions.create.mutate(
-        {
-          orgID,
-          body: {
-            project_id: projectID,
-            request_id: requestID.current,
-            expected_revision: panel.revision,
-            automatic: false,
-            model_id: modelID || undefined,
-          },
-        },
-        { onSuccess: onConnected },
-      )
-    }
-  }
 
   return (
     <>
@@ -243,58 +182,37 @@ function PanelConnectionForm({
           items={projects}
           query={projectsQuery}
           value={project}
-          disabled={pending}
+          disabled={disabled}
           onValueChange={(value) => {
             setProjectID(value?.id ?? '')
             setAgentID('')
-            setModelID('')
-            resetRequest()
+            onChange()
           }}
         />
       </div>
-      {project != null &&
-        (mode === 'connect' ? (
-          <div className="space-y-2">
-            <Label htmlFor="panel-agent">Agent</Label>
-            <PanelAgentPicker
-              orgID={orgID}
-              projectID={projectID}
-              agentID={agentID}
-              disabled={pending}
-              onChange={(id) => {
-                setAgentID(id)
-                resetRequest()
-              }}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="panel-model">Model</Label>
-              <PanelModelPicker
-                orgID={orgID}
-                projectID={projectID}
-                modelID={modelID}
-                disabled={pending}
-                onChange={(id) => {
-                  setModelID(id)
-                  resetRequest()
-                }}
-              />
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Creates an ordinary agent with Omnara tools and your personal token. Project members
-              with access can use it. Usage is billed to this organization. The model must support
-              tools.
-            </p>
-          </>
-        ))}
+      {project != null && (
+        <div className="space-y-2">
+          <Label htmlFor="panel-agent">Agent</Label>
+          <PanelAgentPicker
+            orgID={orgID}
+            projectID={projectID}
+            agentID={agentID}
+            disabled={disabled}
+            onChange={(id) => {
+              setAgentID(id)
+              onChange()
+            }}
+          />
+        </div>
+      )}
       <Button
-        disabled={pending || project == null || (mode === 'connect' && agentID === '')}
-        loading={pending}
-        onClick={submit}
+        disabled={disabled || project == null || agentID === ''}
+        loading={disabled}
+        onClick={() => {
+          update.mutate({ agent_id: agentID }, { onSuccess: onConnected })
+        }}
       >
-        {mode === 'connect' ? 'Connect agent' : 'Create assistant'}
+        Connect agent
       </Button>
     </>
   )
@@ -324,37 +242,6 @@ function PanelAgentPicker({
       disabled={disabled}
       onValueChange={(value) => {
         onChange(value?.id ?? '')
-      }}
-    />
-  )
-}
-
-function PanelModelPicker({
-  orgID,
-  projectID,
-  modelID,
-  disabled,
-  onChange,
-}: {
-  orgID: string
-  projectID: string
-  modelID: string
-  disabled: boolean
-  onChange: (id: string) => void
-}) {
-  const query = useProjectModelGrants(orgID, projectID)
-  const models = useInfiniteQueryItems(query).filter(
-    (item) => item.grant.project_id === projectID && item.supports_tools,
-  )
-  return (
-    <ModelPicker
-      id="panel-model"
-      items={models}
-      query={query}
-      value={models.find((item) => item.model.id === modelID) ?? null}
-      disabled={disabled}
-      onValueChange={(value) => {
-        onChange(value?.model.id ?? '')
       }}
     />
   )

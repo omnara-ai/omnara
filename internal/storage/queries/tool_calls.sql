@@ -67,6 +67,15 @@ WHERE tool_call.project_id = sqlc.arg(project_id)
   AND tool_call.id = sqlc.arg(id)
   AND tool_call.type = 'custom';
 
+-- name: ListExpiredCustomToolCalls :many
+SELECT tool_call.project_id, tool_call.agent_id, tool_call.id
+FROM tool_calls tool_call
+WHERE tool_call.state = 'ready'
+  AND tool_call.type = 'custom'
+  AND tool_call.expires_at <= transaction_timestamp()
+ORDER BY tool_call.expires_at, tool_call.id
+LIMIT sqlc.arg(limit_count);
+
 -- name: GetToolCallByProviderCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,

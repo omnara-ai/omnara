@@ -2,6 +2,7 @@ import { type OmnaraUIMessage, useOmnaraClient } from '@omnara/react'
 import { getActorOptions } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
 import { Streamdown } from 'streamdown'
+import * as z from 'zod'
 
 import { AgentArtifactCard } from '@/components/agents/AgentArtifactCard'
 import {
@@ -10,6 +11,7 @@ import {
   type ToolPart,
 } from '@/components/agents/AgentToolGroup'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
+import { MessageLink } from '@/components/agents/MessageLink'
 import { CircleDashed } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
@@ -51,6 +53,11 @@ function ActorLabel({
   )
 }
 
+const zMessageLink = z.object({
+  href: z.string().optional().catch(undefined),
+  title: z.string().optional().catch(undefined),
+})
+
 function AssistantMarkdown({ children }: { children: string }) {
   return (
     <Streamdown
@@ -59,9 +66,7 @@ function AssistantMarkdown({ children }: { children: string }) {
       tableMaxHeight={0}
       components={{
         a: ({ children: linkChildren, ...props }) => (
-          <a {...props} target="_blank" rel="noreferrer">
-            {linkChildren}
-          </a>
+          <MessageLink {...zMessageLink.parse(props)}>{linkChildren}</MessageLink>
         ),
       }}
     >

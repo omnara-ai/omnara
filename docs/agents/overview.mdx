@@ -91,8 +91,10 @@ reference has since been deleted.
 
 ## Dashboard assistant
 
-The **Assistant** button in the bottom-right corner connects to an ordinary agent.
-Your selection stays with your account across organizations and dashboard pages.
+The assistant is an ordinary agent. Its conversation is the main column of the
+Overview page and opens from the **Assistant** button in the bottom-right corner
+everywhere else. Your selection stays with your account across organizations and
+dashboard pages.
 Connect an agent you can access, or choose **Create new**, an organization
 you own, and a project. You can optionally choose a tool-capable model granted to
 that project.
@@ -103,9 +105,11 @@ is available. Joining an organization does not create one; existing accounts can
 use **Create new**. An earlier manual panel choice takes precedence.
 
 The preset can use Omnara's API on your behalf and explain steps in the UI. It
-cannot click your screen or control your computer. Each panel message includes
-the viewed page and organization as context, separately from the agent's home
-project. API writes and external web fetches use the agent's ordinary approval flow.
+can also open a dashboard page for you and point at a control on the page you
+are looking at. It cannot click or type on your screen, or control your
+computer. Each message includes the viewed page and organization as context,
+separately from the agent's home project. Its tools run without asking for approval; it is instructed to confirm with you
+in the conversation before deleting, replacing or spending anything.
 
 Creating the preset also creates a dedicated personal access token stored in an
 encrypted project secret. The token carries your permissions across all your
@@ -114,9 +118,8 @@ through its tools. Project configuration managers and organization owners and
 admins can also reference the project secret from other agent configurations.
 The agent uses the project's normal models, usage limits, and billing.
 
-Panel settings let you change or disconnect the agent, or turn the panel off.
-You can turn it back on in **Account** settings. Hiding or disconnecting the panel
-does not stop the agent or revoke its token. Deleting its home project or
+Panel settings let you change or disconnect the agent. Disconnecting does not
+stop the agent or revoke its token. Deleting its home project or
 organization revokes the dedicated token. You can also revoke it on the
 **Personal tokens** page; its name begins with **Omnara assistant**.
 To identify the token for a particular assistant, find the secret used by its

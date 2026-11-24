@@ -165,7 +165,7 @@ func TestWebE2E(t *testing.T) {
 		onboardingOrgID,
 		onboardingProjectID,
 		onboardingEmail,
-		authz.OrgRoleAdmin,
+		authz.OrgRoleOwner,
 		authz.ProjectRoleAdmin,
 	)
 	switchOrg, err := store.Organizations().

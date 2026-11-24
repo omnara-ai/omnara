@@ -20,7 +20,13 @@ interface InFlightSend {
   settle?: (failure?: Error) => void
 }
 
-function Composer({ send }: { send: Send }) {
+function Composer({
+  send,
+  onAskable,
+}: {
+  send: Send
+  onAskable?: (send: ((text: string) => Promise<void>) | null) => void
+}) {
   const [error, setError] = useState<Error>()
   const chat: UseAgentChatResult = {
     events: [],
@@ -55,7 +61,14 @@ function Composer({ send }: { send: Send }) {
     },
   }
   return (
-    <AgentComposer chat={chat} onCancel={vi.fn()} cancelPending={false} canOperate hidden={false} />
+    <AgentComposer
+      chat={chat}
+      onCancel={vi.fn()}
+      cancelPending={false}
+      canOperate
+      hidden={false}
+      onAskable={onAskable}
+    />
   )
 }
 
@@ -123,6 +136,42 @@ async function pressEnter(textarea: HTMLTextAreaElement, keyCode: number) {
     return Promise.resolve()
   })
 }
+
+it('offers to send a message asked elsewhere and puts it in the draft when sending fails', async () => {
+  const send = vi.fn<Send>().mockRejectedValueOnce(new Error('offline'))
+  const restore = enableReactActEnvironment()
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  let sendAsked: ((text: string) => Promise<void>) | null = null
+  try {
+    act(() => {
+      root.render(
+        <MessageScrollerProvider>
+          <Composer
+            send={send}
+            onAskable={(next) => {
+              sendAsked = next
+            }}
+          />
+        </MessageScrollerProvider>,
+      )
+    })
+    await act(async () => {
+      await sendAsked?.('Explain what is on this page')
+    })
+    expect(send.mock.calls.map(([input]) => input.text)).toEqual(['Explain what is on this page'])
+    expect(container.querySelector('textarea')?.value).toBe('Explain what is on this page')
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('offline')
+    act(() => {
+      root.unmount()
+    })
+    expect(sendAsked).toBeNull()
+  } finally {
+    container.remove()
+    restore()
+  }
+})
 
 it('shows the backlog error and restores the exact draft', async () => {
   const send = vi.fn<Send>().mockRejectedValueOnce(new ApiError(409, message, 'agent_backlog_full'))

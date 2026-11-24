@@ -1,5 +1,6 @@
 -- name: ReadExecutionTool :one
 SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+ c.timeout_seconds,COALESCE(c.expires_at<=statement_timestamp(),false)::boolean AS expired,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -10,7 +11,9 @@ LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
 -- name: TransitionExecutionTool :execrows
-UPDATE tool_calls c SET state=sqlc.arg(next_state),runtime_lock_id=sqlc.narg(next_runtime_id)
+UPDATE tool_calls c SET state=sqlc.arg(next_state),runtime_lock_id=sqlc.narg(next_runtime_id),
+ expires_at=CASE WHEN sqlc.arg(next_state)::text='ready' AND c.timeout_seconds>0 AND c.expires_at IS NULL
+ THEN statement_timestamp()+c.timeout_seconds*interval '1 second' ELSE c.expires_at END
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state=sqlc.arg(previous_state)
  AND c.runtime_lock_id IS NOT DISTINCT FROM sqlc.narg(previous_runtime_id)::uuid
  AND (sqlc.narg(fence_id)::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_runtime_locks r

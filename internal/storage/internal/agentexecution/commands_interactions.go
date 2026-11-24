@@ -281,11 +281,8 @@ func (h *Handle) applyInteraction(
 				if call.State != "awaiting_permission" {
 					return storeerr.ErrStateTransitionConflict
 				}
-				if err = h.transitionTool(ctx, m, call, "ready", uuid.Nil, uuid.Nil); err != nil {
-					return err
-				}
-				h.readyToolUpdate(call, &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
-				return nil
+				return h.readyTool(ctx, m, call, uuid.Nil,
+					&notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
 			}
 			reason = decision.Reason
 		}

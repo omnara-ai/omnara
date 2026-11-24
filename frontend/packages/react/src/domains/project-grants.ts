@@ -9,6 +9,7 @@ import {
   type UpdateProjectModelGrantRequest,
 } from '@omnara/sdk'
 import {
+  getAgentPanelQueryKey,
   listProjectMachineGrantsInfiniteOptions,
   listProjectMachineGrantsQueryKey,
   listProjectMachinePoolGrantsInfiniteOptions,
@@ -221,6 +222,8 @@ export function useCreateProjectModelGrant(orgID: string) {
       return data
     },
     onSuccess: async (_data, variables) => {
+      // A queued assistant is created once its project has a model.
+      void queryClient.invalidateQueries({ queryKey: getAgentPanelQueryKey({ client }) })
       await queryClient.invalidateQueries({
         queryKey: listProjectModelGrantsQueryKey({
           path: { orgID, projectID: variables.projectID },

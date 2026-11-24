@@ -137,6 +137,25 @@ func (q *Queries) CompleteDefaultModelProviderProvisioning(ctx context.Context, 
 	return result.RowsAffected(), nil
 }
 
+const defaultModelProviderProvisioningPending = `-- name: DefaultModelProviderProvisioningPending :one
+SELECT EXISTS (
+    SELECT 1
+    FROM default_model_provider_provisioning_jobs
+    WHERE organization_id = $1
+)
+`
+
+type DefaultModelProviderProvisioningPendingParams struct {
+	OrganizationID uuid.UUID
+}
+
+func (q *Queries) DefaultModelProviderProvisioningPending(ctx context.Context, arg DefaultModelProviderProvisioningPendingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, defaultModelProviderProvisioningPending, arg.OrganizationID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const deleteDefaultModelProviderProvisioningForOrganization = `-- name: DeleteDefaultModelProviderProvisioningForOrganization :exec
 DELETE FROM default_model_provider_provisioning_jobs
 WHERE organization_id = $1

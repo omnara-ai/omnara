@@ -1,7 +1,14 @@
 import type { UseAgentChatResult } from '@omnara/react'
 import type { AgentConfigModel } from '@omnara/sdk'
 import { useMessageScroller } from '@shadcn/react/message-scroller'
-import { type ChangeEvent, type KeyboardEvent, type SyntheticEvent, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  type SyntheticEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { File, FilePlus, SendHorizontal, Square, Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -129,6 +136,7 @@ export function AgentComposer({
   canOperate,
   hidden,
   fileDropScope = 'window',
+  onAskable,
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
@@ -138,6 +146,8 @@ export function AgentComposer({
   canOperate: boolean
   hidden: boolean
   fileDropScope?: 'window' | 'composer'
+  /** Offers a way to send a message asked elsewhere, while the conversation can take one. */
+  onAskable?: (send: ((text: string) => Promise<void>) | null) => void
 }) {
   const { scrollToEnd } = useMessageScroller()
   const [text, setText] = useState('')
@@ -189,6 +199,22 @@ export function AgentComposer({
       setSubmitting(false)
     }
   }
+
+  async function sendAsked(question: string) {
+    scrollToEnd()
+    try {
+      await chat.sendMessage({ text: question })
+    } catch {
+      setText((current) => (current === '' ? question : `${question}\n${current}`))
+    }
+  }
+
+  useEffect(() => {
+    onAskable?.(ready ? sendAsked : null)
+    return () => {
+      onAskable?.(null)
+    }
+  })
 
   async function addFiles(files: FileList | readonly File[] | null) {
     if (files == null || files.length === 0 || model == null || busyRef.current) return

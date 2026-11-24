@@ -56,6 +56,7 @@ func Run(ctx context.Context, options Options) {
 		{"reap_runtime_locks", interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
 		{"expire_daemon_runtimes", interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
 		{"expire_process_tools", interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
+		{"expire_custom_tools", interval, expireCustomTools(log, execution.ExpireCustomToolCalls)},
 		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval,
 			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries, webhookRecorder)},
 		{"cleanup_auth_state", expiredDataCleanupInterval,

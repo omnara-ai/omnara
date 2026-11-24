@@ -167,6 +167,7 @@ func toolSourcesFromCompiled(
 		case toolcatalog.UsesIntegrationToolNamespace(name):
 		case tool.Type == toolcatalog.ToolTypeCustom:
 			entry.Type, entry.Description, entry.InputSchema = tool.Type, tool.Description, tool.InputSchema
+			entry.TimeoutSeconds = tool.TimeoutSeconds
 			defaultPermission = new(toolcatalog.DefaultCustomToolPermission())
 		default:
 			if catalogEntry, ok := catalog.Lookup(name); ok {

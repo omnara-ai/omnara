@@ -2338,7 +2338,7 @@ func createHTTPInteractionForAgent(
 		}
 	}
 	toolCall, runtime := recordHTTPToolCallForAgent(
-		t, ctx, store, orgID, projectID, userID, agent, toolName, toolcatalog.ToolTypeBuiltIn, request,
+		t, ctx, store, orgID, projectID, userID, agent, toolName, toolcatalog.ToolTypeBuiltIn, request, nil,
 	)
 	calls := []executionstore.ToolCallRecord{toolCall}
 	if kind == "question" {
@@ -2501,6 +2501,7 @@ func recordHTTPToolCallForAgent(
 	agent executionstore.AgentRecord,
 	toolName, toolType string,
 	request json.RawMessage,
+	timeoutSeconds *int,
 ) (executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord) {
 	t.Helper()
 	agentID := agent.ID
@@ -2594,6 +2595,7 @@ func recordHTTPToolCallForAgent(
 				{
 					ProviderCallID: responseToolCall.ID,
 					Type:           toolType,
+					TimeoutSeconds: timeoutSeconds,
 				},
 			},
 		},
@@ -2621,7 +2623,7 @@ func createHTTPCustomToolCallForAgent(
 	t.Helper()
 	toolCall, runtime := recordHTTPToolCallForAgent(
 		t, ctx, store, orgID, projectID, userID, agent, "lookup_customer", toolcatalog.ToolTypeCustom,
-		json.RawMessage(`{"email":"ada@example.com"}`),
+		json.RawMessage(`{"email":"ada@example.com"}`), nil,
 	)
 	if _, err := store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
 		ProjectID:     projectID,

@@ -3,6 +3,7 @@ package agentexecution
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -81,12 +82,39 @@ func (h *Handle) AuthorizeTool(ctx context.Context, ref ToolRef) (bool, error) {
 		if row.State != "awaiting_authorization" {
 			return false, storeerr.ErrStateTransitionConflict
 		}
-		if err = h.transitionTool(ctx, m, row, "ready", uuid.Nil, ref.RuntimeLockID); err != nil {
+		if err = h.readyTool(ctx, m, row, ref.RuntimeLockID, nil); err != nil {
 			return false, err
 		}
-		h.readyToolUpdate(row, nil)
 		return true, nil
 	})
+}
+
+const customToolSentResult = "Sent. This tool does not wait for a result."
+
+func customToolTimedOutResult(seconds int32) string {
+	if seconds == 1 {
+		return "No result was submitted within 1 second."
+	}
+	return fmt.Sprintf("No result was submitted within %d seconds.", seconds)
+}
+
+func (h *Handle) readyTool(
+	ctx context.Context,
+	m *executionMutation,
+	row executiondb.ReadExecutionToolRow,
+	fence uuid.UUID,
+	interaction *notifications.AgentInteractionUpdate,
+) error {
+	if err := h.transitionTool(ctx, m, row, "ready", uuid.Nil, fence); err != nil {
+		return err
+	}
+	h.readyToolUpdate(row, interaction)
+	if row.Type != "custom" || row.TimeoutSeconds == nil || *row.TimeoutSeconds != 0 {
+		return nil
+	}
+	row.State = "ready"
+	_, err := h.completeTool(ctx, m, row, "succeeded", []Content{{Kind: "text", Text: customToolSentResult}}, fence, nil)
+	return err
 }
 
 func (h *Handle) readyToolUpdate(
@@ -228,6 +256,21 @@ func (h *Handle) CompleteCustomTool(
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
 		return h.completeTool(ctx, m, row, outcome, content, uuid.Nil, nil)
+	})
+}
+
+func (h *Handle) ExpireCustomTool(ctx context.Context, id uuid.UUID) (bool, error) {
+	return executeCommand(ctx, h, func(m *executionMutation) (bool, error) {
+		row, err := h.tool(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		if row.Type != "custom" || row.State != "ready" || !row.Expired || row.TimeoutSeconds == nil {
+			return false, nil
+		}
+		_, err = h.completeTool(ctx, m, row, "failed",
+			[]Content{{Kind: "text", Text: customToolTimedOutResult(*row.TimeoutSeconds)}}, uuid.Nil, nil)
+		return err == nil, err
 	})
 }
 

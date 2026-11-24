@@ -13,7 +13,7 @@ Omnara agents are durable: every step is saved to Postgres as it happens, so an 
 | A model call fails | Errors that can succeed later, like rate limits and outages, are retried up to eight times. If the call still fails, the turn ends with the error in the agent's history, and your next message continues the conversation | Nothing |
 | The worker running a command dies | The command keeps running on its machine, and the agent gets the result when it exits | Nothing |
 | An MCP, web, or integration call is cut off | It isn't rerun. The agent is told its outcome is unknown and decides whether to check or try again | Make tools safe to receive the same request twice |
-| Your backend restarts | Custom tool calls wait in Postgres until you post a result | Deduplicate by tool-call ID |
+| Your backend restarts | Custom tool calls wait in Postgres until you post a result, or until the tool's `timeout_seconds` runs out | Deduplicate by tool-call ID |
 | A machine goes offline | Commands it hasn't accepted never run late. After 30 seconds, the agent is told the machine is unreachable and that an accepted command may still be running there, so it can wait or move to another machine | Nothing |
 | Nobody answers an approval | It waits in Postgres for as long as it takes | Nothing |
 
@@ -38,7 +38,7 @@ As with any system that retries an interrupted request, the provider can bill fo
 - **Commands.** `run_command` hands a command to a machine once, and it's never run again automatically. The command keeps running if the worker that started it dies. If the machine loses the process itself, the result comes back as unknown.
 - **Tools that call outside services**, like web search, web fetch, [MCP servers](/tools/mcp), and integrations, aren't rerun after a crash. The agent gets "Tool call was interrupted; its external outcome is unknown." and decides whether to check or call it again.
 - **Tools that change only Omnara's own state**, like starting subagents, save their effect and their result in one transaction.
-- **[Custom tools](/tools/custom)** wait in Postgres until your backend posts a result, without holding a worker, so neither Omnara's restarts nor yours affect them. The first result wins, and later submissions return `409`.
+- **[Custom tools](/tools/custom)** wait in Postgres until your backend posts a result, without holding a worker, so neither Omnara's restarts nor yours affect them. The first result wins, and later submissions return `409`. A tool with [`timeout_seconds`](/tools/custom#timeouts-and-send-only-tools) stops waiting after that long and tells the agent no result came; with `0` it never waits.
 
 ## Approvals, questions, and machines
 

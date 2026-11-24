@@ -24,6 +24,8 @@ const (
 	defaultPoolInitialNumMachines = 1
 )
 
+const MaxCustomToolTimeoutSeconds = 86400
+
 type MemoryStoreCompiled struct {
 	ID     uuid.UUID         `json:"id"`
 	Access MemoryStoreAccess `json:"access"`
@@ -113,13 +115,14 @@ type MachineSourceCompiled struct {
 }
 
 type ToolCompiled struct {
-	IntegrationID uuid.UUID                `json:"integration_id,omitzero"`
-	Enabled       bool                     `json:"enabled"`
-	Type          string                   `json:"type,omitempty"`
-	Permission    toolpermission.Selection `json:"permission"`
-	Deferred      bool                     `json:"deferred,omitempty"`
-	Description   string                   `json:"description,omitempty"`
-	InputSchema   json.RawMessage          `json:"input_schema,omitempty"`
+	IntegrationID  uuid.UUID                `json:"integration_id,omitzero"`
+	Enabled        bool                     `json:"enabled"`
+	Type           string                   `json:"type,omitempty"`
+	Permission     toolpermission.Selection `json:"permission"`
+	Deferred       bool                     `json:"deferred,omitempty"`
+	Description    string                   `json:"description,omitempty"`
+	InputSchema    json.RawMessage          `json:"input_schema,omitempty"`
+	TimeoutSeconds *int                     `json:"timeout_seconds,omitempty"`
 }
 
 type MCPServerCompiled struct {
@@ -462,6 +465,9 @@ func compileBuiltInTool(
 			"built-in tools cannot redefine description or input_schema",
 		)
 	}
+	if source.TimeoutSeconds != nil {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "timeout_seconds"), "applies to custom tools only")
+	}
 	entry, ok := catalog.Lookup(name)
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "tool %q is not registered", name)
@@ -523,13 +529,21 @@ func compileCustomTool(
 			return ToolCompiled{}, issueAt(jsonPointer("tools", name, "permission"), err)
 		}
 	}
+	if timeout := source.TimeoutSeconds; timeout != nil && (*timeout < 0 || *timeout > MaxCustomToolTimeoutSeconds) {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name, "timeout_seconds"),
+			"must be between 0 and %d",
+			MaxCustomToolTimeoutSeconds,
+		)
+	}
 	return ToolCompiled{
-		Enabled:     enabled,
-		Type:        toolcatalog.ToolTypeCustom,
-		Permission:  permission,
-		Deferred:    source.Deferred,
-		Description: strings.TrimSpace(source.Description),
-		InputSchema: schema,
+		Enabled:        enabled,
+		Type:           toolcatalog.ToolTypeCustom,
+		Permission:     permission,
+		Deferred:       source.Deferred,
+		Description:    strings.TrimSpace(source.Description),
+		InputSchema:    schema,
+		TimeoutSeconds: source.TimeoutSeconds,
 	}, nil
 }
 

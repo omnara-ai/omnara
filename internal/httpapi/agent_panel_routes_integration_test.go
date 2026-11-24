@@ -69,14 +69,18 @@ func TestAgentPanelCreationReplayAndSelection(t *testing.T) {
 	panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
 	require.Equal(t, "empty", panel["state"])
 	setup := testutil.RequireType[map[string]any](t, panel["setup"])
-	require.Equal(t, true, setup["ready"])
+	require.Equal(t, "available", setup["model"])
 	require.Equal(t, project.ProjectUUID.String(), setup["request_id"])
 	before := assistantCounts(t, pool)
 	body := assistantBody(t, project, project.ProjectUUID, 0, true)
 	path := "/api/v1/orgs/" + project.OrgID + "/assistant-agents"
 	result := requestJSONWithHeaders(t, handler, "POST", path, body, "", 200, headers)
 	after := assistantCounts(t, pool)
-	require.Equal(t, []int{before[0] + 1, before[1] + 1, before[2] + 1, before[3] + 1, before[4] + 1, before[5]}, after)
+	want := make([]int, len(before))
+	for i, count := range before {
+		want[i] = count + 1
+	}
+	require.Equal(t, want, after, "creation also records the hidden greeting input")
 	agentID := testutil.RequireType[string](t, result["agent_id"])
 	selected := testutil.RequireType[map[string]any](t, result["panel"])
 	require.Equal(t, "ready", selected["state"])
@@ -104,19 +108,17 @@ func TestAgentPanelCreationReplayAndSelection(t *testing.T) {
 		handler,
 		"PATCH",
 		"/api/v1/me/agent-panel",
-		`{"agent_id":null,"enabled":false}`,
+		`{"agent_id":null}`,
 		"",
 		200,
 		headers,
 	)
 	replay = requestJSONWithHeaders(t, handler, "POST", path, body, "", 200, headers)
 	replayPanel := testutil.RequireType[map[string]any](t, replay["panel"])
-	require.Equal(t, false, replayPanel["enabled"])
 	require.NotContains(t, replayPanel, "selection")
 	require.Equal(t, after, assistantCounts(t, pool))
-	// The preset is visible in ordinary lists, but does not finish onboarding.
 	overview := requestJSONWithHeaders(t, handler, "GET", "/api/v1/orgs/"+project.OrgID+"/overview", "", "", 200, headers)
-	require.Empty(t, overview["recent_agents"])
+	require.Len(t, overview["recent_agents"], 1)
 	agents := requestJSONWithHeaders(t, handler, "GET", project.ProjectPath+"/agents", "", "", 200, headers)
 	require.Len(t, agents["data"], 1)
 	var machines int
@@ -254,7 +256,7 @@ func TestAgentPanelConcurrentManualChoiceSupersedesCreation(t *testing.T) {
 		return performRequest(h, req)
 	}
 	patch := integrationdb.RunAsync(func() (*httptest.ResponseRecorder, error) {
-		return send(patchHandler, http.MethodPatch, "/api/v1/me/agent-panel", `{"agent_id":null,"enabled":false}`), nil
+		return send(patchHandler, http.MethodPatch, "/api/v1/me/agent-panel", `{"agent_id":null}`), nil
 	})
 	integrationdb.Await(t, patchReady, "manual preference waiting to commit")
 	body := assistantBody(t, project, project.ProjectUUID, 0, true)
@@ -271,7 +273,6 @@ func TestAgentPanelConcurrentManualChoiceSupersedesCreation(t *testing.T) {
 	require.Equal(t, before, assistantCounts(t, pool))
 	panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200,
 		project.adminBrowserAuthHeaders())
-	require.Equal(t, false, panel["enabled"])
 	require.Equal(t, float64(1), panel["revision"])
 	require.NotContains(t, panel, "selection")
 	require.NotContains(t, panel, "setup")
@@ -406,7 +407,16 @@ func TestAgentPanelSkipsInvalidOldestModel(t *testing.T) {
 	require.NoError(t, err)
 	headers := project.adminBrowserAuthHeaders()
 	panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
-	require.Equal(t, false, testutil.RequireType[map[string]any](t, panel["setup"])["ready"])
+	require.Equal(t, "required", testutil.RequireType[map[string]any](t, panel["setup"])["model"])
+	_, err = pool.Exec(t.Context(),
+		`INSERT INTO default_model_provider_provisioning_jobs(organization_id, creator_user_id) VALUES ($1, $2)`,
+		project.OrgUUID, project.AdminUserUUID)
+	require.NoError(t, err)
+	panel = requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
+	require.Equal(t, "provisioning", testutil.RequireType[map[string]any](t, panel["setup"])["model"])
+	_, err = pool.Exec(t.Context(),
+		`DELETE FROM default_model_provider_provisioning_jobs WHERE organization_id=$1`, project.OrgUUID)
+	require.NoError(t, err)
 	before := assistantCounts(t, pool)
 	requestJSONWithHeaders(
 		t,
@@ -449,7 +459,7 @@ func TestAgentPanelSkipsInvalidOldestModel(t *testing.T) {
 		headers,
 	)
 	panel = requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
-	require.Equal(t, true, testutil.RequireType[map[string]any](t, panel["setup"])["ready"])
+	require.Equal(t, "available", testutil.RequireType[map[string]any](t, panel["setup"])["model"])
 	created := requestJSONWithHeaders(
 		t,
 		handler,
@@ -625,7 +635,7 @@ func TestAgentPanelOrgAndAccountDeletionCleanup(t *testing.T) {
 	require.Equal(t, 1, provenance, "retain provenance for the ordinary agent's lifecycle")
 }
 
-func TestAgentPanelToggleBeforeFirstOrgPreservesManualChoice(t *testing.T) {
+func TestAgentPanelChoiceBeforeFirstOrgPreservesManualChoice(t *testing.T) {
 	t.Parallel()
 	pool, handler, project := assistantFixture(t)
 	user, _ := createOrgRouteUser(t, pool, project.Store, "panel-toggle")
@@ -635,15 +645,13 @@ func TestAgentPanelToggleBeforeFirstOrgPreservesManualChoice(t *testing.T) {
 	})
 	require.NoError(t, err)
 	headers := project.adminBrowserAuthHeaders()
-	for _, enabled := range []bool{false, true} {
-		requestJSONWithHeaders(t, handler, "PATCH", "/api/v1/me/agent-panel",
-			fmt.Sprintf(`{"enabled":%t}`, enabled), "", 200, headers)
+	for range 2 {
+		requestJSONWithHeaders(t, handler, "PATCH", "/api/v1/me/agent-panel", `{"agent_id":null}`, "", 200, headers)
 	}
 	for _, name := range []string{"first", "second"} {
 		requestJSONWithHeaders(t, handler, "POST", "/api/v1/orgs",
 			fmt.Sprintf(`{"name":%q}`, name), "", 201, headers)
 		panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
-		require.Equal(t, true, panel["enabled"])
 		require.Equal(t, "empty", panel["state"])
 		require.Equal(t, float64(2), panel["revision"])
 		require.NotContains(t, panel, "setup", "explicit preferences suppress automatic setup")

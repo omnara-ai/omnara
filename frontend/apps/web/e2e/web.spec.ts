@@ -479,39 +479,56 @@ test('denies agent creation when the project lacks manage permission', async ({ 
   expect(failures).toEqual([])
 })
 
-test('walks a new organization through onboarding to its first chat', async ({ page }) => {
+test('sets up an assistant from an empty organization, talks to it on the overview and finds it in the corner elsewhere', async ({
+  page,
+}) => {
   const failures = installFailureTracking(page)
   await signIn(page, onboardingEmail, '/')
+  const assistant = page.getByRole('region', { name: 'Assistant', exact: true })
+  const launcher = page.getByRole('button', { name: 'Assistant', exact: true })
+  const setup = page.getByRole('heading', { name: 'Set up your assistant' })
+  // A retry finds the assistant the first attempt created.
+  await expect(setup.or(assistant)).toBeVisible()
+  await expect(launcher).toHaveCount(0)
+  if (await setup.isVisible()) {
+    await page.getByRole('button', { name: 'Create assistant', exact: true }).click()
+  }
+  await expect(assistant.getByText('Omnara assistant', { exact: true })).toBeVisible()
+  await expect(launcher).toHaveCount(0)
+  await expect(page.getByText('No profiles yet', { exact: true })).toBeVisible()
 
-  await expect(page.getByRole('heading', { name: 'Launch your first agent' })).toBeVisible()
-  const step = (index: number) => page.locator(`[data-step="${index}"]`)
+  const question = 'Which models can my agents use?'
+  const sent = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /\/agents\/agt_[a-z2-7]+\/inputs$/.test(new URL(response.url()).pathname),
+  )
+  const composer = assistant.getByRole('textbox')
+  await composer.fill(question)
+  await composer.press('Enter')
+  const accepted = await sent
+  expect(accepted.ok()).toBe(true)
+  const { agent_input: input } = schemas.zCreateAgentInputResponse.parse(await accepted.json())
+  const blocks = input.content_blocks ?? []
+  expect(blocks.some((block) => block.type === 'text' && block.text === question)).toBe(true)
+  const context = blocks.find(
+    (block) => block.type === 'text' && block.metadata?.omnara_hidden === 'true',
+  )
+  if (context?.type !== 'text') throw new Error('Missing page context')
+  expect(context.text).toContain('"route":"/"')
+  expect(context.text).toContain('## Usage')
+  expect(context.text).toContain('No profiles yet')
+  expect(context.text).not.toContain(question)
+  await expect(assistant.getByText(question, { exact: true })).toBeVisible()
 
-  await expect(page.getByText('omnara.com/SKILL.md', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'or set up manually' }).click()
-  await expect(step(1)).toHaveAttribute('data-status', 'active')
-  await expect(step(1)).toContainText('npx omnara login')
-  await expect(step(2)).toHaveAttribute('data-status', 'active')
-  await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
-
-  await step(2).getByRole('button', { name: 'Run' }).click()
-
-  await expect(step(1)).toHaveAttribute('data-status', 'done')
-  await expect(step(2)).toHaveAttribute('data-status', 'done')
-  await expect(step(2).getByRole('link', { name: 'General agent' })).toBeVisible()
-  await expect(step(3)).toHaveAttribute('data-status', 'active')
-  await expect(step(3)).toContainText('npx omnara agents launch')
-  await page.getByRole('tab', { name: 'TypeScript SDK' }).click()
-  await expect(step(3)).toContainText('sdk.createAgent(')
-  await page.getByRole('tab', { name: 'cURL' }).click()
-  await expect(step(3)).toContainText('curl "')
-  await page.getByRole('button', { name: 'Run' }).click()
-
-  await expect(step(3)).toHaveAttribute('data-status', 'done')
-  await expect(step(3).getByRole('button', { name: 'Run' })).toHaveCount(0)
-  const openChat = step(3).getByRole('link', { name: 'Open chat' })
-  await expect(openChat).toBeVisible()
-  await openChat.click()
-  await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+/chat$`))
+  // The same conversation, with an unsent draft, follows to other pages in the corner.
+  await composer.fill('Still thinking')
+  await page.getByRole('link', { name: 'Members', exact: true }).click()
+  await expect(page).toHaveURL('/members')
+  await launcher.click()
+  const panel = page.getByRole('dialog', { name: 'Assistant', exact: true })
+  await expect(panel.getByText(question, { exact: true })).toBeVisible()
+  await expect(panel.getByRole('textbox')).toHaveValue('Still thinking')
 
   expect(failures).toEqual([])
 })

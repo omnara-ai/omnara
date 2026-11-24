@@ -3,7 +3,6 @@ import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
 import { AgentIcon } from '@/components/agents/AgentIcon'
-import { AuroraPanel } from '@/components/aurora/AuroraPanel'
 import {
   OverviewColumn,
   OverviewEmpty,
@@ -17,11 +16,14 @@ import { agentIcon, profileIcon } from '@/lib/agent-icon'
 
 export function OverviewSummary({ overview }: { overview: OrgOverviewResponse }) {
   return (
-    // A translucent card lit by the page's backdrop, like the usage panel below it.
-    <AuroraPanel className="grid w-full gap-8 p-3 sm:p-4 md:grid-cols-2 md:gap-10">
-      <LatestAgentsColumn overview={overview} />
-      <EditedProfilesColumn overview={overview} />
-    </AuroraPanel>
+    <div className="bg-card flex flex-col divide-y rounded-xl border">
+      <div className="p-3">
+        <LatestAgentsColumn overview={overview} />
+      </div>
+      <div className="p-3">
+        <EditedProfilesColumn overview={overview} />
+      </div>
+    </div>
   )
 }
 

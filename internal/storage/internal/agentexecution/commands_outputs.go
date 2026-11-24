@@ -12,10 +12,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const maxCustomToolTimeoutSeconds = 86400
+
 type ToolProposal struct {
 	ID             uuid.UUID
 	ProviderCallID string
 	Type           string
+	TimeoutSeconds *int32
 }
 type AcceptOutputInput struct {
 	RuntimeLockID uuid.UUID
@@ -46,7 +49,9 @@ func outputParts(
 	byID := make(map[string]ToolProposal, len(bindings))
 	for _, binding := range bindings {
 		if binding.ProviderCallID == "" ||
-			binding.Type != "built_in" && binding.Type != "custom" && binding.Type != "mcp" {
+			binding.Type != "built_in" && binding.Type != "custom" && binding.Type != "mcp" ||
+			binding.TimeoutSeconds != nil && (binding.Type != "custom" ||
+				*binding.TimeoutSeconds < 0 || *binding.TimeoutSeconds > maxCustomToolTimeoutSeconds) {
 			return nil, nil, errors.New("invalid tool proposal")
 		}
 		if _, exists := byID[binding.ProviderCallID]; exists {
@@ -171,7 +176,8 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		for _, call := range proposals {
 			if err = q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
 				ID: call.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, OutputID: output.ID,
-				ProviderCallID: call.ProviderCallID, Name: call.Name, Input: call.Input, Type: call.Type}); err != nil {
+				ProviderCallID: call.ProviderCallID, Name: call.Name, Input: call.Input, Type: call.Type,
+				TimeoutSeconds: call.TimeoutSeconds}); err != nil {
 				return AcceptedOutput{}, err
 			}
 			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
@@ -246,7 +252,9 @@ func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID, tools []
 				return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
 			}
 		}
-		bindings[i] = ToolProposal{ID: call.ID, ProviderCallID: call.ProviderCallID, Type: call.Type}
+		bindings[i] = ToolProposal{
+			ID: call.ID, ProviderCallID: call.ProviderCallID, Type: call.Type, TimeoutSeconds: call.TimeoutSeconds,
+		}
 	}
 	return AcceptedOutput{ID: output.ID, Event: ExecutionEvent{ID: output.EventID, TurnID: output.TurnID,
 		EventBoundary: EventBoundary{Sequence: output.Sequence, Time: output.CreatedAt}}, Tools: bindings}, nil

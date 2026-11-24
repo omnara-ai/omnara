@@ -19,10 +19,6 @@ func (s *Server) newAPIMCPServer() (*mcp.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
-	s.apiMCPReadOnlyTools, err = apimcp.ReadOnlyToolNames(spec, apimcp.Tools)
-	if err != nil {
-		return nil, err
-	}
 	if spec.Info != nil {
 		s.apiMCPVersion = spec.Info.Version
 	}

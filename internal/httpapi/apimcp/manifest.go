@@ -96,6 +96,12 @@ var Tools = []Tool{
 	{Name: "profiles_delete", Title: "Delete agent profile", OperationID: "deleteAgentProfile"},
 	{Name: "tools_catalog", Title: "Get tool catalog", OperationID: "getToolCatalog"},
 
+	{Name: "usage_org", Title: "Get organization usage", OperationID: "getOrgUsage"},
+	{Name: "usage_timeseries", Title: "Get usage over time", OperationID: "getOrgUsageTimeseries"},
+	{Name: "usage_project", Title: "Get project usage", OperationID: "getProjectUsage"},
+	{Name: "usage_profile", Title: "Get agent profile usage", OperationID: "getAgentProfileUsage"},
+	{Name: "usage_agent", Title: "Get agent usage", OperationID: "getAgentUsage"},
+
 	{Name: "crons_list", Title: "List cron triggers", OperationID: "listCronTriggers"},
 	{Name: "crons_get", Title: "Get cron trigger", OperationID: "getCronTrigger"},
 	{Name: "crons_create", Title: "Create cron trigger", OperationID: "createCronTrigger", OpenWorld: true},

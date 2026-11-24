@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentPanel,
   createOmnaraClient,
+  type ProjectModelGrantListItem,
   schemas,
   type VisibleProject,
 } from '@omnara/sdk'
@@ -34,19 +35,50 @@ const first: VisibleProject = {
 }
 const second: VisibleProject = { ...first, id: `proj_${'b'.repeat(26)}`, name: 'Second' }
 const projects = [first, second]
+const grant: ProjectModelGrantListItem = {
+  grant: {
+    id: fakeId('pmog'),
+    org_id: owner.id,
+    project_id: first.id,
+    configured_model_id: fakeId('mdl'),
+    supported_reasoning_efforts: [],
+    input_modalities: [],
+    output_modalities: [],
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  model: {
+    id: fakeId('mdl'),
+    org_id: owner.id,
+    model_provider_config_id: fakeId('mpc'),
+    name: 'tool-model',
+    provider_config: 'openrouter',
+    provider_model_slug: 'tool-model',
+    created_at: timestamp,
+    updated_at: timestamp,
+  },
+  effective_reasoning: {
+    supports_reasoning: false,
+    default_reasoning_effort: '',
+    supported_reasoning_efforts: [],
+  },
+  supports_tools: true,
+}
 const createPath = `/api/v1/orgs/${owner.id}/assistant-agents`
 let container: HTMLDivElement
 let root: Root
 let cache: QueryClient
 let restore: () => void
 let panel: AgentPanel
+let grants: ProjectModelGrantListItem[]
 
 beforeEach(() => {
+  grants = [grant]
   restore = enableReactActEnvironment()
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
-  panel = { state: 'empty', enabled: true, revision: 0 }
+  panel = { state: 'empty', revision: 0 }
 })
 afterEach(() => {
   act(() => {
@@ -69,6 +101,11 @@ async function render(routes: FakeRoute[], settings = false) {
     {
       method: 'GET',
       path: `/api/v1/orgs/${owner.id}/projects/${first.id}/model-grants`,
+      respond: () => jsonResponse({ data: grants, next_cursor: null }),
+    },
+    {
+      method: 'GET',
+      path: `/api/v1/orgs/${owner.id}/model-provider-configs`,
       respond: () => jsonResponse({ data: [], next_cursor: null }),
     },
   ])
@@ -128,7 +165,7 @@ async function choose(id: string, name: string) {
   )
 }
 
-it('offers only owned organizations for creation and recovers from conflicts and ambiguous replies with one request ID', async () => {
+it('starts on creation in the only owned organization with the oldest project and its model, and recovers from conflicts and ambiguous replies with one request ID', async () => {
   let calls = 0
   const { api, connected } = await render([
     {
@@ -148,13 +185,12 @@ it('offers only owned organizations for creation and recovers from conflicts and
       },
     },
   ])
-  await click(button('Create new'))
-  await click(document.getElementById('panel-organization'))
-  expect(
-    [...document.querySelectorAll('[role="option"]')].map((item) => item.textContent.trim()),
-  ).toEqual(['Owned'])
-  await click([...document.querySelectorAll('[role="option"]')][0])
-  await choose('panel-project', 'Default')
+  expect(button('Create new')?.getAttribute('aria-pressed')).toBe('true')
+  expect(document.getElementById('panel-organization')).toBeNull()
+  await waitForUI(() => {
+    expect(document.getElementById('panel-project')?.textContent).toContain('Default')
+    expect(button('Create assistant', true)?.disabled).toBe(false)
+  })
   await click(button('Create assistant', true))
   await waitForUI(() => {
     expect(container.textContent).toContain('Selection changed')
@@ -175,10 +211,20 @@ it('offers only owned organizations for creation and recovers from conflicts and
       project_id: first.id,
       expected_revision: BigInt(revision),
       automatic: false,
+      model_id: grant.model.id,
     })),
   )
   const ids = bodies.map((body) => body.request_id)
   expect(new Set(ids).size).toBe(1)
+})
+
+it('offers adding a model as the only action in a project without one', async () => {
+  grants = []
+  await render([])
+  await waitForUI(() => {
+    expect(button('Add a model')).toBeDefined()
+  })
+  expect(button('Create assistant', true)).toBeUndefined()
 })
 
 it('never offers an agent from the previous project while the next project loads', async () => {
@@ -207,6 +253,7 @@ it('never offers an agent from the previous project while the next project loads
       respond: () => loading,
     },
   ])
+  await click(button('Connect existing'))
   await choose('panel-project', 'Default')
   await choose('panel-agent', 'First agent')
   await choose('panel-project', 'Second')
@@ -228,7 +275,7 @@ it('never offers an agent from the previous project while the next project loads
   })
 })
 
-it('shares settings pending state and shows a failed update before allowing recovery', async () => {
+it('shares settings pending state and shows a failed disconnect before allowing a retry', async () => {
   panel = {
     ...panel,
     state: 'ready',
@@ -256,7 +303,7 @@ it('shares settings pending state and shows a failed update before allowing reco
         path: '/api/v1/me/agent-panel',
         respond: () => {
           if (++calls === 1) return pending
-          panel = { ...panel, enabled: false, revision: 1 }
+          panel = { state: 'empty', revision: 1 }
           return jsonResponse(panel)
         },
       },
@@ -266,7 +313,6 @@ it('shares settings pending state and shows a failed update before allowing reco
   await click(button('Disconnect'))
   await waitForUI(() => {
     expect(button('Disconnect')?.disabled).toBe(true)
-    expect(button('Turn off panel')?.disabled).toBe(true)
     expect(button('Create new')?.disabled).toBe(true)
   })
   await act(async () => {
@@ -275,16 +321,16 @@ it('shares settings pending state and shows a failed update before allowing reco
   })
   await waitForUI(() => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('Try again')
-    expect(button('Turn off panel')?.disabled).toBe(false)
+    expect(button('Disconnect')?.disabled).toBe(false)
   })
-  await click(button('Turn off panel'))
+  await click(button('Disconnect'))
   await waitForUI(() => {
-    expect(panel.enabled).toBe(false)
-    expect(button('Turn off panel')?.disabled).toBe(false)
+    expect(panel.selection).toBeUndefined()
+    expect(button('Disconnect')).toBeUndefined()
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
   expect(api.requestsTo('PATCH', '/api/v1/me/agent-panel').map(({ body }) => body)).toEqual([
     { agent_id: null },
-    { enabled: false },
+    { agent_id: null },
   ])
 })

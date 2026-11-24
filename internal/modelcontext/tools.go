@@ -76,12 +76,13 @@ func RuntimeContractToolSpecs(
 			}
 		}
 		spec := ToolSpec{
-			Name:        tool.Name,
-			Description: description,
-			InputSchema: inputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+			Name:           tool.Name,
+			Description:    description,
+			InputSchema:    inputSchema,
+			Deferred:       tool.Deferred,
+			Type:           tool.Type,
+			Permission:     tool.Permission,
+			TimeoutSeconds: tool.TimeoutSeconds,
 		}
 		out = append(out, spec)
 	}

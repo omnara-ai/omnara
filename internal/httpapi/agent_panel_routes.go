@@ -38,7 +38,6 @@ func (s strictOpenAPIServer) agentPanelResponse(
 		return openapi.AgentPanel{}, apierror.UserScoped(err)
 	}
 	response := openapi.AgentPanel{
-		Enabled:  record.Enabled,
 		Revision: record.Revision,
 		State:    openapi.AgentPanelState(record.State),
 	}
@@ -63,7 +62,9 @@ func (s strictOpenAPIServer) agentPanelResponse(
 		if err != nil {
 			return openapi.AgentPanel{}, err
 		}
-		response.Setup = &openapi.AgentPanelSetup{Scope: scope, Ready: record.Setup.Ready, RequestId: record.Setup.ProjectID}
+		response.Setup = &openapi.AgentPanelSetup{
+			Scope: scope, Model: openapi.AgentPanelSetupModel(record.Setup.Model), RequestId: record.Setup.ProjectID,
+		}
 	}
 	return response, nil
 }
@@ -100,12 +101,8 @@ func (s strictOpenAPIServer) UpdateAgentPanel(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	input := orglifecycle.UpdateAgentPanelInput{
-		Principal:   principal,
-		ChangeAgent: request.Body.AgentId.IsSpecified(),
-		Enabled:     request.Body.Enabled,
-	}
-	if input.ChangeAgent && !request.Body.AgentId.IsNull() {
+	input := orglifecycle.UpdateAgentPanelInput{Principal: principal}
+	if !request.Body.AgentId.IsNull() {
 		input.AgentID, ok = parseOpenAPIPublicID(publicid.KindAgent, request.Body.AgentId.MustGet())
 		if !ok {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent_id")
@@ -160,7 +157,7 @@ func (s strictOpenAPIServer) CreateAssistantAgent(
 	agentID, err := s.server.store.Organizations().CreateAssistantAgent(ctx, orglifecycle.CreateAssistantAgentInput{
 		Principal: principal, OrgID: org.ID, ProjectID: projectID, ModelID: modelID,
 		RequestID: body.RequestId, ExpectedRevision: body.ExpectedRevision, Automatic: body.Automatic,
-		MCPURL: origin.url + apimcp.Path, ReadOnlyTools: s.server.apiMCPReadOnlyTools,
+		MCPURL:             origin.url + apimcp.Path,
 		AgentConfigOptions: s.server.agentConfigOptions,
 	})
 	if err != nil {

@@ -63,11 +63,18 @@ export function UsageOverview({
   )
 }
 
-function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
+export function UsageFigures({
+  timeseries,
+  narrow,
+}: {
+  timeseries: UsageTimeseries
+  narrow?: boolean
+}) {
   const { totals } = timeseries
   return (
     <UsageStats
       plain
+      narrow={narrow}
       stats={[
         { label: 'Tokens', value: formatUsageValue('tokens', usageMeasureValue(totals, 'tokens')) },
         {

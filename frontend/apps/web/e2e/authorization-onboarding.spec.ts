@@ -35,7 +35,7 @@ for (const destination of [devicePath, oauthPath]) {
       if (path === '/api/v1/me') {
         await route.fulfill({ json: currentUser(hasOrg ? [currentUserOrg()] : []) })
       } else if (path === '/api/v1/me/agent-panel' && request.method() === 'GET') {
-        await route.fulfill({ json: { state: 'empty', enabled: true, revision: 0 } })
+        await route.fulfill({ json: { state: 'empty', revision: 0 } })
       } else if (path === '/api/v1/invitations') {
         await route.fulfill({ json: { data: [], next_cursor: null } })
       } else if (path === '/api/v1/orgs' && request.method() === 'POST') {

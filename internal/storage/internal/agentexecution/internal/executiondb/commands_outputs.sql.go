@@ -82,10 +82,10 @@ func (q *Queries) CreateExecutionOutput(ctx context.Context, db DBTX, arg Create
 }
 
 const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :exec
-INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+INSERT INTO tool_calls(id,project_id,agent_id,model_output_id,provider_call_id,name,input,type,timeout_seconds,state,created_at)
 SELECT $1,$2,$3,o.id,$4,$5,$6::jsonb,
- $7,'awaiting_authorization',o.created_at FROM model_outputs o
- WHERE o.agent_id=$3 AND o.id=$8
+ $7,$8::integer,'awaiting_authorization',o.created_at FROM model_outputs o
+ WHERE o.agent_id=$3 AND o.id=$9
 `
 
 type CreateExecutionToolProposalParams struct {
@@ -96,6 +96,7 @@ type CreateExecutionToolProposalParams struct {
 	Name           string
 	Input          json.RawMessage
 	Type           string
+	TimeoutSeconds *int32
 	OutputID       uuid.UUID
 }
 
@@ -108,6 +109,7 @@ func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg 
 		arg.Name,
 		arg.Input,
 		arg.Type,
+		arg.TimeoutSeconds,
 		arg.OutputID,
 	)
 	return err
@@ -188,7 +190,7 @@ func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg FindExec
 }
 
 const readExecutionProposals = `-- name: ReadExecutionProposals :many
-SELECT id,provider_call_id,name,input,type FROM tool_calls
+SELECT id,provider_call_id,name,input,type,timeout_seconds FROM tool_calls
 WHERE agent_id=$1 AND model_output_id=$2 ORDER BY provider_call_id
 `
 
@@ -203,6 +205,7 @@ type ReadExecutionProposalsRow struct {
 	Name           string
 	Input          json.RawMessage
 	Type           string
+	TimeoutSeconds *int32
 }
 
 func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg ReadExecutionProposalsParams) ([]ReadExecutionProposalsRow, error) {
@@ -220,6 +223,7 @@ func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg ReadE
 			&i.Name,
 			&i.Input,
 			&i.Type,
+			&i.TimeoutSeconds,
 		); err != nil {
 			return nil, err
 		}
