@@ -75,6 +75,9 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, err
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
+	if c.cfg.Firewalled {
+		assignment.Env = fillFromDaemonEnv(assignment.Env)
+	}
 	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
 		connection, err := c.fileTransferConnection()
 		if err != nil {
@@ -418,6 +421,23 @@ func supervisorIdentityBootstrapFileName(
 	}
 	return supervisorIdentityBootstrapPrefix +
 		processID + "-" + supervisorInstanceID + ".json", nil
+}
+
+func fillFromDaemonEnv(env map[string]string) map[string]string {
+	out := maps.Clone(env)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for _, entry := range os.Environ() {
+		name, value, _ := strings.Cut(entry, "=")
+		if upperName := strings.ToUpper(name); upperName == "PATH" || upperName == "PWD" {
+			continue
+		}
+		if _, set := out[name]; !set {
+			out[name] = value
+		}
+	}
+	return out
 }
 
 func sanitizedRunnerEnv(

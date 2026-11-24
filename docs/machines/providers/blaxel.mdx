@@ -85,3 +85,4 @@ When you create a pool through the API, send these fields in the [Create a pool]
 - `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
 - Blaxel pools set memory only, so don't send any CPU fields.
 - Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_images` and `allowed_regions` in `provider_config` are [allowlists](/machines/providers/overview#allowlists).
+- Optional: `internet_allowlist` in `default_machine_provider_options` turns on [Blaxel's firewall](https://docs.blaxel.ai/Sandboxes/Proxy-domains) for new machines, so they can reach only the listed domains, such as `docs.example.com` or `GET:github.com/acme/repo*`, and the endpoints the daemon needs.

@@ -34,6 +34,7 @@ type Config struct {
 	SleepAfter             time.Duration
 	WakeListenAddr         string
 	SleepPlatform          string
+	Firewalled             bool
 }
 
 type BootstrapIdentity struct {

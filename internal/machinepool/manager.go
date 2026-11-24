@@ -52,6 +52,7 @@ type Manager struct {
 	Identity                   *identitystore.Store
 	Catalog                    Catalog
 	PublicAPIURL               string
+	DaemonReleaseURL           string
 	HTTPRecorder               *metrics.HTTPClientRecorder
 	ProviderHTTPClient         *http.Client
 	EndpointAllowlist          *ssrf.Allowlist
@@ -62,6 +63,7 @@ func NewManager(
 	execution *executionstore.Store,
 	identity *identitystore.Store,
 	publicAPIURL string,
+	daemonReleaseURL string,
 	httpRecorder *metrics.HTTPClientRecorder,
 	endpointAllowlist *ssrf.Allowlist,
 ) *Manager {
@@ -70,6 +72,7 @@ func NewManager(
 		Identity:                   identity,
 		Catalog:                    DefaultCatalog(),
 		PublicAPIURL:               publicAPIURL,
+		DaemonReleaseURL:           daemonReleaseURL,
 		HTTPRecorder:               httpRecorder,
 		ProviderHTTPClient:         providers.NewSharedHTTPClient(endpointAllowlist),
 		EndpointAllowlist:          endpointAllowlist,
@@ -731,6 +734,7 @@ func (m Manager) providerForMachine(
 	}
 	runtimeConfig := providers.RuntimeConfig{
 		OmnaraAPIURL:      m.PublicAPIURL,
+		DaemonReleaseURL:  m.DaemonReleaseURL,
 		ProviderAuthToken: providerAuthToken,
 		HTTPRecorder:      m.HTTPRecorder,
 		HTTPClient:        m.ProviderHTTPClient,

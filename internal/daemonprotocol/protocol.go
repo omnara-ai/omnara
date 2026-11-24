@@ -46,6 +46,7 @@ const (
 	ProviderInjectedMachineToken     = "provider-injected"
 	MachineTokenHeader               = "X-Omnara-Machine-Token"
 	ErrorCodeMachineTokenNotInjected = "machine_token_not_injected"
+	FirewalledEnvVar                 = "OMNARA_DAEMON_FIREWALLED"
 
 	AckStatusCommitted       AckStatus = "committed"
 	AckStatusCleanupOnly     AckStatus = "cleanup_only"

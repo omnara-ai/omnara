@@ -1670,3 +1670,35 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 		t.Fatalf("stalled PTY registration claim = %+v", startup.Claims)
 	}
 }
+
+func TestFirewalledPassesDaemonEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell")
+	}
+	t.Setenv("HTTPS_PROXY", "http://localhost:49152")
+	t.Setenv("OMNARA_PROBE", "hidden")
+	t.Setenv("SHARED", "daemon")
+	for _, enabled := range []bool{true, false} {
+		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx, Config{Firewalled: enabled}, ProcessAssignment{
+				ID: "prc_firewalled_" + strconv.FormatBool(enabled),
+				Process: Process{
+					ExecutionSpec: processcmd.ForShell(
+						`printf 'proxy=%s omnara=%s shared=%s\n' "${HTTPS_PROXY:-unset}" "${OMNARA_PROBE:-unset}" "${SHARED:-unset}"`,
+						"default", "pipe",
+					),
+					Cwd: t.TempDir(),
+				},
+				Env: map[string]string{"SHARED": "process"},
+			})
+			fixture.acceptAndStart(t, ctx)
+			want := "proxy=unset omnara=unset shared=process"
+			if enabled {
+				want = "proxy=http://localhost:49152 omnara=unset shared=process"
+			}
+			fixture.waitForOutput(t, ctx, want)
+		})
+	}
+}

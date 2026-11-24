@@ -878,3 +878,14 @@ func testAPIBaseURL(origin string) string {
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+func TestApplyRuntimeEnvironmentFirewalled(t *testing.T) {
+	config := machinedaemon.Config{}
+	if err := applyRuntimeEnvironment(&config); err != nil || config.Firewalled {
+		t.Fatalf("firewalled = %t, %v; want off by default", config.Firewalled, err)
+	}
+	t.Setenv(daemonprotocol.FirewalledEnvVar, "1")
+	if err := applyRuntimeEnvironment(&config); err != nil || !config.Firewalled {
+		t.Fatalf("firewalled = %t, %v; want on", config.Firewalled, err)
+	}
+}

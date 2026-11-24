@@ -721,7 +721,7 @@ func TestProviderClientReachesOnlyListedPrivateEndpoints(t *testing.T) {
 	}
 	for _, allowlist := range []*ssrf.Allowlist{listed, nil} {
 		client := providers.ObserveHTTPClient(
-			NewManager(nil, nil, "", nil, allowlist).ProviderHTTPClient, nil, providers.Daytona,
+			NewManager(nil, nil, "", "", nil, allowlist).ProviderHTTPClient, nil, providers.Daytona,
 		)
 		response, err := client.Get(server.URL)
 		if err == nil {
