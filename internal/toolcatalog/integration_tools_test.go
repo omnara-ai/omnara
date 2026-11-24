@@ -91,6 +91,7 @@ func TestIntegrationToolScopeDeclaration(t *testing.T) {
 		IntegrationKind: integrationdefinition.SlackThread,
 		Operation:       "lookup",
 		Description:     "Look up a user.",
+		outputSchema:    objectOutputSchema,
 	}
 	for _, scope := range []IntegrationToolScope{
 		IntegrationToolScopeIntegration,
@@ -109,6 +110,25 @@ func TestIntegrationToolScopeDeclaration(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegrationToolRequiresOutputSchema(t *testing.T) {
+	tool := IntegrationToolDefinition{
+		IntegrationKind: integrationdefinition.SlackThread,
+		Operation:       "lookup",
+		Scope:           IntegrationToolScopeConversation,
+		Description:     "Look up a user.",
+	}
+	_, err := tool.Prepare(IntegrationToolName("support", "lookup"))
+	require.ErrorContains(t, err, "requires an output schema")
+
+	tool.outputSchema = objectOutputSchema
+	entry, err := tool.Prepare(IntegrationToolName("support", "lookup"))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"type":"object"}`, string(entry.OutputSchema))
+	require.False(t, entry.CodeMode)
+}
+
+func objectOutputSchema() (json.RawMessage, error) { return json.RawMessage(`{"type":"object"}`), nil }
 
 func TestReviewCommentDependentArguments(t *testing.T) {
 	tool, _ := LookupIntegrationTool(integrationdefinition.GitHubPR, IntegrationOperationReviewComment)

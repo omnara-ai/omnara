@@ -196,6 +196,7 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 			SecretID: secret.ID,
 		},
 	}
+	bindIntegrationMCPConnection(t, &conn, server)
 	manager := mcp.Manager{
 		Execution:            fixture.Store.Execution(),
 		Secrets:              fixture.Store.Secrets(),
@@ -384,6 +385,7 @@ func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
 			Region:   "us-west-2",
 		},
 	}
+	bindIntegrationMCPConnection(t, &conn, server)
 	manager := mcp.Manager{Secrets: fixture.Store.Secrets()}
 	wireConn, _, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
 	if err != nil {
@@ -723,6 +725,98 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 	}
 	if client.initializeCount.Load() != 0 {
 		t.Fatalf("MCP refresh attempts = %d, want 0", client.initializeCount.Load())
+	}
+}
+
+func TestMCPDispatchRefusesConnectionOfAnotherServerConfig(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-stale-config", true)
+	markIntegrationMCPConnectionReady(t, ctx, fixture)
+	setIntegrationMCPConnectionConfigHash(t, ctx, fixture, "another-config")
+	call := fixture.recordToolCall(t, ctx, "call_mcp_stale_config", toolcatalog.MCPRuntimeToolName("docs", "greet"),
+		`{"name":"Ada"}`, fixture.Now.Add(20*time.Second))
+	client := &ownedMCPToolClient{callTool: func(context.Context) (*sdkmcp.CallToolResult, error) {
+		return &sdkmcp.CallToolResult{}, nil
+	}}
+	executor := Executor{Store: fixture.Store, MCP: client}
+	scope := NewAsyncExecutionScope(nil)
+	if _, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call); err != nil {
+		t.Fatalf("dispatch MCP tool: %v", err)
+	}
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationMCPCallRefusedForConfig(t, ctx, fixture, call.ID, "not ready for the agent's current configuration")
+	if client.callToolCount.Load() != 0 || client.initializeCount.Load() != 0 {
+		t.Fatalf("MCP calls = %d, initializations = %d, want none", client.callToolCount.Load(),
+			client.initializeCount.Load())
+	}
+}
+
+func TestMCPDispatchRefusesReloadedConnectionOfAnotherServerConfig(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "mcp-stale-reload", true)
+	markIntegrationMCPConnectionReady(t, ctx, fixture)
+	call := fixture.recordToolCall(t, ctx, "call_mcp_stale_reload", toolcatalog.MCPRuntimeToolName("docs", "greet"),
+		`{"name":"Ada"}`, fixture.Now.Add(20*time.Second))
+	client := &ownedMCPToolClient{}
+	client.callTool = func(context.Context) (*sdkmcp.CallToolResult, error) {
+		setIntegrationMCPConnectionConfigHash(t, ctx, fixture, "another-config")
+		return nil, mcp.ErrSessionExpired
+	}
+	executor := Executor{Store: fixture.Store, MCP: client}
+	scope := NewAsyncExecutionScope(nil)
+	if _, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), fixture.turn(), call); err != nil {
+		t.Fatalf("dispatch MCP tool: %v", err)
+	}
+	settleIntegrationAsyncDispatch(t, scope)
+	assertIntegrationMCPCallRefusedForConfig(t, ctx, fixture, call.ID, "no longer for this server configuration")
+	if client.callToolCount.Load() != 1 || client.initializeCount.Load() != 0 {
+		t.Fatalf("MCP calls = %d, initializations = %d, want only the first call", client.callToolCount.Load(),
+			client.initializeCount.Load())
+	}
+	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, toolsTestProjectID, fixture.Agent.ID, "docs")
+	if err != nil || !found {
+		t.Fatalf("load MCP connection: found=%t err=%v", found, err)
+	}
+	if conn.State == executionstore.MCPConnectionStateFailed {
+		t.Fatal("a connection of another config was marked failed by a caller with a stale config")
+	}
+}
+
+func bindIntegrationMCPConnection(
+	t *testing.T, conn *executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer,
+) {
+	t.Helper()
+	hash, err := executionstore.MCPServerConfigHash(server)
+	if err != nil {
+		t.Fatalf("hash MCP server config: %v", err)
+	}
+	conn.ConfigHash = hash
+}
+
+func setIntegrationMCPConnectionConfigHash(
+	t *testing.T, ctx context.Context, fixture integrationToolFixture, hash string,
+) {
+	t.Helper()
+	if _, err := fixture.Pool.Exec(ctx,
+		`UPDATE agent_mcp_connections SET config_hash = $1 WHERE agent_id = $2 AND server_key = 'docs'`,
+		hash, fixture.Agent.ID); err != nil {
+		t.Errorf("set MCP connection config hash: %v", err)
+	}
+}
+
+func assertIntegrationMCPCallRefusedForConfig(
+	t *testing.T, ctx context.Context, fixture integrationToolFixture, callID, message string,
+) {
+	t.Helper()
+	toolCallID := fixture.toolCallID(t, ctx, callID)
+	assertIntegrationToolCallState(t, ctx, fixture, toolCallID, "completed")
+	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
+	if err != nil {
+		t.Fatalf("load MCP tool call: %v", err)
+	}
+	if record.Outcome != executionstore.ToolResultOutcomeFailed ||
+		!strings.Contains(string(record.ResultContentParts), message) {
+		t.Fatalf("MCP tool call = %s %s, want failed with %q", record.Outcome, record.ResultContentParts, message)
 	}
 }
 

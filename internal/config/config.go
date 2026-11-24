@@ -75,6 +75,8 @@ type Config struct {
 	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
+	APIProgramToolCapacity            int
+	APIProgramToolPendingLimit        int
 	WorkerDrainTimeout                time.Duration
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
@@ -262,6 +264,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	apiProgramToolCapacity, err := getenvInt("OMNARA_API_PROGRAM_TOOL_CAPACITY", 64)
+	if err != nil {
+		return Config{}, err
+	}
+	apiProgramToolPendingLimit, err := getenvInt("OMNARA_API_PROGRAM_TOOL_PENDING_LIMIT", 1024)
+	if err != nil {
+		return Config{}, err
+	}
 	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 100000)
 	if err != nil {
 		return Config{}, err
@@ -309,6 +319,8 @@ func Load() (Config, error) {
 		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
+		APIProgramToolCapacity:            apiProgramToolCapacity,
+		APIProgramToolPendingLimit:        apiProgramToolPendingLimit,
 		WorkerDrainTimeout:                defaultWorkerDrainTimeout,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
@@ -493,6 +505,12 @@ func (cfg Config) ValidateAPI() error {
 	}
 	if err := validatePortWithName("OMNARA_API_METRICS_ADDR", cfg.APIMetricsAddr); err != nil {
 		return err
+	}
+	if cfg.APIProgramToolCapacity <= 0 {
+		return errors.New("OMNARA_API_PROGRAM_TOOL_CAPACITY must be positive")
+	}
+	if cfg.APIProgramToolPendingLimit <= 0 {
+		return errors.New("OMNARA_API_PROGRAM_TOOL_PENDING_LIMIT must be positive")
 	}
 	if !filepath.IsAbs(cfg.MCPRegistrySnapshotPath) {
 		return errors.New("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH must be an absolute path")

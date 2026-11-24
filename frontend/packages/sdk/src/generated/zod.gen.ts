@@ -3,6 +3,14 @@
 import * as z from 'zod';
 
 /**
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, custom tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. A call to a custom tool waits for the result its runner submits, even after the command that made it times out, disconnects or exits. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
+ */
+export const zAgentConfigDefinitionCodeMode = z.object({
+    default_allowed: z.boolean().nullish(),
+    enabled: z.boolean()
+});
+
+/**
  * Integration whose git credentials the agent's machines use.
  */
 export const zAgentConfigDefinitionGitCredentials = z.object({
@@ -53,6 +61,7 @@ export const zAgentConfigDefinitionToolPermission = z.object({
 });
 
 export const zAgentConfigDefinitionMcpTool = z.object({
+    code_mode: z.boolean().nullish(),
     deferred: z.boolean().nullish(),
     enabled: z.boolean().nullish(),
     permission: zAgentConfigDefinitionToolPermission.optional()
@@ -60,6 +69,7 @@ export const zAgentConfigDefinitionMcpTool = z.object({
 
 export const zAgentConfigDefinitionMcpServer = z.object({
     auth: zAgentConfigDefinitionMcpAuth.optional(),
+    code_mode: z.boolean().nullish(),
     default_enabled: z.boolean().nullish(),
     deferred: z.boolean().optional(),
     permission: zAgentConfigDefinitionToolPermission.optional(),
@@ -70,6 +80,7 @@ export const zAgentConfigDefinitionMcpServer = z.object({
 export const zAgentConfigDefinitionMcpServers = z.record(z.string(), zAgentConfigDefinitionMcpServer).nullable();
 
 export const zAgentConfigDefinitionTool = z.object({
+    code_mode: z.boolean().nullish(),
     deferred: z.boolean().optional(),
     description: z.string().min(1).optional(),
     enabled: z.boolean().nullish(),
@@ -183,6 +194,7 @@ export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinition
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export const zAgentConfigDefinition = z.object({
+    code_mode: zAgentConfigDefinitionCodeMode.optional(),
     git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
     instruction: z.string().min(1).regex(/\S/),
     interaction_handlers: zAgentConfigDefinitionInteractionHandlers.optional(),
@@ -1276,6 +1288,14 @@ export const zCompiledMachineSource = z.object({
     description: z.string().optional()
 });
 
+/**
+ * Present when commands started by run_command can call the agent's tools.
+ */
+export const zCompiledCodeMode = z.object({
+    enabled: z.boolean(),
+    default_allowed: z.boolean().optional()
+});
+
 export const zCompiledMcpAuthBearer = z.object({
     type: z.enum(['bearer']),
     secret_id: zSecretId
@@ -1302,7 +1322,8 @@ export const zCompiledMcpAuth = z.discriminatedUnion('type', [
 export const zCompiledMcpTool = z.object({
     enabled: z.boolean().optional(),
     permission: zToolPermissionSelection.optional(),
-    deferred: z.boolean().optional()
+    deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional()
 });
 
 export const zCompiledMcpServer = z.object({
@@ -1311,6 +1332,7 @@ export const zCompiledMcpServer = z.object({
     default_enabled: z.boolean(),
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional(),
     tools: z.record(z.string(), zCompiledMcpTool).optional()
 });
 
@@ -1789,13 +1811,20 @@ export const zToolCallOutcome = z.enum([
 ]);
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export const zToolCallCaller = z.enum(['model', 'program']);
+
+/**
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export const zToolCall = z.object({
     id: zToolCallId,
     agent_id: zAgentId,
     turn_id: zAgentTurnId,
     provider_call_id: z.string(),
+    caller: zToolCallCaller.optional(),
+    parent_tool_call_id: zToolCallId.optional(),
     name: z.string(),
     input: zToolInput,
     type: zToolCallType,
@@ -1816,7 +1845,7 @@ export const zSubmitToolCallResultRequest = z.object({
 });
 
 export const zToolResult = z.object({
-    event_id: zAgentEventId,
+    event_id: zAgentEventId.optional(),
     agent_id: zAgentId,
     tool_call_id: zToolCallId,
     outcome: zToolCallOutcome,
@@ -2150,6 +2179,7 @@ export const zToolCallUpdate = z.object({
     agent_profile_id: zAgentProfileId.nullable(),
     parent_agent_id: zAgentId.nullable(),
     root_agent_id: zAgentId,
+    parent_tool_call_id: zToolCallId.optional(),
     state: zToolCallState,
     name: z.string().optional(),
     input: zToolInput.optional(),
@@ -3353,6 +3383,7 @@ export const zCompiledTool = z.object({
     type: z.enum(['built_in', 'custom']).optional(),
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
+    code_mode: z.boolean().optional(),
     description: z.string().optional(),
     input_schema: z.record(z.string(), z.unknown()).optional()
 });
@@ -3487,6 +3518,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
     git_credentials: zCompiledGitCredentials.optional(),
+    code_mode: zCompiledCodeMode.optional(),
     skills: z.array(zCompiledSkill).optional(),
     memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),
@@ -5284,6 +5316,7 @@ export const zListToolCallsPath = z.object({
 export const zListToolCallsQuery = z.object({
     state: zToolCallState.optional(),
     type: zToolCallType.optional(),
+    parent_tool_call_id: zToolCallId.optional(),
     include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

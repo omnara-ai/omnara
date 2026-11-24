@@ -387,6 +387,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 	machineOnlyMutations := map[string]bool{
 		"post /daemon/processes/{processID}/git-credentials": true,
+		"post /daemon/processes/{processID}/tool-calls":      true,
 		"post /daemon/bootstrap":                             true,
 		"post /daemon/failures":                              true,
 		"post /daemon/runtimes":                              true,

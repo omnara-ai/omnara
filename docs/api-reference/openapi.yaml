@@ -5166,6 +5166,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: parent_tool_call_id
+          in: query
+          required: false
+          description: >-
+            Return only the calls a run_command call's process made with
+            `omnarad call`, by that run_command call's ID.
+          schema:
+            $ref: '#/components/schemas/ToolCallID'
         - name: include_subagents
           in: query
           required: false
@@ -5288,7 +5296,9 @@ paths:
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
-        The first accepted result completes the call. A later submission returns 409 with code
+        The first accepted result completes the call. For a call with caller program, the
+        result goes to the `omnarad call` waiting on it, or to the next one run with the same
+        idempotency key, and not to the model. A later submission returns 409 with code
         tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
         tool call, returns 409. If the first response is lost, a safe retry can return
         tool_call_already_completed even when the original submission succeeded. This
@@ -9687,6 +9697,9 @@ components:
       additionalProperties: false
       required: [instruction, model]
       properties:
+        code_mode:
+          description: Lets commands the agent runs call its tools with `omnarad call`. Off by default.
+          $ref: '#/components/schemas/AgentConfigDefinitionCodeMode'
         git_credentials:
           description: >-
             GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to
@@ -9761,6 +9774,34 @@ components:
           $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
         tools:
           $ref: '#/components/schemas/AgentConfigDefinitionTools'
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionCodeMode:
+      description: >-
+        Code mode lets commands started by run_command call the agent's tools
+        with `omnarad call <tool> '<json input>'`; results go to the command,
+        not to the model. The tools that support this are MCP tools, custom
+        tools, storage_read, storage_list, storage_search, web_search, web_fetch
+        and integration read tools. Commands can call each of them unless
+        `default_allowed` or the tool's own `code_mode` setting says otherwise.
+        A call to a custom tool waits for the result its runner submits, even
+        after the command that made it times out, disconnects or exits.
+        Code mode is independent of `deferred` and never changes which tools
+        the model can call or load. A subagent keeps the setting of the config
+        it is built from.
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        default_allowed:
+          description: >-
+            Whether commands can call tools that support code mode when the tool
+            or its MCP server does not set `code_mode`. Defaults to true.
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        enabled:
+          description: Whether commands the agent runs can call its tools with `omnarad call`.
+          type: boolean
       x-go-type: json.RawMessage
     AgentConfigDefinitionGitCredentials:
       description: Integration whose git credentials the agent's machines use.
@@ -9837,6 +9878,13 @@ components:
         auth:
           description: How to authenticate to the server. Omit if it needs none.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
+        code_mode:
+          description: >-
+            Whether commands can call the server's tools with `omnarad call` when code mode is on.
+            Null follows code_mode.default_allowed.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         default_enabled:
           description: Whether tools are enabled unless overridden in tools. Defaults to true.
           anyOf:
@@ -9875,6 +9923,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        code_mode:
+          description: Overrides the server's code_mode setting. Null inherits it.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         deferred:
           description: Overrides the server's deferred setting. Null inherits it.
           anyOf:
@@ -10146,6 +10199,13 @@ components:
       type: object
       additionalProperties: false
       properties:
+        code_mode:
+          description: >-
+            Whether commands can call the tool with `omnarad call` when code mode is on. Only for
+            tools that support code mode. Null follows code_mode.default_allowed.
+          anyOf:
+            - type: boolean
+            - type: 'null'
         deferred:
           description: Keep the tool out of context until tool_search loads it. Defaults to false.
           type: boolean
@@ -12722,6 +12782,8 @@ components:
             $ref: '#/components/schemas/CompiledIntegrationCapability'
         git_credentials:
           $ref: '#/components/schemas/CompiledGitCredentials'
+        code_mode:
+          $ref: '#/components/schemas/CompiledCodeMode'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
@@ -12849,6 +12911,9 @@ components:
         deferred:
           type: boolean
           x-go-type-skip-optional-pointer: true
+        code_mode:
+          type: boolean
+          description: The tool's own code mode setting. Absent follows the agent default.
         description:
           type: string
           x-go-type-skip-optional-pointer: true
@@ -12889,6 +12954,18 @@ components:
         read_only:
           type: boolean
           x-go-type-skip-optional-pointer: true
+    CompiledCodeMode:
+      type: object
+      additionalProperties: false
+      description: Present when commands started by run_command can call the agent's tools.
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        default_allowed:
+          type: boolean
+          description: >-
+            Present and false when commands can call only the tools that set code_mode to true.
     CompiledMCPServer:
       type: object
       additionalProperties: false
@@ -12908,6 +12985,9 @@ components:
         deferred:
           type: boolean
           x-go-type-skip-optional-pointer: true
+        code_mode:
+          type: boolean
+          description: The server's code mode setting. Absent follows the agent default.
         tools:
           type: object
           x-go-type-skip-optional-pointer: true
@@ -12984,6 +13064,8 @@ components:
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/toolpermission
         deferred:
+          type: boolean
+        code_mode:
           type: boolean
     CompiledSkill:
       type: object
@@ -14289,7 +14371,11 @@ components:
         - ToolCallOutcomeDenied
         - ToolCallOutcomeCanceled
     ToolCall:
-      description: A model-emitted tool call together with its current lifecycle state.
+      description: >-
+        A tool call together with its current lifecycle state. Calls the model emits have
+        caller model; calls a run_command process makes with `omnarad call` have caller
+        program, a parent_tool_call_id naming that run_command call, and never enter the
+        model's context.
       type: object
       additionalProperties: false
       required: [id, agent_id, turn_id, provider_call_id, name, input, type, state, created_at]
@@ -14302,6 +14388,11 @@ components:
           $ref: '#/components/schemas/AgentTurnID'
         provider_call_id:
           type: string
+        caller:
+          $ref: '#/components/schemas/ToolCallCaller'
+        parent_tool_call_id:
+          description: The run_command call whose process made this call. Present only when caller is program.
+          $ref: '#/components/schemas/ToolCallID'
         name:
           type: string
         input:
@@ -14349,6 +14440,11 @@ components:
         root_agent_id:
           description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
+        parent_tool_call_id:
+          description: >-
+            The run_command call whose process made this call with `omnarad call`. Present on event stream
+            frames for program calls.
+          $ref: '#/components/schemas/ToolCallID'
         state:
           $ref: '#/components/schemas/ToolCallState'
         name:
@@ -14360,6 +14456,13 @@ components:
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.
           $ref: '#/components/schemas/AgentInteractionUpdate'
+    ToolCallCaller:
+      description: Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+      type: string
+      enum: [model, program]
+      x-enum-varnames:
+        - ToolCallCallerModel
+        - ToolCallCallerProgram
     AgentInteractionUpdate:
       type: object
       additionalProperties: false
@@ -14403,9 +14506,12 @@ components:
     ToolResult:
       type: object
       additionalProperties: false
-      required: [event_id, agent_id, tool_call_id, outcome, content_blocks, created_at]
+      required: [agent_id, tool_call_id, outcome, content_blocks, created_at]
       properties:
         event_id:
+          description: >-
+            The agent event that records the result. Absent for a call with caller program: its
+            result goes to the command that made it and never becomes an agent event.
           $ref: '#/components/schemas/AgentEventID'
         agent_id:
           $ref: '#/components/schemas/AgentID'

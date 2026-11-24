@@ -3,6 +3,8 @@
 package httpapi
 
 import (
+	"time"
+
 	"github.com/benbjohnson/clock"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
@@ -20,4 +22,10 @@ func WithDiscordClientConfig(config discord.Config) Option {
 
 func WithGitHubClientConfig(config github.Config) Option {
 	return func(s *Server) { s.githubClientConfig = config }
+}
+
+func withProgramToolRecoveryInterval(interval time.Duration) Option {
+	return func(s *Server) {
+		s.programToolRecoveryInterval = interval
+	}
 }

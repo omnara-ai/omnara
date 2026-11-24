@@ -349,8 +349,9 @@ tagged-packages-check:
 	@tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		$(GO) test -c -tags=blackbox -o "$$tmp_dir/blackbox.test" ./internal/blackbox
 
-test-worker-image: ## Test sandboxes inside the built worker image
+test-worker-image: ## Test sandboxes inside the built worker and API images
 	docker build --target worker -t omnara-worker-test .
+	docker build --target api -t omnara-api-test .
 	@set -e; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		chmod 755 "$$tmp_dir"; \
 		build_image="$$(docker build --target go-base -q .)"; \
@@ -361,7 +362,13 @@ test-worker-image: ## Test sandboxes inside the built worker image
 			-e OMNARA_TEST_SANDBOX=/usr/local/bin/omnara-sandbox \
 			-e OMNARA_TEST_SECCOMP_PROBE=/smoke/seccomp-probe \
 			-e OMNARA_TEST_CHROOT_SANDBOX=/usr/local/bin/omnara-chroot-sandbox --entrypoint /smoke/sandbox.test \
-			omnara-worker-test -test.v -test.run '^Test(Sandbox|ChrootSandbox)' -test.timeout 60s
+			omnara-worker-test -test.v -test.run '^Test(Sandbox|ChrootSandbox)' -test.timeout 60s; \
+		docker run --rm --network none --mount "type=bind,source=$$tmp_dir,target=/smoke,readonly" \
+			-e OMNARA_TEST_SANDBOX=/usr/local/bin/omnara-sandbox \
+			-e OMNARA_TEST_SECCOMP_PROBE=/smoke/seccomp-probe \
+			-e OMNARA_TEST_CHROOT_SANDBOX=/usr/local/bin/omnara-chroot-sandbox --entrypoint /smoke/sandbox.test \
+			omnara-api-test -test.v -test.run '^Test(Sandbox|ChrootSandbox)' -test.timeout 60s; \
+		docker run --rm --network none --entrypoint /usr/local/bin/rg omnara-api-test --version
 
 db-up:
 	POSTGRES_HOST_PORT=$(POSTGRES_HOST_PORT) REDIS_HOST_PORT=$(REDIS_HOST_PORT) docker compose up -d --wait postgres redis rustfs

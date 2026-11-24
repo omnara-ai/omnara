@@ -179,7 +179,7 @@ Omnara refuses outbound requests to private, loopback, and other non-public addr
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_PRIVATE_ENDPOINT_CIDRS` | Private addresses that model providers, MCP servers, event webhooks, and machine pool APIs may reach. Plain `http://` URLs are accepted for model providers, MCP servers, and event webhooks, and only connect to listed addresses. MCP sign-in (OAuth) still requires HTTPS. Set it on the API, worker, and maintenance services. | — | No |
-| `OMNARA_WEB_FETCH_PRIVATE_CIDRS` | Private addresses the `web_fetch` tool may reach. Plain `http://` works for listed IP addresses; other `http://` links are upgraded to HTTPS. Set it on the worker. | — | No |
+| `OMNARA_WEB_FETCH_PRIVATE_CIDRS` | Private addresses the `web_fetch` tool may reach. Plain `http://` works for listed IP addresses; other `http://` links are upgraded to HTTPS. Set it on the worker and the API, which runs `web_fetch` calls made from commands. | — | No |
 
 Both take a comma-separated list of IP addresses or CIDR ranges, each with an optional port, such as `10.0.5.0/24,192.168.1.20:11434,[fd00::5]:8080`. A URL can use a hostname that resolves to a listed address. To reach a service in Docker, list its Docker network's range, which `docker network inspect <network>` shows. Link-local and cloud metadata addresses stay blocked even inside a listed range, as do IPv4-compatible, IPv4-translated, 6to4, and Teredo IPv6 addresses. Listing one directly is a startup error. A NAT64 address in `64:ff9b::/96` is treated as the IPv4 address it carries, so list the IPv4 address.
 
@@ -189,6 +189,8 @@ Limits apply per user, per org for org API keys, and per machine for machine dae
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
+| `OMNARA_API_PROGRAM_TOOL_CAPACITY` | Tool calls from commands (`omnarad call`) that one API process runs at once, across all machines. Calls over the limit wait. | `64` | No |
+| `OMNARA_API_PROGRAM_TOOL_PENDING_LIMIT` | Tool calls from commands that one API process serves at once, across all machines, counting those running and those waiting to run or for approval. Calls over the limit are refused, and the command retries them. | `1024` | No |
 | `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `100000` | No |
 | `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `50000` | No |
 | `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `1000` | No |
@@ -292,7 +294,7 @@ on the bucket's `artifacts/*` and `skills/*` objects.
 
 The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. File search and scripted edits require a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
 
-Native workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
+Native workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup. The API needs the same tools for `storage_search` calls made from commands with `omnarad call`, and the API image includes them too; without them it logs `api.file_tools_unavailable` at startup and those calls fail.
 
 Workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
 
@@ -398,4 +400,4 @@ Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_se
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | — | No |
+| `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments. Set it on the worker and the API, which runs `web_search` calls made from commands | — | No |

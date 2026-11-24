@@ -161,7 +161,7 @@ func (s *Store) prepareToolResult(
 	if err != nil {
 		return nil, err
 	}
-	if call.State == ToolCallStateCompleted || !shouldOffloadToolResult(call.Type, call.Name) {
+	if call.State == ToolCallStateCompleted || call.Caller == "program" || !shouldOffloadToolResult(call.Type, call.Name) {
 		return canonical, nil
 	}
 	overflow, err := prepareToolResultOverflow(blocks, canonical)

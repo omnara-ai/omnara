@@ -1,5 +1,6 @@
 import { useToolCatalog } from '@omnara/react'
 
+import { AgentConfigCodeModeField } from '@/components/agents/AgentConfigCodeModeField'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -148,6 +149,9 @@ export function AgentConfigBasicForm({
                   value={form.gitCredentials}
                   onChange={form.setGitCredentials}
                 />
+              )}
+              {form.isManaged('code_mode') && (
+                <AgentConfigCodeModeField value={form.codeMode} onChange={form.setCodeMode} />
               )}
             </CollapsibleContent>
           </Collapsible>

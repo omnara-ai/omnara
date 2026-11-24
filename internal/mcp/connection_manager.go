@@ -210,6 +210,9 @@ func (m Manager) markConnectionFailed(
 	conn executionstore.MCPConnectionRecord,
 	cause error,
 ) (ConnectionResult, error) {
+	if errors.Is(cause, ErrConnectionConfigChanged) {
+		return ConnectionResult{}, cause
+	}
 	ctx, cancel := failureRecordContext(ctx)
 	defer cancel()
 	failed, markErr := m.Execution.MarkMCPConnectionFailed(
@@ -374,6 +377,14 @@ func (m Manager) Connection(
 			conn.ServerKey,
 			server.ServerKey,
 		)
+	}
+	hash, err := executionstore.MCPServerConfigHash(server)
+	if err != nil {
+		return Conn{}, executionstore.MCPServerCatalogIdentity{}, err
+	}
+	if conn.ConfigHash != hash {
+		return Conn{}, executionstore.MCPServerCatalogIdentity{}, fmt.Errorf(
+			"%w: mcp server %q", ErrConnectionConfigChanged, conn.ServerKey)
 	}
 	return m.connection(ctx, orgID, projectID, conn.ServerKey, conn.EndpointURL, server.Auth, sessionID, protocolVersion)
 }

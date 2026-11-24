@@ -149,6 +149,10 @@ export function applyToDocument(
     if (config.gitCredentials == null) del(['git_credentials'])
     else set(['git_credentials'], config.gitCredentials)
   }
+  if (!deepEqual(config.codeMode, baseline?.codeMode)) {
+    if (config.codeMode == null) del(['code_mode'])
+    else set(['code_mode'], config.codeMode)
+  }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(

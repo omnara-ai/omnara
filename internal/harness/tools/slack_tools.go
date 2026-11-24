@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 type slackReadInput struct {
@@ -154,14 +155,12 @@ func runSlackTool(
 	if !found || channel != address.ChannelID {
 		return integrationToolFailure(errors.New("slack publication was not confirmed for this conversation"))
 	}
-	content, err := structuredToolResultContent(
-		map[string]any{
-			"integration": access.Integration.Name,
-			"channel_id":  channel,
-			"message_ts":  timestamp,
-			"thread_ts":   address.ThreadTS,
-		},
-	)
+	content, err := structuredToolResultContent(tooloutput.SlackMessage{
+		Integration: access.Integration.Name,
+		ChannelID:   channel,
+		MessageTS:   timestamp,
+		ThreadTS:    address.ThreadTS,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -40,12 +40,15 @@ type daemonSocketHub struct {
 	recorder              *metrics.DaemonRecorder
 	fallbackDrainInterval time.Duration
 	fallbackDrainJitter   time.Duration
+	ctx                   context.Context //nolint:containedctx // the hub owns this server-lifetime context
 	done                  <-chan struct{}
 	cancel                context.CancelFunc
 	mu                    sync.RWMutex
 	byMachine             map[uuid.UUID]*daemonSocket
 	byRuntime             map[uuid.UUID]*daemonSocket
 	subs                  []notifications.Subscription
+	serving               sync.WaitGroup
+	closed                bool
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending
@@ -96,6 +99,7 @@ func newDaemonSocketHub(
 		recorder:              recorder,
 		fallbackDrainInterval: fallbackDrainInterval,
 		fallbackDrainJitter:   fallbackDrainJitter,
+		ctx:                   ctx,
 		done:                  ctx.Done(),
 		cancel:                cancel,
 		byMachine:             map[uuid.UUID]*daemonSocket{},
@@ -175,20 +179,26 @@ func (h *daemonSocketHub) Close() {
 	for _, sub := range h.subs {
 		_ = sub.Unsubscribe()
 	}
-	h.mu.RLock()
+	h.mu.Lock()
+	h.closed = true
 	sockets := make([]*daemonSocket, 0, len(h.byRuntime))
 	for _, socket := range h.byRuntime {
 		sockets = append(sockets, socket)
 	}
-	h.mu.RUnlock()
+	h.mu.Unlock()
 	for _, socket := range sockets {
 		socket.close(websocket.StatusNormalClosure, "api shutting down")
 	}
+	h.serving.Wait()
 }
 
-func (h *daemonSocketHub) register(socket *daemonSocket) {
+func (h *daemonSocketHub) register(socket *daemonSocket) bool {
 	var replaced []*daemonSocket
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return false
+	}
 	if prior := h.byMachine[socket.machineID]; prior != nil && prior != socket {
 		replaced = append(replaced, prior)
 	}
@@ -206,21 +216,24 @@ func (h *daemonSocketHub) register(socket *daemonSocket) {
 	}
 	h.byMachine[socket.machineID] = socket
 	h.byRuntime[socket.runtimeID] = socket
+	h.serving.Add(1)
 	h.mu.Unlock()
 	for _, prior := range replaced {
 		prior.close(websocket.StatusNormalClosure, "replaced")
 	}
+	return true
 }
 
 func (h *daemonSocketHub) unregister(socket *daemonSocket) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.byMachine[socket.machineID] == socket {
 		delete(h.byMachine, socket.machineID)
 	}
 	if h.byRuntime[socket.runtimeID] == socket {
 		delete(h.byRuntime, socket.runtimeID)
 	}
+	h.mu.Unlock()
+	h.serving.Done()
 }
 
 func (h *daemonSocketHub) handleWakeup(ctx context.Context, body notifications.WakeupMessage) {

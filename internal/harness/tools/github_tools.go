@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 type githubTargetInput struct {
@@ -135,9 +136,7 @@ func runGitHubTool(
 			if found {
 				review = &pending
 			}
-			result = struct {
-				Review *github.Review `json:"review"`
-			}{review}
+			result = tooloutput.GitHubPendingReview{Review: review}
 		case "review_threads":
 			result, err = client.ListReviewThreads(ctx, providerScope, github.ReviewThreadsOptions{
 				Cursor: input.Cursor, Limit: input.Limit,
@@ -261,11 +260,9 @@ func runGitHubAttachment(
 	if err != nil {
 		return integrationToolFailure(err)
 	}
-	content, err := structuredToolResultContent(struct {
-		RepositoryID int64  `json:"repository_id"`
-		PullRequest  int    `json:"pull_request"`
-		URL          string `json:"url,omitempty"`
-	}{input.RepositoryID, input.PullRequest, url})
+	content, err := structuredToolResultContent(tooloutput.GitHubPullRequestAttachment{
+		RepositoryID: input.RepositoryID, PullRequest: input.PullRequest, URL: url,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -293,10 +290,10 @@ func listGitHubAttachedPullRequests(
 		return nil, err
 	}
 	start, end := min(input.Offset, len(pullRequests)), listing.PageEnd(input.Offset, input.Limit, len(pullRequests))
-	content, err := structuredToolResultContent(struct {
-		PullRequests []integrationdefinition.GitHubScope `json:"pull_requests"`
-		listing.OffsetPage
-	}{pullRequests[start:end], listing.ContinueAt(end, end < len(pullRequests))})
+	content, err := structuredToolResultContent(tooloutput.GitHubAttachedPullRequests{
+		PullRequests: pullRequests[start:end],
+		OffsetPage:   listing.ContinueAt(end, end < len(pullRequests)),
+	})
 	if err != nil {
 		return nil, err
 	}

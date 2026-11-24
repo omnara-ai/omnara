@@ -29,6 +29,7 @@ type RuntimeContract struct {
 	Subagents           map[string]SubagentCompiled
 	MaxSubagents        *int
 	MaxDepth            *int
+	CodeMode            *CodeModeCompiled
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -49,12 +50,14 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	Name        string
-	Type        string
-	Permission  toolpermission.Selection
-	Deferred    bool
-	Description string
-	InputSchema json.RawMessage
+	Name         string
+	Type         string
+	Permission   toolpermission.Selection
+	Deferred     bool
+	Description  string
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
+	CodeMode     bool
 }
 
 type RuntimeMachine struct {
@@ -113,7 +116,10 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledIntegrations(compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
-	tools, err := runtimeTools(compiled.Tools)
+	if err := validateCompiledCodeMode(compiled.CodeMode); err != nil {
+		return RuntimeContract{}, err
+	}
+	tools, err := runtimeTools(compiled.Tools, compiled.CodeMode)
 	if err != nil {
 		return RuntimeContract{}, err
 	}
@@ -134,6 +140,7 @@ func RuntimeContractFromCompiled(
 		Subagents:           compiled.Subagents,
 		MaxSubagents:        compiled.MaxSubagents,
 		MaxDepth:            compiled.MaxDepth,
+		CodeMode:            compiled.CodeMode,
 	}
 	return contract, nil
 }
@@ -168,7 +175,7 @@ func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
 	return machines
 }
 
-func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
+func runtimeTools(compiled map[string]ToolCompiled, codeMode *CodeModeCompiled) ([]RuntimeTool, error) {
 	if len(compiled) == 0 {
 		return nil, nil
 	}
@@ -202,29 +209,32 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 				Deferred:    tool.Deferred,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
+				CodeMode:    codeMode.allows(tool.CodeMode),
 			})
 			continue
 		}
 		if !builtInName {
 			return nil, fmt.Errorf("compiled tool %q is not registered", name)
 		}
-		runtime := runtimeBuiltInTool(entry, tool.Permission)
-		runtime.Deferred = tool.Deferred
-		out = append(out, runtime)
+		out = append(out, runtimeBuiltInTool(entry, tool, codeMode))
 	}
 	return out, nil
 }
 
 func runtimeBuiltInTool(
 	entry toolcatalog.Entry,
-	permission toolpermission.Selection,
+	tool ToolCompiled,
+	codeMode *CodeModeCompiled,
 ) RuntimeTool {
 	return RuntimeTool{
-		Name:        entry.Name,
-		Type:        toolcatalog.ToolTypeBuiltIn,
-		Permission:  permission,
-		Description: entry.Description,
-		InputSchema: entry.InputSchema,
+		Name:         entry.Name,
+		Type:         toolcatalog.ToolTypeBuiltIn,
+		Permission:   tool.Permission,
+		Deferred:     tool.Deferred,
+		Description:  entry.Description,
+		InputSchema:  entry.InputSchema,
+		OutputSchema: entry.OutputSchema,
+		CodeMode:     entry.CodeMode && codeMode.allows(tool.CodeMode),
 	}
 }
 
@@ -260,6 +270,9 @@ func validateRuntimeTool(
 	}
 	if tool.Deferred && name == toolcatalog.ToolNameToolSearch {
 		return fmt.Errorf("compiled built-in tool %q cannot be deferred", name)
+	}
+	if tool.CodeMode != nil && !entry.CodeMode {
+		return fmt.Errorf("compiled built-in tool %q cannot set code_mode", name)
 	}
 	if _, err := toolpermission.ValidateSelection(
 		tool.Permission,

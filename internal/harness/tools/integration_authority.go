@@ -48,10 +48,6 @@ func (e Executor) resolveIntegrationToolAuthority(
 			errors.New("integration tool model context is unavailable"),
 		)
 	}
-	original, err := e.integrationRuntimeContract(ctx, turn.ProjectID, model.AgentConfigID)
-	if err != nil {
-		return integrationToolAccess{}, err
-	}
 	agent, err := e.Store.Execution().GetAgentInProject(ctx, turn.ProjectID, turn.AgentID)
 	if err != nil {
 		return integrationToolAccess{}, err
@@ -59,12 +55,19 @@ func (e Executor) resolveIntegrationToolAuthority(
 	if agent.State != executionstore.AgentStateActive {
 		return integrationToolAccess{}, integrationToolPreparationFailure(errors.New("agent is inactive"))
 	}
-	current := original
-	if agent.CurrentConfigID != model.AgentConfigID {
+	var original, current agentconfig.RuntimeContract
+	if turn.contract != nil {
+		original = *turn.contract
 		current, err = e.integrationRuntimeContract(ctx, turn.ProjectID, agent.CurrentConfigID)
-		if err != nil {
-			return integrationToolAccess{}, err
+	} else {
+		original, err = e.integrationRuntimeContract(ctx, turn.ProjectID, model.AgentConfigID)
+		current = original
+		if err == nil && agent.CurrentConfigID != model.AgentConfigID {
+			current, err = e.integrationRuntimeContract(ctx, turn.ProjectID, agent.CurrentConfigID)
 		}
+	}
+	if err != nil {
+		return integrationToolAccess{}, err
 	}
 	pinned, ok := original.IntegrationTools[tool.Name]
 	if !ok {
@@ -320,24 +323,9 @@ func (e Executor) integrationRuntimeContract(
 	ctx context.Context,
 	projectID, configID uuid.UUID,
 ) (agentconfig.RuntimeContract, error) {
-	config, found, err := e.Store.Execution().GetAgentConfig(ctx, projectID, configID)
-	if err != nil {
-		return agentconfig.RuntimeContract{}, err
-	}
-	if !found {
-		return agentconfig.RuntimeContract{}, errors.New("integration tool config is unavailable")
-	}
-	return agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.EffectiveDefinitionHash,
-	)
+	return agentConfigContract(ctx, e.Store, projectID, configID)
 }
 
 func (e Executor) ensureIntegrationPostOwnership(ctx context.Context, turn Turn) error {
-	return e.Store.Execution().EnsureRuntimeLockActive(
-		ctx,
-		turn.ProjectID,
-		turn.AgentID,
-		turn.RuntimeLockID,
-	)
+	return turn.toolAuthority().ensureActive(ctx, e, turn)
 }

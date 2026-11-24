@@ -94,6 +94,13 @@ func (c *Client) Run(ctx context.Context) error {
 			defer stopGitCredentials()
 		}
 	}
+	stopProgramToolCalls, err := c.startProgramToolCallServer(ctx)
+	c.programToolCallsUnavailable = err != nil
+	if err != nil {
+		c.log.Error("program tool call service unavailable", "error", err)
+	} else {
+		defer stopProgramToolCalls()
+	}
 
 	consecutiveDisconnects := 0
 	for {

@@ -20,29 +20,35 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/email"
+	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/webaccess"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
-	serverIdleTimeout          = 180 * time.Second
-	outboundHTTPClientTimeout  = 30 * time.Second
-	apiRateLimitRedisTimeout   = 100 * time.Millisecond
-	defaultReconciliationPlan  = "plan"
-	defaultReconciliationApply = "apply"
+	serverIdleTimeout                 = 180 * time.Second
+	outboundHTTPClientTimeout         = 30 * time.Second
+	apiRateLimitRedisTimeout          = 100 * time.Millisecond
+	programToolIntegrationHTTPTimeout = 5 * time.Minute
+	defaultReconciliationPlan         = "plan"
+	defaultReconciliationApply        = "apply"
 )
 
 func main() {
@@ -156,6 +162,9 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
+	if err := tools.CheckFileToolSupport(context.Background()); err != nil {
+		logent.APIFileToolsUnavailable(logpkg.WithLogger(context.Background(), log), err)
+	}
 	store := storage.NewStore(db, storeOpts...)
 	if err := bootstrapAuthConnectors(context.Background(), store, cfg); err != nil {
 		log.Error("bootstrap auth connectors", "error", err)
@@ -205,6 +214,23 @@ func main() {
 		)
 		apiOpts = append(apiOpts, httpapi.WithMCPRegistry(mcpRegistry))
 	}
+	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
+	defer cancelBackground()
+	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
+		backgroundCtx, log, cfg.WorkerBackgroundToolCapacity, metricSet,
+	)
+	if err != nil {
+		log.Error("configure background tool runner", "error", err)
+		os.Exit(1)
+	}
+	programTools, err := programToolExecutor(cfg, store, httpRecorder, backgroundRunner, log)
+	if err != nil {
+		log.Error("configure program tool executor", "error", err)
+		os.Exit(1)
+	}
+	apiOpts = append(apiOpts, httpapi.WithProgramToolExecutor(programTools),
+		httpapi.WithProgramToolCapacity(cfg.APIProgramToolCapacity),
+		httpapi.WithProgramToolPendingLimit(cfg.APIProgramToolPendingLimit))
 	apiServer, err := httpapi.New(log, store, apiOpts...)
 	if err != nil {
 		log.Error("create api server", "error", err)
@@ -257,6 +283,7 @@ func main() {
 		log.Error("api shutdown failed", "error", err)
 		exitCode = 1
 	}
+	backgroundRunner.Shutdown()
 	if !metricsDrained {
 		<-metricsErr
 	}
@@ -393,6 +420,46 @@ func requireWebIndex(assets fs.FS, label string) error {
 		return fmt.Errorf("%s index.html must be a file", label)
 	}
 	return nil
+}
+
+func programToolExecutor(
+	cfg config.Config,
+	store *storage.Store,
+	httpRecorder *metrics.HTTPClientRecorder,
+	backgroundRunner tools.BackgroundRunner,
+	log *slog.Logger,
+) (tools.Executor, error) {
+	sigV4CredentialCache, err := sigv4.NewCredentialCache()
+	if err != nil {
+		return tools.Executor{}, fmt.Errorf("configure SigV4 credential cache: %w", err)
+	}
+	mcpAuth := mcp.NewAuthOptions(cfg.AllowInsecureDev, cfg.EndpointAllowlist)
+	return tools.Executor{
+		Store:  store,
+		Skills: store.Skills(),
+		MCP:    mcp.New(mcp.Options{HTTPClient: mcpAuth.EndpointHTTPClient}),
+		IntegrationHTTPClient: metrics.NewObservedHTTPClient(
+			outboundhttp.NewPublicClient(
+				outboundhttp.PublicClientOptions{Timeout: programToolIntegrationHTTPTimeout},
+			),
+			httpRecorder,
+		),
+		MCPAuthHTTPClient:    mcpAuth.HTTPClient,
+		SigV4CredentialCache: sigV4CredentialCache,
+		WebSearch: webaccess.ExaProvider{
+			APIKey: cfg.ExaAPIKey,
+			HTTPClient: metrics.NewObservedHTTPClient(
+				outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
+				httpRecorder,
+				metrics.WithHTTPClientPathLabel("/search"),
+			),
+		},
+		WebFetcher: webaccess.NewFetcher(
+			webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.WebFetchAllowlist},
+		),
+		BackgroundRunner: backgroundRunner,
+		Log:              log,
+	}, nil
 }
 
 func apiOptions(

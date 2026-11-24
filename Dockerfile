@@ -63,14 +63,6 @@ FROM gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11
 WORKDIR /app
 ADD --chmod=0444 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/rds-global-bundle.pem
 
-FROM runtime AS api
-COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
-ENV OMNARA_WEB_SERVING=disabled
-ENV OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=/app/mcp-registry/mcp-registry.json
-COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
-COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
-ENTRYPOINT ["/usr/local/bin/omnara-api"]
-
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS file-tools
 RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
@@ -78,14 +70,25 @@ COPY cmd/chroot-sandbox/install.sh /src/chroot-sandbox/install.sh
 COPY --from=worker-build /out/omnara-chroot-sandbox /src/omnara-chroot-sandbox
 RUN sh /src/chroot-sandbox/install.sh /src/omnara-chroot-sandbox /out
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2 AS worker
+# The API and the worker both run file tools: the worker for the model, the API for `omnarad call`.
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2 AS file-tool-runtime
 WORKDIR /app
 ADD --chmod=0444 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/rds-global-bundle.pem
 COPY --from=file-tools /usr/bin/rg /usr/local/bin/
 COPY --from=file-tools /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/
 COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
-COPY --from=worker-build /out/omnara-worker /out/omnara-sandbox /usr/local/bin/
+COPY --from=worker-build /out/omnara-sandbox /usr/local/bin/
 COPY --from=file-tools /out/ /
+
+FROM file-tool-runtime AS api
+ENV OMNARA_WEB_SERVING=disabled
+ENV OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=/app/mcp-registry/mcp-registry.json
+COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
+COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
+ENTRYPOINT ["/usr/local/bin/omnara-api"]
+
+FROM file-tool-runtime AS worker
+COPY --from=worker-build /out/omnara-worker /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 
 FROM runtime AS maintenance

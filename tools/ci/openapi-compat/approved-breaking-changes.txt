@@ -163,3 +163,4 @@ Scoped webhooks replace agent config webhooks: POST /orgs/{orgID}/projects/{proj
 Scoped webhooks replace agent config webhooks: POST /orgs/{orgID}/projects/{projectID}/agents removed the request property `config_source/source/anyOf[#/components/schemas/AgentConfigDefinition]/event_webhook`
 Scoped webhooks replace agent config webhooks: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the request property `source/anyOf[#/components/schemas/AgentConfigDefinition]/event_webhook`
 Per-agent subscription limit: POST /orgs/{orgID}/projects/{projectID}/agents the `subscriptions` request property's maxItems was decreased to `16`
+Custom tool calls from commands have no agent event: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result the response property `tool_result/event_id` became optional for the status `201`

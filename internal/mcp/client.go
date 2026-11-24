@@ -9,7 +9,9 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -355,7 +357,8 @@ func (c *httpClient) CallTool(
 	if err != nil {
 		return nil, fmt.Errorf("mcp: marshal tools/call params: %w", err)
 	}
-	request := wireRequest{method: "tools/call", params: params, requestID: requestID, name: call.Name}
+	request := wireRequest{method: "tools/call", params: params, requestID: requestID, name: call.Name,
+		sent: new(atomic.Bool)}
 	if conn.Stateless() {
 		request.paramHeaders, err = toolHeaderValues(call.Headers, args)
 		if err != nil {
@@ -364,11 +367,14 @@ func (c *httpClient) CallTool(
 	}
 	_, result, err := c.doRequest(ctx, conn, request)
 	if err != nil {
+		if request.sent.Load() && responseLost(err) {
+			return nil, &ResponseLostError{Err: err}
+		}
 		return nil, err
 	}
 	var out sdkmcp.CallToolResult
 	if err := json.Unmarshal(result, &out); err != nil {
-		return nil, fmt.Errorf("%w: decode tools/call: %w", ErrMalformedResponse, err)
+		return nil, &ResponseLostError{Err: fmt.Errorf("%w: decode tools/call: %w", ErrMalformedResponse, err)}
 	}
 	return &out, nil
 }
@@ -379,6 +385,7 @@ type wireRequest struct {
 	requestID    int64
 	name         string
 	paramHeaders map[string]string
+	sent         *atomic.Bool
 }
 
 func (c *httpClient) doRequest(
@@ -411,6 +418,15 @@ func (c *httpClient) doRequest(
 		return "", nil, fmt.Errorf("mcp: marshal request: %w", err)
 	}
 
+	if request.sent != nil {
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				if info.Err == nil {
+					request.sent.Store(true)
+				}
+			},
+		})
+	}
 	httpReq, cancel, err := c.buildHTTPForResponse(ctx, conn, body, headers)
 	if err != nil {
 		return "", nil, err

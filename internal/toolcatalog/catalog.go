@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -131,6 +132,16 @@ type Entry struct {
 	DefaultPermission toolpermission.Selection
 	PermissionModes   []toolpermission.ModeDescriptor
 	InputSchema       json.RawMessage
+	OutputSchema      json.RawMessage
+	CodeMode          bool
+}
+
+func codeMode(entry Entry, err error) (Entry, error) {
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.CodeMode = true
+	return entry, nil
 }
 
 var defaultCatalog = sync.OnceValues(buildDefaultCatalog)
@@ -199,6 +210,7 @@ func buildDefaultCatalog() (Catalog, error) {
 					"interactive terminal programs, or persistent shells.",
 			},
 		},
+		tooloutput.RunCommandSchema,
 	)
 	if err != nil {
 		return Catalog{}, err
@@ -208,6 +220,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		description string
 		required    []string
 		properties  map[string]any
+		output      func() (json.RawMessage, error)
 	}{
 		{
 			ToolNameWriteProcess,
@@ -221,6 +234,7 @@ func buildDefaultCatalog() (Catalog, error) {
 						"Include newlines explicitly when the running command expects Enter.",
 				},
 			},
+			tooloutput.WriteProcessSchema,
 		},
 		{
 			ToolNameWatchProcess,
@@ -251,6 +265,7 @@ func buildDefaultCatalog() (Catalog, error) {
 						"read_process call that omitted offset_byte, so output written since then is not missed.",
 				},
 			},
+			tooloutput.WatchProcessSchema,
 		},
 		{
 			ToolNameStopProcess,
@@ -264,10 +279,11 @@ func buildDefaultCatalog() (Catalog, error) {
 					"description": "interrupt requests a graceful Ctrl-C-style stop; terminate forcibly ends the process tree.",
 				},
 			},
+			tooloutput.StopProcessSchema,
 		},
 	}
 	for _, spec := range actionSpecs {
-		entries[spec.name], err = toolEntry(spec.name, spec.description, spec.required, spec.properties)
+		entries[spec.name], err = toolEntry(spec.name, spec.description, spec.required, spec.properties, spec.output)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -297,6 +313,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		readProcessToolDescription,
 		[]string{"process_id"},
 		observationProperties,
+		tooloutput.ReadProcessSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -305,6 +322,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		listProcessesToolDescription,
 		nil,
 		nil,
+		tooloutput.ListProcessesSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -317,6 +335,7 @@ func buildDefaultCatalog() (Catalog, error) {
 			"cpu":             map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "vCPU count for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
 			"memory_mb":       map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "Memory in MB for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
 		},
+		tooloutput.CreateMachineSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -325,10 +344,11 @@ func buildDefaultCatalog() (Catalog, error) {
 		deleteMachineToolDescription,
 		[]string{"machine_id"},
 		map[string]any{"machine_id": deleteMachineID},
+		tooloutput.DeleteMachineSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageList], err = toolEntry(
+	if entries[ToolNameStorageList], err = codeMode(toolEntry(
 		ToolNameStorageList,
 		storageListToolDescription,
 		[]string{"pattern"},
@@ -356,7 +376,8 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", StorageListDefaultLimit),
 			},
 		},
-	); err != nil {
+		tooloutput.StorageListSchema,
+	)); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameListMachines], err = toolEntry(
@@ -377,6 +398,7 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListMachinesDefaultLimit),
 			},
 		},
+		tooloutput.ListMachinesSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -385,6 +407,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		inspectMachineToolDescription,
 		nil,
 		map[string]any{"machine_id": machineID},
+		tooloutput.InspectMachineSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -405,25 +428,28 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListGitHubRepositoriesDefaultLimit),
 			},
 		},
+		tooloutput.ListGitHubRepositoriesSchema,
 	); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameAskQuestion], err = askQuestionTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
+	if entries[ToolNameWebSearch], err = codeMode(webSearchTool()); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+	if entries[ToolNameWebFetch], err = codeMode(webFetchTool()); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
+	if entries[ToolNameStorageRead], err = codeMode(storageReadTool()); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageWrite], err = storageWriteTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageSearch], err = storageSearchTool(); err != nil {
+	if entries[ToolNameStorageSearch], err = codeMode(
+		storageSearchTool(),
+	); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageUpload], err = storageUploadTool(machineID); err != nil {
@@ -485,10 +511,15 @@ func toolEntry(
 	description string,
 	required []string,
 	properties map[string]any,
+	outputSchema func() (json.RawMessage, error),
 ) (Entry, error) {
 	schema, err := json.Marshal(objectSchema(properties, required))
 	if err != nil {
 		return Entry{}, fmt.Errorf("marshal %s tool schema: %w", name, err)
+	}
+	output, err := outputSchema()
+	if err != nil {
+		return Entry{}, fmt.Errorf("%s output schema: %w", name, err)
 	}
 	return Entry{
 		Name:              name,
@@ -497,6 +528,7 @@ func toolEntry(
 		DefaultPermission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		PermissionModes:   toolpermission.CommonModeDescriptors(),
 		InputSchema:       schema,
+		OutputSchema:      output,
 	}, nil
 }
 
@@ -546,6 +578,7 @@ func askQuestionTool() (Entry, error) {
 				"description": "Questions and choices for the human to answer together.",
 			},
 		},
+		tooloutput.AskQuestionSchema,
 	)
 	if err != nil {
 		return Entry{}, err
@@ -572,6 +605,7 @@ func toolSearchTool() (Entry, error) {
 				"description": fmt.Sprintf("Maximum tools to return. Defaults to %d.", ToolSearchDefaultResults),
 			},
 		},
+		tooloutput.ToolSearchSchema,
 	)
 	if err != nil {
 		return Entry{}, err
@@ -607,6 +641,7 @@ func webSearchTool() (Entry, error) {
 				"description": "Limit results to these domains. Prefix a domain with '-' to exclude it.",
 			},
 		},
+		tooloutput.WebSearchSchema,
 	)
 	if err != nil {
 		return Entry{}, err
@@ -625,6 +660,7 @@ func skillTool() (Entry, error) {
 				"description": "Name of an attached skill from the available_skills catalog. Returns its instructions whether or not the agent has an attached machine.",
 			},
 		},
+		tooloutput.SkillSchema,
 	)
 }
 
@@ -650,6 +686,7 @@ func webFetchTool() (Entry, error) {
 				"description": "Maximum fetch time in seconds. Defaults to 30.",
 			},
 		},
+		tooloutput.WebFetchSchema,
 	)
 	if err != nil {
 		return Entry{}, err
@@ -695,6 +732,7 @@ func storageReadTool() (Entry, error) {
 				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
 			},
 		},
+		tooloutput.StorageReadSchema,
 	)
 }
 
@@ -724,6 +762,7 @@ func storageWriteTool() (Entry, error) {
 			},
 			"force": memoryForceProperty(""),
 		},
+		tooloutput.StorageWriteSchema,
 	)
 }
 
@@ -758,6 +797,7 @@ func storageSearchTool() (Entry, error) {
 				"description": "Starting line, default 1, for exact-file content searches. Cannot be combined with globs, -l, or -c.",
 			},
 		},
+		tooloutput.StorageSearchSchema,
 	)
 }
 
@@ -800,6 +840,7 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only: path must be /artifacts.",
 			},
 		},
+		tooloutput.StorageUploadSchema,
 	)
 }
 
@@ -823,6 +864,7 @@ func storageDownloadTool(machineID map[string]any) (Entry, error) {
 			},
 			"machine_id": machineID,
 		},
+		tooloutput.StorageDownloadSchema,
 	)
 }
 
@@ -869,6 +911,12 @@ func (entry Entry) validate() error {
 	}
 	if err := jsonschema.ValidateSchema(entry.InputSchema); err != nil {
 		return fmt.Errorf("tool %q input schema: %w", entry.Name, err)
+	}
+	if len(entry.OutputSchema) == 0 {
+		return fmt.Errorf("tool %q output schema is required", entry.Name)
+	}
+	if err := jsonschema.ValidateSchema(entry.OutputSchema); err != nil {
+		return fmt.Errorf("tool %q output schema: %w", entry.Name, err)
 	}
 	return nil
 }

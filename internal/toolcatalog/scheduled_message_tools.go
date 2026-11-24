@@ -1,5 +1,7 @@
 package toolcatalog
 
+import "github.com/omnara-ai/omnara/internal/tooloutput"
+
 const (
 	ToolNameGetCurrentTime         = "get_current_time"
 	ToolNameListScheduledMessages  = "list_scheduled_messages"
@@ -39,11 +41,14 @@ func ScheduledMessageToolNames() []string {
 }
 
 func getCurrentTimeTool() (Entry, error) {
-	return toolEntry(ToolNameGetCurrentTime, getCurrentTimeToolDescription, nil, nil)
+	return toolEntry(ToolNameGetCurrentTime, getCurrentTimeToolDescription, nil, nil, tooloutput.GetCurrentTimeSchema)
 }
 
 func listScheduledMessagesTool() (Entry, error) {
-	return toolEntry(ToolNameListScheduledMessages, listScheduledMessagesToolDescription, nil, nil)
+	return toolEntry(
+		ToolNameListScheduledMessages, listScheduledMessagesToolDescription, nil, nil,
+		tooloutput.ListScheduledMessagesSchema,
+	)
 }
 
 func createScheduledMessageTool() (Entry, error) {
@@ -80,6 +85,7 @@ func createScheduledMessageTool() (Entry, error) {
 				"description": "IANA time zone the cron expression is evaluated in, such as America/New_York. Only valid with `cron`. Defaults to UTC.",
 			},
 		},
+		tooloutput.CreateScheduledMessageSchema,
 	)
 }
 
@@ -95,5 +101,6 @@ func deleteScheduledMessageTool() (Entry, error) {
 				"description": "The id from create_scheduled_message or list_scheduled_messages: a one-time message (ain_...) or a recurring schedule (cron_...).",
 			},
 		},
+		tooloutput.DeleteScheduledMessageSchema,
 	)
 }

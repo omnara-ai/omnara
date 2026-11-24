@@ -1,5 +1,30 @@
 {
   "$defs": {
+    "AgentConfigDefinitionCodeMode": {
+      "additionalProperties": false,
+      "description": "Code mode lets commands started by run_command call the agent's tools with `omnarad call \u003ctool\u003e '\u003cjson input\u003e'`; results go to the command, not to the model. The tools that support this are MCP tools, custom tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. A call to a custom tool waits for the result its runner submits, even after the command that made it times out, disconnects or exits. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.",
+      "properties": {
+        "default_allowed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether commands can call tools that support code mode when the tool or its MCP server does not set `code_mode`. Defaults to true."
+        },
+        "enabled": {
+          "description": "Whether commands the agent runs can call its tools with `omnarad call`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
     "AgentConfigDefinitionGitCredentials": {
       "additionalProperties": false,
       "description": "Integration whose git credentials the agent's machines use.",
@@ -94,6 +119,17 @@
           "$ref": "#/$defs/AgentConfigDefinitionMCPAuth",
           "description": "How to authenticate to the server. Omit if it needs none."
         },
+        "code_mode": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether commands can call the server's tools with `omnarad call` when code mode is on. Null follows code_mode.default_allowed."
+        },
         "default_enabled": {
           "anyOf": [
             {
@@ -155,6 +191,17 @@
     "AgentConfigDefinitionMCPTool": {
       "additionalProperties": false,
       "properties": {
+        "code_mode": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Overrides the server's code_mode setting. Null inherits it."
+        },
         "deferred": {
           "anyOf": [
             {
@@ -619,6 +666,17 @@
         "type": "object"
       },
       "properties": {
+        "code_mode": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether commands can call the tool with `omnarad call` when code mode is on. Only for tools that support code mode. Null follows code_mode.default_allowed."
+        },
         "deferred": {
           "description": "Keep the tool out of context until tool_search loads it. Defaults to false.",
           "type": "boolean"
@@ -770,6 +828,10 @@
   "additionalProperties": false,
   "description": "An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.",
   "properties": {
+    "code_mode": {
+      "$ref": "#/$defs/AgentConfigDefinitionCodeMode",
+      "description": "Lets commands the agent runs call its tools with `omnarad call`. Off by default."
+    },
     "git_credentials": {
       "$ref": "#/$defs/AgentConfigDefinitionGitCredentials",
       "description": "GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents."

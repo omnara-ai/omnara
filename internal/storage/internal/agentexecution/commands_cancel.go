@@ -97,6 +97,9 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 			}
 			m.changed()
 		}
+		if err = h.cancelProgramToolsAwaitingResult(ctx); err != nil {
+			return result, err
+		}
 		if !affected {
 			return result, nil
 		}

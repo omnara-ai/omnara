@@ -10,13 +10,16 @@ import (
 )
 
 func toolCallRecordFromGetSQLC(row dbsqlc.GetToolCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
+	record := toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,
 		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
 		row.Name, row.Input, row.Type,
 		row.State, row.Outcome, row.RuntimeLockID,
 		row.ResultContentParts, row.CreatedAt, row.CompletedAt,
 	)
+	record.Caller = row.Caller
+	record.ParentToolCallID = storeutil.IDFromPtr(row.ParentToolCallID)
+	return record
 }
 
 func toolCallRecordFromProviderSQLC(row dbsqlc.GetToolCallByProviderCallRow) ToolCallRecord {
@@ -93,5 +96,6 @@ func toolCallRecordFromSQLC(
 		RuntimeLockID:      storeutil.IDFromPtr(runtimeLockID),
 		ResultContentParts: json.RawMessage(resultContentParts),
 		CompletedAt:        completedAt,
+		Caller:             "model",
 	}
 }

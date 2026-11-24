@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 const (
@@ -37,8 +38,10 @@ type IntegrationToolDefinition struct {
 	IntegrationKind integrationdefinition.Kind
 	Scope           IntegrationToolScope
 	Description     string
+	CodeMode        bool
 	required        []string
 	properties      map[string]any
+	outputSchema    func() (json.RawMessage, error)
 }
 
 var integrationToolDefinitions = buildIntegrationToolDefinitions()
@@ -89,15 +92,23 @@ func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
 	if d.IntegrationKind == integrationdefinition.GitHubPR && d.Operation == IntegrationOperationReviewComment {
 		dependentRequired["start_line"], dependentRequired["start_side"] = []string{"start_side"}, []string{"start_line"}
 	}
-	entry, err := toolEntry(name, d.Description, d.required, properties)
-	if err != nil || len(dependentRequired) == 0 {
-		return entry, err
+	if d.outputSchema == nil {
+		return Entry{}, fmt.Errorf("integration tool %q requires an output schema", name)
 	}
-	var schema map[string]any
-	_ = json.Unmarshal(entry.InputSchema, &schema)
-	schema["dependentRequired"] = dependentRequired
-	entry.InputSchema, err = json.Marshal(schema)
-	return entry, err
+	entry, err := toolEntry(name, d.Description, d.required, properties, d.outputSchema)
+	if err != nil {
+		return Entry{}, err
+	}
+	if len(dependentRequired) > 0 {
+		var schema map[string]any
+		_ = json.Unmarshal(entry.InputSchema, &schema)
+		schema["dependentRequired"] = dependentRequired
+		if entry.InputSchema, err = json.Marshal(schema); err != nil {
+			return Entry{}, err
+		}
+	}
+	entry.CodeMode = d.CodeMode
+	return entry, nil
 }
 
 func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
@@ -116,6 +127,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.SlackThread,
+			CodeMode:        true,
+			outputSchema:    tooloutput.SlackReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Read one bounded page from this agent's assigned Slack conversation (default limit 15). " +
 				"Thread replies are oldest-first, starting at the root; channel history is newest-first. " +
@@ -127,6 +140,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationPostMessage,
 			IntegrationKind: integrationdefinition.SlackThread,
+			outputSchema:    tooloutput.SlackPostMessageSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a message to this agent's assigned Slack conversation.",
 			required:        []string{"text"},
@@ -138,6 +152,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			CodeMode:        true,
+			outputSchema:    tooloutput.GitHubReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Read the selected GitHub pull request. section defaults to pull_request; " +
 				"reviews returns submitted review bodies and states. pending_review returns this bot's pending review or null; " +
@@ -166,6 +182,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationDiscussionComment,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubDiscussionCommentSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a discussion comment on the selected GitHub pull request.",
 			required:        []string{"body"},
@@ -174,6 +191,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationReviewComment,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubReviewCommentSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Add an inline comment on the selected GitHub pull request. " +
 				"Supply commit_id to publish immediately, or review_id from " +
@@ -198,6 +216,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationStartReview,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubStartReviewSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Start a pending review at the full commit SHA in read pull_request head.sha. " +
 				"GitHub allows one pending review per bot per PR, shared by integrations using the same bot. " +
@@ -210,6 +229,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationSubmitReview,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubSubmitReviewSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Publish the pending review identified by review_id, its saved inline " +
 				"comments, and body as the summary. " +
@@ -222,6 +242,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationDiscardReview,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubDiscardReviewSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Delete the pending review identified by review_id and all its unpublished comments. " +
 				"Published reviews cannot be discarded. Read pending_review to inspect the draft before deleting it.",
@@ -231,6 +252,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationReply,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubReplySchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Reply to a review comment in the selected GitHub pull request. " +
 				"Use comment_id from an incoming inline review comment, the id in read section=review_comments, " +
@@ -241,6 +263,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationResolveThread,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubResolveThreadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Resolve a review thread on the selected GitHub pull request. " +
 				"Use the thread's id from read section=review_threads as review_thread_id. " +
@@ -251,6 +274,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationAttachPullRequest,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubPullRequestAttachSchema,
 			Scope:           IntegrationToolScopeIntegration,
 			Description: "Attach a GitHub pull request to this agent so its events reach this agent and " +
 				"the other GitHub tools can act on it.",
@@ -266,6 +290,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationDetachPullRequest,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubPullRequestAttachSchema,
 			Scope:           IntegrationToolScopeIntegration,
 			Description: "Detach a GitHub pull request from this agent: its events stop reaching this agent and " +
 				"the other GitHub tools can no longer act on it. The pull request this agent was launched for " +
@@ -276,6 +301,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationListAttachedPullRequests,
 			IntegrationKind: integrationdefinition.GitHubPR,
+			outputSchema:    tooloutput.GitHubAttachedPullRequestsSchema,
 			Scope:           IntegrationToolScopeIntegration,
 			Description: fmt.Sprintf("List this agent's GitHub pull requests, including the one it was launched for "+
 				"(default limit %d). Pass next_offset as offset to continue.", ListAttachedPullRequestsDefaultLimit),
@@ -284,6 +310,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.DiscordThread,
+			CodeMode:        true,
+			outputSchema:    tooloutput.DiscordReadSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Read messages from this agent's assigned Discord thread.",
 			properties:      map[string]any{"before": text(), "limit": limit()},
@@ -291,6 +319,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		{
 			Operation:       IntegrationOperationPostMessage,
 			IntegrationKind: integrationdefinition.DiscordThread,
+			outputSchema:    tooloutput.DiscordPostMessageSchema,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a message to this agent's assigned Discord thread. Content must be at most 2000 characters.",
 			required:        []string{"content"},

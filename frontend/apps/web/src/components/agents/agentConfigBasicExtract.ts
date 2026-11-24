@@ -6,6 +6,7 @@ import {
 } from '@omnara/sdk/config-source'
 import {
   zAgentConfigDefinition,
+  zAgentConfigDefinitionCodeMode,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
   zAgentConfigDefinitionMachineSource,
@@ -105,7 +106,7 @@ const mcpAuth = z.discriminatedUnion('type', [
 ])
 
 const mcpToolEntry = z.strictObject({
-  ...zAgentConfigDefinitionMcpTool.shape,
+  ...zAgentConfigDefinitionMcpTool.omit({ code_mode: true }).shape,
   permission: permission.optional(),
 })
 
@@ -175,6 +176,7 @@ const basicDocument = z.looseObject({
   tools: configRecord(toolEntry).nullish(),
   interaction_handlers: configRecord(interactionHandler).nullish(),
   git_credentials: z.strictObject(zAgentConfigDefinitionGitCredentials.shape).nullish(),
+  code_mode: z.strictObject(zAgentConfigDefinitionCodeMode.shape).nullish(),
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
   mcp: configRecord(mcpEntry).nullish(),
@@ -348,6 +350,7 @@ function extractBasicConfig(
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     interactionHandlers: doc.interaction_handlers ?? {},
     gitCredentials: doc.git_credentials ?? undefined,
+    codeMode: doc.code_mode ?? undefined,
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     memoryStores: doc.memory_stores ?? [],

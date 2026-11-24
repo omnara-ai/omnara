@@ -165,20 +165,58 @@ setup and daemon requirements.
 GitHub launchers add this capability automatically. An explicit profile choice
 wins as a whole, even when it references a different GitHub integration. Spawned
 subagents do not receive Git credentials, including those configured in their
-selected profile.
+selected profile. Agents bound to the same machine run commands as the same OS user,
+so any of them can reach credentials issued to another.
 
 ### Deferred tools
 
-Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
+Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to find matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
 
 ```yaml
 tools:
   web_search: {}                # always loaded
   web_fetch:
-    deferred: true              # loaded only after a tool_search match
+    deferred: true              # reached only after a tool_search match
 ```
 
 Deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+
+### Code mode
+
+Code mode lets commands started with `run_command` call the agent's tools with [`omnarad call`](/tools/built-in#calling-tools-from-commands). Results go to the command, not into the model's context, so the agent can loop over a tool, filter what comes back, and print only what it needs.
+
+```yaml
+code_mode:
+  enabled: true                 # default: off
+```
+
+The tools that support code mode are MCP tools, [custom tools](/tools/custom#calls-from-commands), `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. With code mode on, commands can call each of them the agent has, unless you say otherwise:
+
+```yaml
+code_mode:
+  enabled: true
+  default_allowed: false        # default: true
+tools:
+  web_fetch:
+    code_mode: true             # overrides default_allowed for this tool
+mcp:
+  linear:
+    url: https://mcp.linear.app/mcp
+    code_mode: true             # default for this server's tools
+    tools:
+      delete_issue:
+        code_mode: false        # overrides the server's setting
+```
+
+`code_mode.default_allowed` is the default for every tool that supports code mode. A tool's own `code_mode` overrides it; for an MCP tool, the tool's setting overrides its server's, which overrides the default. Setting `code_mode` on a tool that doesn't support it, such as `run_command`, is a config error.
+
+Code mode only decides what commands can call. It is independent of [`deferred`](#deferred-tools) and never changes the model's own tools: the model calls a loaded tool as usual and loads a deferred one with `tool_search`, whether or not commands can call it.
+
+<Warning>
+Agents bound to the same machine run commands as the same OS user, so with code mode on each can call the others' tools. Use it on machines dedicated to one agent or to agents you trust equally.
+</Warning>
+
+Each call is checked against the agent's current config, so a config change applies to commands that are already running. A spawned subagent keeps the setting of the config it is built from: its parent's for a `self` subagent, its profile's otherwise. In the Builder, it is **Code mode** under **Advanced**.
 
 ### Custom tools
 

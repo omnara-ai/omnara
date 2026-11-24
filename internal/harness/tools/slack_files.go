@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 func (e Executor) sendSlackFiles(
@@ -65,14 +66,12 @@ func (e Executor) sendSlackFiles(
 			for _, file := range files {
 				ids = append(ids, file.ID)
 			}
-			return structuredToolResultContent(
-				map[string]any{
-					"integration": target.TargetRef,
-					"channel_id":  target.Channel,
-					"thread_ts":   target.ThreadTS,
-					"file_ids":    ids,
-				},
-			)
+			return structuredToolResultContent(tooloutput.SlackFiles{
+				Integration: target.TargetRef,
+				ChannelID:   target.Channel,
+				ThreadTS:    target.ThreadTS,
+				FileIDs:     ids,
+			})
 		}
 		if result.RateLimited {
 			retry, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &slept, attempt)

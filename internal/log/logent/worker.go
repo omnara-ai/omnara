@@ -47,6 +47,13 @@ func RuntimeRenewalFailed(ctx context.Context, err error) {
 	log.Attach(ctx, fields)
 }
 
+func APIFileToolsUnavailable(ctx context.Context, err error) {
+	event := log.NewEvent(ctx, "api.file_tools_unavailable")
+	event.Level(log.WarnLevel)
+	event.Error(err)
+	event.Done(ctx)
+}
+
 func WorkerFileToolsUnavailable(ctx context.Context, err error) {
 	event := log.NewEvent(ctx, "worker.file_tools_unavailable")
 	event.Level(log.WarnLevel)

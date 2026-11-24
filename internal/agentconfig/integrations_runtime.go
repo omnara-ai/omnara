@@ -119,8 +119,7 @@ func PrepareIntegrationTools(
 		if err != nil {
 			return nil, err
 		}
-		runtime := runtimeBuiltInTool(entry, tool.Permission)
-		runtime.Deferred = tool.Deferred
+		runtime := runtimeBuiltInTool(entry, tool, compiled.CodeMode)
 		result = append(result, runtime)
 	}
 	return result, nil

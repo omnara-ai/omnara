@@ -25,6 +25,15 @@ import {
 
 const transport = chatTransport()
 
+const toolCallRouting = {
+  org_id: 'org',
+  project_id: 'project',
+  agent_id: 'agent',
+  agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: 'agent',
+}
+
 function actor(id: string, providerUserId: string): Actor {
   return {
     id,
@@ -545,6 +554,72 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
+  it('refreshes interactions, and a program call command tool calls, on tool call update frames', async () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const session = startSession([], client(), queryClient)
+    const stream = await connection(0)
+
+    stream.push({
+      event: 'tool_call_update',
+      data: { ...toolCallRouting, tool_call_id: 'model-call', state: 'awaiting_permission' },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(1)
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listAgentInteractions' })],
+    })
+
+    stream.push({
+      event: 'tool_call_update',
+      data: {
+        ...toolCallRouting,
+        tool_call_id: 'program-call',
+        parent_tool_call_id: 'command',
+        state: 'awaiting_permission',
+      },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(3)
+    })
+    expect(invalidate).toHaveBeenLastCalledWith({
+      queryKey: [
+        expect.objectContaining({
+          _id: 'listToolCalls',
+          path: { orgID: 'org', projectID: 'project', agentID: 'agent' },
+          query: { parent_tool_call_id: 'command', limit: 100 },
+        }),
+      ],
+    })
+    session.disconnect()
+  })
+
+  it('refreshes once for a burst of tool call update frames', async () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const session = startSession([], client(), queryClient)
+    const stream = await connection(0)
+
+    for (let call = 0; call < 20; call++) {
+      stream.push({
+        event: 'tool_call_update',
+        data: {
+          ...toolCallRouting,
+          tool_call_id: `call-${call}`,
+          parent_tool_call_id: 'command',
+          state: 'completed',
+        },
+      })
+    }
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(4)
+    })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(invalidate).toHaveBeenCalledTimes(4)
+    session.disconnect()
+  })
+
   it('invalidates the agent list once a spawn completes or a subagent sends input', async () => {
     const queryClient = new QueryClient()
     const sessionClient = client()
@@ -648,7 +723,10 @@ describe('AgentChatSession streaming', () => {
     const invalidationsBeforeReconnect = invalidate.mock.calls.length
     stream.connectionState({ state: 'connected', reconnected: true })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 1)
+      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 2)
+    })
+    expect(invalidate).toHaveBeenLastCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listToolCalls', _infinite: true })],
     })
 
     stream.push({

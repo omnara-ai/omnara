@@ -24,10 +24,11 @@ func webToolsContract(t *testing.T) agentconfig.RuntimeContract {
 			t.Fatalf("catalog entry %q missing", name)
 		}
 		tools = append(tools, agentconfig.RuntimeTool{
-			Name:        name,
-			Type:        toolcatalog.ToolTypeBuiltIn,
-			Permission:  entry.DefaultPermission,
-			InputSchema: entry.InputSchema,
+			Name:         name,
+			Type:         toolcatalog.ToolTypeBuiltIn,
+			Permission:   entry.DefaultPermission,
+			InputSchema:  entry.InputSchema,
+			OutputSchema: entry.OutputSchema,
 		})
 	}
 	return agentconfig.RuntimeContract{Tools: tools}

@@ -224,6 +224,7 @@ export {
   usePersonalAccessTokens,
   useRevokePersonalAccessToken,
 } from './domains/personal-access-tokens'
+export { useProgramToolCalls } from './domains/program-tool-calls'
 export {
   type ProjectMachineGrantListFilters,
   type ProjectMachineGrantListOptions,

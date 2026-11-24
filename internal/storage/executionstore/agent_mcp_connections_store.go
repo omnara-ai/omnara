@@ -119,7 +119,7 @@ func (s *Store) ReconcileAgentMCPConnections(
 	desired := make(map[string]string, len(servers))
 	serverKeys := make([]string, 0, len(servers))
 	for _, server := range servers {
-		configHash, err := mcpServerConfigHash(server)
+		configHash, err := MCPServerConfigHash(server)
 		if err != nil {
 			return nil, fmt.Errorf("hash mcp server %q config: %w", server.ServerKey, err)
 		}

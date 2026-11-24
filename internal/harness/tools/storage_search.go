@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/tooloutput"
 )
 
 const searchLineBytes = 256
@@ -223,26 +224,11 @@ func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPha
 	return completeFileTool(output.result)
 }
 
-type searchLine struct {
-	Path       string `json:"path"`
-	LineNumber int    `json:"line_number"`
-	EndLine    int    `json:"end_line"`
-	Text       string `json:"text"`
-	IsMatch    bool   `json:"is_match"`
-}
+type searchLine = tooloutput.StorageSearchLine
 
-type searchFileResult struct {
-	Path  string  `json:"path"`
-	Count *uint64 `json:"count,omitempty"`
-}
+type searchFileResult = tooloutput.StorageSearchFile
 
-type searchResult struct {
-	Lines            []searchLine       `json:"lines,omitempty"`
-	Files            []searchFileResult `json:"files,omitempty"`
-	MatchCount       int                `json:"match_count"`
-	Truncated        bool               `json:"truncated"`
-	IncompleteReason string             `json:"incomplete_reason,omitempty"`
-}
+type searchResult = tooloutput.StorageSearch
 
 type searchOutput struct {
 	input  storageSearchRequest

@@ -75,6 +75,7 @@ func SourceFromCompiled(compiled Compiled, names SourceNames) (AgentConfigSource
 		entry := AgentConfigMCPSource{
 			URL:      server.URL,
 			Deferred: server.Deferred,
+			CodeMode: server.CodeMode,
 			Tools:    make(map[string]AgentConfigMCPToolSource, len(server.Tools)),
 		}
 		if !server.DefaultEnabled {
@@ -105,6 +106,9 @@ func SourceFromCompiled(compiled Compiled, names SourceNames) (AgentConfigSource
 			Integration:   compiled.GitCredentials.Integration,
 			RepositoryIDs: compiled.GitCredentials.RepositoryIDs, ReadOnly: compiled.GitCredentials.ReadOnly,
 		}
+	}
+	if codeMode := compiled.CodeMode; codeMode != nil {
+		source.CodeMode = &CodeModeSource{Enabled: &codeMode.Enabled, DefaultAllowed: codeMode.DefaultAllowed}
 	}
 	for _, skill := range compiled.Skills {
 		source.Skills = append(source.Skills, try(publicid.Encode(publicid.KindSkill, skill.ID)))
@@ -158,7 +162,7 @@ func toolSourcesFromCompiled(
 	}
 	tools := make(map[string]AgentConfigToolSource, len(compiled))
 	for name, tool := range compiled {
-		entry := AgentConfigToolSource{Deferred: tool.Deferred}
+		entry := AgentConfigToolSource{Deferred: tool.Deferred, CodeMode: tool.CodeMode}
 		if !tool.Enabled {
 			entry.Enabled = new(false)
 		}

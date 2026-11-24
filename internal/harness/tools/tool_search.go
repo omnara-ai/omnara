@@ -42,7 +42,7 @@ func resolveToolSearchRequest(raw json.RawMessage) (resolvedToolSearchRequest, e
 			toolcatalog.ToolSearchMaxPatternLength,
 		)
 	}
-	resolved := resolvedToolSearchRequest{Pattern: pattern, MaxResults: toolcatalog.ToolSearchDefaultResults}
+	resolved := resolvedToolSearchRequest{Pattern: pattern}
 	if len(input.MaxResults) != 0 {
 		var maxResults *int
 		if err := json.Unmarshal(input.MaxResults, &maxResults); err != nil {
@@ -62,7 +62,7 @@ func resolveToolSearchRequest(raw json.RawMessage) (resolvedToolSearchRequest, e
 	return resolved, nil
 }
 
-func runToolSearch(_ context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
+func runToolSearch(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 	request, err := resolveToolSearchRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
@@ -96,12 +96,14 @@ func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec 
 	for _, name := range names {
 		tool := turnTools[name]
 		specs = append(specs, modelcontext.ToolSpec{
-			Name:        name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+			Name:         name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			Deferred:     tool.Deferred,
+			Type:         tool.Type,
+			Permission:   tool.Permission,
+			CodeMode:     tool.CodeMode,
+			OutputSchema: tool.OutputSchema,
 		})
 	}
 	return specs

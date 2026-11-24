@@ -9,6 +9,10 @@ export type ClientOptions = {
  */
 export type AgentConfigDefinition = {
     /**
+     * Lets commands the agent runs call its tools with `omnarad call`. Off by default.
+     */
+    code_mode?: AgentConfigDefinitionCodeMode;
+    /**
      * GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents.
      */
     git_credentials?: AgentConfigDefinitionGitCredentials;
@@ -78,6 +82,20 @@ export type AgentConfigToolsDefinition = {
 };
 
 /**
+ * Code mode lets commands started by run_command call the agent's tools with `omnarad call <tool> '<json input>'`; results go to the command, not to the model. The tools that support this are MCP tools, custom tools, storage_read, storage_list, storage_search, web_search, web_fetch and integration read tools. Commands can call each of them unless `default_allowed` or the tool's own `code_mode` setting says otherwise. A call to a custom tool waits for the result its runner submits, even after the command that made it times out, disconnects or exits. Code mode is independent of `deferred` and never changes which tools the model can call or load. A subagent keeps the setting of the config it is built from.
+ */
+export type AgentConfigDefinitionCodeMode = {
+    /**
+     * Whether commands can call tools that support code mode when the tool or its MCP server does not set `code_mode`. Defaults to true.
+     */
+    default_allowed?: boolean | null;
+    /**
+     * Whether commands the agent runs can call its tools with `omnarad call`.
+     */
+    enabled: boolean;
+};
+
+/**
  * Integration whose git credentials the agent's machines use.
  */
 export type AgentConfigDefinitionGitCredentials = {
@@ -134,6 +152,10 @@ export type AgentConfigDefinitionMcpServer = {
      */
     auth?: AgentConfigDefinitionMcpAuth;
     /**
+     * Whether commands can call the server's tools with `omnarad call` when code mode is on. Null follows code_mode.default_allowed.
+     */
+    code_mode?: boolean | null;
+    /**
      * Whether tools are enabled unless overridden in tools. Defaults to true.
      */
     default_enabled?: boolean | null;
@@ -162,6 +184,10 @@ export type AgentConfigDefinitionMcpServers = {
 } | null;
 
 export type AgentConfigDefinitionMcpTool = {
+    /**
+     * Overrides the server's code_mode setting. Null inherits it.
+     */
+    code_mode?: boolean | null;
     /**
      * Overrides the server's deferred setting. Null inherits it.
      */
@@ -361,6 +387,10 @@ export type AgentConfigDefinitionSubagents = {
 } | null;
 
 export type AgentConfigDefinitionTool = {
+    /**
+     * Whether commands can call the tool with `omnarad call` when code mode is on. Only for tools that support code mode. Null follows code_mode.default_allowed.
+     */
+    code_mode?: boolean | null;
     /**
      * Keep the tool out of context until tool_search loads it. Defaults to false.
      */
@@ -2094,6 +2124,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
+    code_mode?: CompiledCodeMode;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -2142,6 +2173,10 @@ export type CompiledTool = {
     type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
     deferred?: boolean;
+    /**
+     * The tool's own code mode setting. Absent follows the agent default.
+     */
+    code_mode?: boolean;
     description?: string;
     input_schema?: {
         [key: string]: unknown;
@@ -2162,12 +2197,27 @@ export type CompiledGitCredentials = {
     read_only?: boolean;
 };
 
+/**
+ * Present when commands started by run_command can call the agent's tools.
+ */
+export type CompiledCodeMode = {
+    enabled: boolean;
+    /**
+     * Present and false when commands can call only the tools that set code_mode to true.
+     */
+    default_allowed?: boolean;
+};
+
 export type CompiledMcpServer = {
     url: string;
     auth?: CompiledMcpAuth;
     default_enabled: boolean;
     permission: ToolPermissionSelection;
     deferred?: boolean;
+    /**
+     * The server's code mode setting. Absent follows the agent default.
+     */
+    code_mode?: boolean;
     tools?: {
         [key: string]: CompiledMcpTool;
     };
@@ -2202,6 +2252,7 @@ export type CompiledMcpTool = {
     enabled?: boolean;
     permission?: ToolPermissionSelection;
     deferred?: boolean;
+    code_mode?: boolean;
 };
 
 export type CompiledSkill = {
@@ -3007,13 +3058,18 @@ export type ToolCallState = 'awaiting_authorization' | 'awaiting_permission' | '
 export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export type ToolCall = {
     id: ToolCallId;
     agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
+    caller?: ToolCallCaller;
+    /**
+     * The run_command call whose process made this call. Present only when caller is program.
+     */
+    parent_tool_call_id?: ToolCallId;
     name: string;
     input: ToolInput;
     type: ToolCallType;
@@ -3046,6 +3102,10 @@ export type ToolCallUpdate = {
      * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
      */
     root_agent_id: AgentId;
+    /**
+     * The run_command call whose process made this call with `omnarad call`. Present on event stream frames for program calls.
+     */
+    parent_tool_call_id?: ToolCallId;
     state: ToolCallState;
     /**
      * The tool name. Present when a custom tool call becomes ready.
@@ -3060,6 +3120,11 @@ export type ToolCallUpdate = {
      */
     interaction_update?: AgentInteractionUpdate;
 };
+
+/**
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export type ToolCallCaller = 'model' | 'program';
 
 export type AgentInteractionUpdate = {
     id: AgentInteractionId;
@@ -3084,7 +3149,10 @@ export type SubmitToolCallResultRequest = {
 };
 
 export type ToolResult = {
-    event_id: AgentEventId;
+    /**
+     * The agent event that records the result. Absent for a call with caller program: its result goes to the command that made it and never becomes an agent event.
+     */
+    event_id?: AgentEventId;
     agent_id: AgentId;
     tool_call_id: ToolCallId;
     outcome: ToolCallOutcome;
@@ -14326,6 +14394,10 @@ export type ListToolCallsData = {
     query?: {
         state?: ToolCallState;
         type?: ToolCallType;
+        /**
+         * Return only the calls a run_command call's process made with `omnarad call`, by that run_command call's ID.
+         */
+        parent_tool_call_id?: ToolCallId;
         /**
          * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
          */

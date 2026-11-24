@@ -889,6 +889,13 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted, agent AgentCo
 		response.Name = &update.Name
 		response.Input = notifications.ToolCallUpdateInput(update.Input)
 	}
+	if update.ParentToolCallID != uuid.Nil {
+		parentID, err := publicID(publicid.KindToolCall, update.ParentToolCallID)
+		if err != nil {
+			return openapi.ToolCallUpdate{}, err
+		}
+		response.ParentToolCallId = &parentID
+	}
 	if interaction := update.InteractionUpdate; interaction != nil {
 		kind := openapi.AgentInteractionKind(interaction.InteractionKind)
 		interactionState := openapi.AgentInteractionState(interaction.State)

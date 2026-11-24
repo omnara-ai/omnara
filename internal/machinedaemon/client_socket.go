@@ -55,10 +55,11 @@ type daemonSocketTransport struct {
 	runtime DaemonRuntime
 	startup localStartupState
 
-	conn  *websocket.Conn
-	send  chan daemonprotocol.Message
-	done  chan struct{}
-	fatal chan error
+	conn     *websocket.Conn
+	send     chan daemonprotocol.Message
+	toolSend chan daemonprotocol.Message
+	done     chan struct{}
+	fatal    chan error
 
 	skillsync *skillsync.Manager
 
@@ -87,6 +88,7 @@ func newDaemonSocketTransport(
 		runtime:          runtime,
 		startup:          startup,
 		send:             make(chan daemonprotocol.Message, 128),
+		toolSend:         make(chan daemonprotocol.Message, daemonToolSendQueueSize),
 		done:             make(chan struct{}),
 		fatal:            make(chan error, 1),
 		pendingProcesses: make(map[string]*pendingProcess),
@@ -158,7 +160,7 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	conn.SetReadLimit(daemonSocketReadLimitBytes)
 
 	writeDone := make(chan error, 1)
-	t.launchWorker(func() { writeDone <- t.writeLoop(runCtx) })
+	t.launchWorker(func() { writeDone <- t.writeLoop(runCtx, websocketMessageWriter{conn: conn}) })
 	t.launchWorker(func() {
 		t.client.replayReportOutbox(
 			runCtx,
@@ -170,6 +172,7 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	})
 	t.resumeStartupActions(runCtx)
 	t.reportReadyStorageFailures(runCtx)
+	t.launchWorker(func() { t.client.programToolCalls.resume(runCtx, t) })
 
 	heartbeatDelay, err := nextHeartbeatDelay(t.runtime)
 	if err != nil {
@@ -456,33 +459,59 @@ func (c *Client) verifyProcessSupervisors(ctx context.Context) error {
 	return nil
 }
 
-func (t *daemonSocketTransport) writeLoop(ctx context.Context) error {
+const daemonToolSendQueueSize = 64
+
+type messageWriter interface {
+	Write(context.Context, daemonprotocol.Message) error
+	Ping(context.Context) error
+}
+
+type websocketMessageWriter struct {
+	conn *websocket.Conn
+}
+
+func (w websocketMessageWriter) Write(ctx context.Context, message daemonprotocol.Message) error {
+	return wsjson.Write(ctx, w.conn, &message)
+}
+
+func (w websocketMessageWriter) Ping(ctx context.Context) error {
+	return w.conn.Ping(ctx)
+}
+
+func (t *daemonSocketTransport) writeLoop(ctx context.Context, wire messageWriter) error {
 	pingTicker := time.NewTicker(20 * time.Second)
 	defer pingTicker.Stop()
 	for {
+		var message daemonprotocol.Message
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-pingTicker.C:
-			pingCtx, cancel := context.WithTimeout(
-				ctx,
-				10*time.Second,
-			)
-			err := t.conn.Ping(pingCtx)
-			cancel()
-			if err != nil {
-				return err
+		case message = <-t.send:
+		default:
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-pingTicker.C:
+				pingCtx, cancel := context.WithTimeout(
+					ctx,
+					10*time.Second,
+				)
+				err := wire.Ping(pingCtx)
+				cancel()
+				if err != nil {
+					return err
+				}
+				continue
+			case message = <-t.send:
+			case message = <-t.toolSend:
 			}
-		case message := <-t.send:
-			writeCtx, cancel := context.WithTimeout(
-				ctx,
-				10*time.Second,
-			)
-			err := wsjson.Write(writeCtx, t.conn, &message)
-			cancel()
-			if err != nil {
-				return err
-			}
+		}
+		writeCtx, cancel := context.WithTimeout(
+			ctx,
+			10*time.Second,
+		)
+		err := wire.Write(writeCtx, message)
+		cancel()
+		if err != nil {
+			return err
 		}
 	}
 }
@@ -525,12 +554,18 @@ func (t *daemonSocketTransport) handleMessage(
 		if message.SkillOffer != nil {
 			t.handleSkillOffer(ctx, *message.SkillOffer)
 		}
+	case daemonprotocol.MessageToolCallReport:
+		if message.ToolCallReport != nil {
+			t.client.programToolCalls.report(*message.ToolCallReport)
+		}
 	case daemonprotocol.MessageHeartbeatAck:
 	case daemonprotocol.MessageHeartbeat,
 		daemonprotocol.MessageProcessAccept,
 		daemonprotocol.MessageActionAccept,
 		daemonprotocol.MessageReport,
-		daemonprotocol.MessageSkillReport:
+		daemonprotocol.MessageSkillReport,
+		daemonprotocol.MessageToolCallOffer,
+		daemonprotocol.MessageToolCallCancel:
 		return fmt.Errorf(
 			"unexpected server-to-daemon message type %q",
 			message.Type,
@@ -659,8 +694,9 @@ func (t *daemonSocketTransport) offerProcess(
 	offer daemonprotocol.ProcessOffer,
 ) {
 	assignment := ProcessAssignment{
-		ID:             offer.ProcessID,
-		GitCredentials: offer.GitCredentials,
+		ID:                    offer.ProcessID,
+		GitCredentials:        offer.GitCredentials,
+		ProgrammaticToolCalls: offer.ProgrammaticToolCalls,
 		Process: Process{
 			ExecutionSpec: offer.ExecutionSpec,
 			Cwd:           offer.Cwd,

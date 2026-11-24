@@ -293,6 +293,6 @@ func (s *Server) resolveDiscordInteraction(
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
-	s.dismissInteractionAsync(ctx, resolved)
+	s.interactionResolved(ctx, resolved)
 	return response, nil
 }

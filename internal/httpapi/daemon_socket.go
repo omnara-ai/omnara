@@ -21,28 +21,43 @@ import (
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
+type daemonSocketWire interface {
+	Read(context.Context) (daemonprotocol.Message, error)
+	Write(context.Context, daemonprotocol.Message) error
+	Ping(context.Context) error
+	Close(websocket.StatusCode, string) error
+}
+
 type daemonSocket struct {
-	server            *Server
-	wire              *daemonprotocol.BackendSocket
-	connectionID      uuid.UUID
-	orgID             uuid.UUID
-	machineID         uuid.UUID
-	runtimeID         uuid.UUID
-	tokenID           uuid.UUID
-	send              chan daemonSocketOutbound
-	workMu            sync.Mutex
-	drainQueued       bool
-	drainRunning      bool
-	drainDone         chan struct{}
-	drain             func()
-	acceptedProcesses map[uuid.UUID]struct{}
-	acceptedActions   map[uuid.UUID]struct{}
-	leaseRenewAfter   time.Time
-	observedPlatform  string
-	drainAfterRenewal bool
-	done              chan struct{}
-	closeOnce         sync.Once
-	closeCode         websocket.StatusCode
+	server                *Server
+	wire                  daemonSocketWire
+	connectionID          uuid.UUID
+	orgID                 uuid.UUID
+	machineID             uuid.UUID
+	runtimeID             uuid.UUID
+	tokenID               uuid.UUID
+	send                  chan daemonSocketOutbound
+	toolSend              chan daemonSocketOutbound
+	toolCallReplies       chan struct{}
+	workMu                sync.Mutex
+	drainQueued           bool
+	drainRunning          bool
+	drainDone             chan struct{}
+	drain                 func()
+	acceptedProcesses     map[uuid.UUID]struct{}
+	acceptedActions       map[uuid.UUID]struct{}
+	toolCalls             map[string]*servedToolCall
+	toolCallsCanceling    map[string]*servedToolCall
+	toolCallsActive       int
+	toolCallCancelsActive int
+	toolCallsDone         sync.WaitGroup
+	toolCallCancelsQueued []daemonprotocol.ToolCallCancel
+	leaseRenewAfter       time.Time
+	observedPlatform      string
+	drainAfterRenewal     bool
+	done                  chan struct{}
+	closeOnce             sync.Once
+	closeCode             websocket.StatusCode
 }
 
 type daemonSocketOutbound struct {
@@ -63,24 +78,28 @@ const (
 
 func newDaemonSocket(
 	server *Server,
-	wire *daemonprotocol.BackendSocket,
+	wire daemonSocketWire,
 	connectionID uuid.UUID,
 	orgID, machineID, runtimeID, tokenID uuid.UUID,
 	drainAfterRenewal bool,
 ) *daemonSocket {
 	return &daemonSocket{
-		server:            server,
-		wire:              wire,
-		connectionID:      connectionID,
-		orgID:             orgID,
-		machineID:         machineID,
-		runtimeID:         runtimeID,
-		tokenID:           tokenID,
-		send:              make(chan daemonSocketOutbound, daemonSocketQueueSize),
-		done:              make(chan struct{}),
-		acceptedProcesses: map[uuid.UUID]struct{}{},
-		acceptedActions:   map[uuid.UUID]struct{}{},
-		drainAfterRenewal: drainAfterRenewal,
+		server:             server,
+		wire:               wire,
+		connectionID:       connectionID,
+		orgID:              orgID,
+		machineID:          machineID,
+		runtimeID:          runtimeID,
+		tokenID:            tokenID,
+		send:               make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		toolSend:           make(chan daemonSocketOutbound, daemonSocketQueueSize),
+		toolCallReplies:    make(chan struct{}, daemonToolCallLimit),
+		done:               make(chan struct{}),
+		acceptedProcesses:  map[uuid.UUID]struct{}{},
+		acceptedActions:    map[uuid.UUID]struct{}{},
+		toolCalls:          map[string]*servedToolCall{},
+		toolCallsCanceling: map[string]*servedToolCall{},
+		drainAfterRenewal:  drainAfterRenewal,
 	}
 }
 
@@ -167,9 +186,12 @@ func (s *daemonSocket) run(ctx context.Context) {
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	s.drain = func() { s.drainLoop(runCtx) }
-	s.server.daemonHub.register(s)
+	if !s.server.daemonHub.register(s) {
+		s.close(websocket.StatusGoingAway, "api shutting down")
+		return
+	}
 	defer func() {
-		s.server.daemonHub.unregister(s)
+		defer s.server.daemonHub.unregister(s)
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cleanupCancel()
 		owner := s.presenceOwner()
@@ -217,6 +239,8 @@ func (s *daemonSocket) run(ctx context.Context) {
 	if drainDone != nil {
 		<-drainDone
 	}
+	cancel(nil)
+	s.toolCallsDone.Wait()
 }
 
 func stableJitterDuration(value string, maxDuration time.Duration) time.Duration {
@@ -236,27 +260,34 @@ func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	pingTicker := time.NewTicker(20 * time.Second)
 	defer pingTicker.Stop()
 	for {
+		var outbound daemonSocketOutbound
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-pingTicker.C:
-			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := s.wire.Ping(pingCtx)
-			cancel()
-			if err != nil {
-				return err
+		case outbound = <-s.send:
+		default:
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-pingTicker.C:
+				pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				err := s.wire.Ping(pingCtx)
+				cancel()
+				if err != nil {
+					return err
+				}
+				continue
+			case outbound = <-s.send:
+			case outbound = <-s.toolSend:
 			}
-		case outbound := <-s.send:
-			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := s.wire.Write(writeCtx, outbound.msg)
-			cancel()
-			if err != nil {
-				return err
-			}
-			if outbound.closeCode != 0 {
-				s.close(outbound.closeCode, outbound.closeReason)
-				return nil
-			}
+		}
+		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := s.wire.Write(writeCtx, outbound.msg)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if outbound.closeCode != 0 {
+			s.close(outbound.closeCode, outbound.closeReason)
+			return nil
 		}
 	}
 }
@@ -311,6 +342,10 @@ func (s *daemonSocket) handleMessage(ctx context.Context, msg daemonprotocol.Mes
 		return s.handleReport(ctx, msg)
 	case daemonprotocol.MessageSkillReport:
 		return s.handleSkillReport(ctx, msg)
+	case daemonprotocol.MessageToolCallOffer:
+		return s.handleToolCallOffer(ctx, msg)
+	case daemonprotocol.MessageToolCallCancel:
+		return s.handleToolCallCancel(ctx, msg)
 	default:
 		return errUnsupportedDaemonMessage
 	}

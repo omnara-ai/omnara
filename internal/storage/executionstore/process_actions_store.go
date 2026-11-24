@@ -24,6 +24,9 @@ func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
 	input CreateProcessActionInput,
 ) (ProcessActionRecord, error) {
+	if err := t.requireRuntime(); err != nil {
+		return ProcessActionRecord{}, err
+	}
 	if input.ProcessID == uuid.Nil || input.ActionKind == "" {
 		return ProcessActionRecord{}, errors.New("process and kind are required")
 	}
@@ -272,7 +275,8 @@ func (s *Store) ListDaemonProcessOffers(
 				UpdatedAt:             row.UpdatedAt,
 				LastActivityAt:        row.LastActivityAt,
 			}),
-			GitCredentials: row.GitCredentialsIntegrationID != uuid.Nil,
+			GitCredentials:        row.GitCredentialsIntegrationID != uuid.Nil,
+			ProgrammaticToolCalls: row.ProgrammaticToolCalls,
 		}
 		env, err := s.ResolveEnvironmentSecrets(ctx, row.OrgID, row.ProjectID, row.Env, row.SecretEnv)
 		if err != nil {

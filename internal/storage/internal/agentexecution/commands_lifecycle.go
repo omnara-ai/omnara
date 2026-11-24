@@ -245,6 +245,9 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 				return false, err
 			}
 		}
+		if err = h.stopProgramToolsOfArchivedAgent(ctx); err != nil {
+			return false, err
+		}
 		if _, err = executiondb.New().CancelExecutionInputs(ctx,
 			h.unit.DB(),
 			executiondb.CancelExecutionInputsParams{AgentID: h.route.AgentID,

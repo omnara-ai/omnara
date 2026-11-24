@@ -18,6 +18,8 @@ import (
 var (
 	ErrSessionExpired = errors.New("mcp: session expired (server returned 404)")
 
+	ErrConnectionConfigChanged = errors.New("mcp: connection is no longer for this server configuration")
+
 	ErrIncompleteStream = errors.New("mcp: SSE stream closed before matching response arrived")
 
 	ErrUnsupportedResponse = errors.New("mcp: unsupported response content type")
@@ -64,6 +66,27 @@ func (e *HTTPError) Error() string {
 		return fmt.Sprintf("mcp: unexpected HTTP status %d", e.Status)
 	}
 	return fmt.Sprintf("mcp: unexpected HTTP status %d: %s", e.Status, e.Body)
+}
+
+type ResponseLostError struct {
+	Err error
+}
+
+func (e *ResponseLostError) Error() string { return e.Err.Error() }
+
+func (e *ResponseLostError) Unwrap() error { return e.Err }
+
+func responseLost(err error) bool {
+	var rpcErr *RPCError
+	if errors.As(err, &rpcErr) || errors.Is(err, ErrSessionExpired) ||
+		errors.Is(err, context.Canceled) || IsTimeout(err) {
+		return false
+	}
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status >= http.StatusInternalServerError
+	}
+	return true
 }
 
 type RPCError struct {

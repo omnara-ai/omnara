@@ -1,0 +1,98 @@
+-- name: LockProgramProcess :one
+SELECT p.id,p.tool_call_id,(p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))::boolean AS live
+FROM processes p WHERE p.agent_id=sqlc.arg(agent_id) AND p.id=sqlc.arg(id) FOR SHARE;
+
+-- name: InsertProgramTool :one
+INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
+ program_named,program_offer_id,created_at)
+SELECT sqlc.arg(id),c.project_id,c.agent_id,sqlc.arg(key),sqlc.arg(name),sqlc.arg(input)::jsonb,sqlc.arg(type),
+ 'awaiting_authorization','program',c.id,sqlc.arg(named)::boolean,sqlc.narg(offer_id)::text,statement_timestamp()
+FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(parent_id) AND c.caller='model'
+ON CONFLICT (agent_id,provider_call_id) WHERE caller='program' AND state<>'completed' DO NOTHING
+RETURNING id;
+
+-- name: CountOpenProgramTools :one
+SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
+ AND (parent_tool_call_id=sqlc.arg(parent_id)::uuid OR program_named OR (type='custom' AND state='ready'))
+ AND state<>'completed';
+
+-- name: ListProgramToolsAwaitingResult :many
+SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND type='custom'
+ AND state='ready' ORDER BY id;
+
+-- name: ListOpenProgramTools :many
+SELECT id FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program' AND state<>'completed' ORDER BY id;
+
+-- name: ReadProgramTool :one
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')::boolean AS named_expired,
+ c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
+FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.caller='program' AND c.id=sqlc.arg(id)
+FOR UPDATE OF c;
+
+-- name: ReadProgramToolByKey :one
+SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,c.program_named,
+ c.program_offer_id,c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
+ (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')::boolean AS named_expired,
+ c.created_at,p.id AS process_id,r.id AS result_id,r.outcome,r.completed_at
+FROM tool_calls c JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.caller='program' AND c.provider_call_id=sqlc.arg(key)
+ORDER BY c.created_at DESC,c.id DESC LIMIT 1
+FOR UPDATE OF c;
+
+-- name: SetProgramToolOffer :execrows
+UPDATE tool_calls c SET program_offer_id=sqlc.arg(offer_id)::text
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program' AND c.state<>'completed';
+
+-- name: TransitionProgramTool :execrows
+UPDATE tool_calls c SET state=sqlc.arg(next_state),program_claim_id=sqlc.narg(next_claim_id),
+ program_claim_expires_at=CASE WHEN sqlc.narg(next_claim_id)::uuid IS NULL THEN NULL
+ ELSE statement_timestamp()+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond' END
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program' AND c.state=sqlc.arg(previous_state)
+ AND c.program_claim_id IS NOT DISTINCT FROM sqlc.narg(previous_claim_id)::uuid;
+
+-- name: RenewProgramToolClaim :one
+UPDATE tool_calls c SET program_claim_expires_at=greatest(c.program_claim_expires_at,
+ statement_timestamp()+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond')
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
+ AND c.state IN ('awaiting_authorization','waiting') AND c.program_claim_id=sqlc.arg(claim_id)
+ AND c.program_claim_expires_at>statement_timestamp()
+ AND EXISTS(SELECT 1 FROM agents a WHERE a.id=c.agent_id AND a.state='active')
+ AND EXISTS(SELECT 1 FROM processes p WHERE p.agent_id=c.agent_id AND p.id=sqlc.arg(process_id)
+ AND p.tool_call_id=c.parent_tool_call_id
+ AND (c.program_named OR (p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))))
+RETURNING c.program_claim_expires_at;
+
+-- name: ListProgramToolReapable :many
+SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active'
+ OR (NOT (c.type='custom' AND c.state='ready')
+  AND (p.execution_granted_at IS NULL OR p.state NOT IN ('starting','running')) AND (NOT c.program_named
+  OR ((c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond')
+   AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp()))))
+ OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
+ AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)
+ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
+
+-- name: ListProgramToolRunnable :many
+SELECT c.id,c.agent_id,a.project_id,p.id AS process_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
+WHERE c.caller='program' AND c.program_named
+ AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type<>'custom'))
+ AND (c.program_claim_expires_at IS NULL OR c.program_claim_expires_at<=statement_timestamp())
+ AND a.state='active'
+ AND ((p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
+  OR NOT (c.program_named AND c.created_at<=statement_timestamp()-sqlc.arg(named_lifetime_microseconds)::bigint*interval '1 microsecond'))
+ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
+
+-- name: ReadCurrentAgentCompiledConfig :one
+SELECT d.compiled_definition,d.effective_definition_hash
+FROM agents a
+JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+WHERE a.project_id=sqlc.arg(project_id) AND a.id=sqlc.arg(agent_id);

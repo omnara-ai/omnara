@@ -205,7 +205,7 @@ func (s strictOpenAPIServer) resolveAgentInteraction(
 	if err != nil {
 		return nil, err
 	}
-	s.server.dismissInteractionAsync(ctx, record)
+	s.server.interactionResolved(ctx, record)
 	return openapi.ResolveAgentInteraction200JSONResponse(response), nil
 }
 
@@ -389,6 +389,13 @@ func timePtrFromZero(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
+}
+
+func (s *Server) interactionResolved(ctx context.Context, record executionstore.AgentInteractionRecord) {
+	if record.ToolCallID != uuid.Nil {
+		s.programToolDriver.wake()
+	}
+	s.dismissInteractionAsync(ctx, record)
 }
 
 func (s *Server) dismissInteractionAsync(ctx context.Context, record executionstore.AgentInteractionRecord) {

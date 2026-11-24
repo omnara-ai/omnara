@@ -60,6 +60,9 @@ func (e Executor) dispatchMCPTool(
 	if err != nil {
 		return toolResultContent{}, err
 	}
+	if err := mcpConnectionServes(conn, server); err != nil {
+		return toolResultContent{}, err
+	}
 	manager := mcp.Manager{
 		Execution:            e.Store.Execution(),
 		Secrets:              e.Store.Secrets(),
@@ -77,7 +80,11 @@ func (e Executor) dispatchMCPTool(
 		Name:      remoteName,
 		Arguments: call.Input,
 		BeforeSend: func(ctx context.Context) error {
-			return e.Store.Execution().EnsureRuntimeLockActive(ctx, turn.ProjectID, turn.AgentID, turn.RuntimeLockID)
+			if err := turn.toolAuthority().ensureActive(ctx, e, turn); err != nil {
+				return err
+			}
+			turn.markStarted()
+			return nil
 		},
 	})
 	if cause := mcp.InitializationCause(err); cause != nil && mcp.InitializationRecorded(err) {
@@ -86,6 +93,14 @@ func (e Executor) dispatchMCPTool(
 			return toolResultContent{}, resultErr
 		}
 		return failed, cause
+	}
+	var lost *mcp.ResponseLostError
+	if errors.As(err, &lost) {
+		unknown, resultErr := mcpResponseLostToolResult(serverKey, remoteName, lost)
+		if resultErr != nil {
+			return toolResultContent{}, resultErr
+		}
+		return unknown, err
 	}
 	if err != nil {
 		return toolResultContent{}, err
@@ -111,6 +126,36 @@ func (e Executor) runtimeMCPServerForTool(
 		"mcp server \"%s\" is not declared in model context config",
 		serverKey,
 	)
+}
+
+func mcpConnectionServes(conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer) error {
+	hash, err := executionstore.MCPServerConfigHash(server)
+	if err != nil {
+		return err
+	}
+	if conn.ConfigHash != hash {
+		return fmt.Errorf("mcp server \"%s\" is not ready for the agent's current configuration", server.ServerKey)
+	}
+	return nil
+}
+
+func mcpResponseLostToolResult(
+	serverKey, remoteName string,
+	lost *mcp.ResponseLostError,
+) (toolResultContent, error) {
+	result := map[string]any{
+		"error_code": "outcome_unknown",
+		"message": fmt.Sprintf("MCP tool \"%s\" on server \"%s\" was sent the call, but no usable response "+
+			"came back. The call may or may not have taken effect, so check before running it again.",
+			remoteName, serverKey),
+		"error":          lost.Error(),
+		"mcp_server_key": serverKey,
+		"mcp_tool_name":  remoteName,
+	}
+	if status, ok := mcp.HTTPStatus(lost); ok {
+		result["http_status"] = status
+	}
+	return structuredToolResultContent(result)
 }
 
 func mcpConnectionFailedToolResult(
@@ -179,7 +224,11 @@ func (e Executor) mcpToolResultContent(
 		if err != nil {
 			return toolResultContent{}, err
 		}
-		parts = append(parts, part)
+		if turn.programCall() {
+			parts = append([]toolResultPart{part}, parts...)
+		} else {
+			parts = append(parts, part)
+		}
 	}
 	content := newToolResultContent(parts...)
 	if result.IsError {

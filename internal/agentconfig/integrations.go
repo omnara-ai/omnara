@@ -78,11 +78,17 @@ func compileIntegrationTool(name string, source AgentConfigToolSource, opts Comp
 			return ToolCompiled{}, issueOr(jsonPointer("tools", name, "permission"), err)
 		}
 	}
+	if source.CodeMode != nil && !entry.CodeMode {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name, "code_mode"), "tool %q cannot be called from commands", name,
+		)
+	}
 	return ToolCompiled{
 		IntegrationID: integration.IntegrationID,
 		Enabled:       source.Enabled == nil || *source.Enabled,
 		Permission:    permission,
 		Deferred:      source.Deferred,
+		CodeMode:      source.CodeMode,
 	}, nil
 }
 

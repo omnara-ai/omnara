@@ -43,6 +43,7 @@ type Compiled struct {
 	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                     `json:"max_depth,omitempty"`
 	MemoryStores        []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
+	CodeMode            *CodeModeCompiled                        `json:"code_mode,omitempty"`
 }
 
 type SkillCompiled struct {
@@ -118,6 +119,7 @@ type ToolCompiled struct {
 	Type          string                   `json:"type,omitempty"`
 	Permission    toolpermission.Selection `json:"permission"`
 	Deferred      bool                     `json:"deferred,omitempty"`
+	CodeMode      *bool                    `json:"code_mode,omitempty"`
 	Description   string                   `json:"description,omitempty"`
 	InputSchema   json.RawMessage          `json:"input_schema,omitempty"`
 }
@@ -128,6 +130,7 @@ type MCPServerCompiled struct {
 	DefaultEnabled bool                       `json:"default_enabled"`
 	Permission     toolpermission.Selection   `json:"permission"`
 	Deferred       bool                       `json:"deferred,omitempty"`
+	CodeMode       *bool                      `json:"code_mode,omitempty"`
 	Tools          map[string]MCPToolCompiled `json:"tools,omitempty"`
 }
 
@@ -142,6 +145,7 @@ type MCPToolCompiled struct {
 	Enabled    *bool                     `json:"enabled,omitempty"`
 	Permission *toolpermission.Selection `json:"permission,omitempty"`
 	Deferred   *bool                     `json:"deferred,omitempty"`
+	CodeMode   *bool                     `json:"code_mode,omitempty"`
 }
 
 // Result is the complete compiler output for one agent config source. It is
@@ -285,6 +289,9 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.MaxSubagents = source.MaxSubagents
 	}
 	compiled.MaxDepth = source.MaxDepth
+	if err := compileCodeMode(source.CodeMode, &compiled); err != nil {
+		return Compiled{}, err
+	}
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
 		return Compiled{}, issuef(
 			jsonPointer("model", "name"),
@@ -477,10 +484,16 @@ func compileBuiltInTool(
 	if source.Deferred && name == toolcatalog.ToolNameToolSearch {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name, "deferred"), "tool_search cannot be deferred")
 	}
+	if source.CodeMode != nil && !entry.CodeMode {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name, "code_mode"), "tool %q cannot be called from commands", name,
+		)
+	}
 	compiled := ToolCompiled{
 		Enabled:    enabled,
 		Permission: permission,
 		Deferred:   source.Deferred,
+		CodeMode:   source.CodeMode,
 	}
 	return compiled, nil
 }
@@ -528,6 +541,7 @@ func compileCustomTool(
 		Type:        toolcatalog.ToolTypeCustom,
 		Permission:  permission,
 		Deferred:    source.Deferred,
+		CodeMode:    source.CodeMode,
 		Description: strings.TrimSpace(source.Description),
 		InputSchema: schema,
 	}, nil

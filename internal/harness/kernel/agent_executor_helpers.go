@@ -23,13 +23,7 @@ func toolSpecSet(specs []modelcontext.ToolSpec) map[string]modelcontext.ToolSpec
 func executableToolSet(specs []modelcontext.ToolSpec) map[string]tools.ToolSpec {
 	executable := make(map[string]tools.ToolSpec, len(specs))
 	for _, spec := range specs {
-		executable[spec.Name] = tools.ToolSpec{
-			Type:        spec.Type,
-			Permission:  spec.Permission,
-			Description: spec.Description,
-			InputSchema: spec.InputSchema,
-			Deferred:    spec.Deferred,
-		}
+		executable[spec.Name] = tools.ToolSpecFromModelContext(spec)
 	}
 	return executable
 }

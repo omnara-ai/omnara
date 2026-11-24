@@ -191,6 +191,17 @@ func publicToolCallFromSummary(
 		response.Outcome = &outcome
 	}
 	response.CompletedAt = record.CompletedAt
+	if record.Caller != "" {
+		caller := openapi.ToolCallCaller(record.Caller)
+		response.Caller = &caller
+	}
+	if record.ParentToolCallID != uuid.Nil {
+		parentID, err := publicID(publicid.KindToolCall, record.ParentToolCallID)
+		if err != nil {
+			return openapi.ToolCall{}, err
+		}
+		response.ParentToolCallId = &parentID
+	}
 	return response, nil
 }
 
@@ -199,11 +210,7 @@ func publicToolResultFromRecord(
 	event executionstore.TypedAgentEventRecord,
 	contentBlocks json.RawMessage,
 ) (openapi.ToolResult, error) {
-	id, err := publicID(publicid.KindAgentEvent, event.Event.ID)
-	if err != nil {
-		return openapi.ToolResult{}, err
-	}
-	agentID, err := publicID(publicid.KindAgent, event.Event.AgentID)
+	agentID, err := publicID(publicid.KindAgent, toolCall.AgentID)
 	if err != nil {
 		return openapi.ToolResult{}, err
 	}
@@ -219,14 +226,25 @@ func publicToolResultFromRecord(
 	if err != nil {
 		return openapi.ToolResult{}, err
 	}
-	return openapi.ToolResult{
-		EventId:       id,
+	result := openapi.ToolResult{
 		AgentId:       agentID,
 		ToolCallId:    toolCallID,
 		Outcome:       outcome,
 		ContentBlocks: blocks,
-		CreatedAt:     event.Event.At,
-	}, nil
+	}
+	if event.Event.ID == uuid.Nil {
+		if toolCall.CompletedAt == nil {
+			return openapi.ToolResult{}, fmt.Errorf("tool result %s has neither an event nor a completion time", toolCall.ID)
+		}
+		result.CreatedAt = *toolCall.CompletedAt
+		return result, nil
+	}
+	id, err := publicID(publicid.KindAgentEvent, event.Event.ID)
+	if err != nil {
+		return openapi.ToolResult{}, err
+	}
+	result.EventId, result.CreatedAt = &id, event.Event.At
+	return result, nil
 }
 
 func publicAgentInputResponseFromRecord(record executionstore.AgentInputRecord) (openapi.AgentInput, error) {
