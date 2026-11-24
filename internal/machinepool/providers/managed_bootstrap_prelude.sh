@@ -9,9 +9,9 @@ x=0;"$@" >"$d/p" 2>&1||x=$?
 (sleep 1;kill "$c" 2>/dev/null)&w=$!
 z=0;wait "$c"||z=$?
 kill "$w" 2>/dev/null||:;wait "$w" 2>/dev/null||:
-curl -qfsS --connect-timeout 3 -m 5 --retry 2 \
+for i in 1 2 0;do [ "$(curl -qsS --connect-timeout 3 -m 5 --retry 2 -w%{http_code} \
 -H "Authorization: Bearer ${OMNARA_MACHINE_TOKEN:?}" -H Content-Type:text/plain \
---data-binary @"$d/t" -o /dev/null "${OMNARA_API_URL:?}/daemon/failures?stage=$g&exit_status=$x&capture_status=$z"||:
+--data-binary @"$d/t" -o /dev/null "${OMNARA_API_URL:?}/daemon/failures?stage=$g&exit_status=$x&capture_status=$z")" = 401 ]||break;sleep $i;done
 exit "$x"
 );}
 if [ -n "${OMNARA_STARTUP_SCRIPT_PAYLOAD:-}" ];then

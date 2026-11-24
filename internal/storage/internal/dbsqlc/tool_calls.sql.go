@@ -307,6 +307,35 @@ func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummary
 	return i, err
 }
 
+const hasSiblingToolCall = `-- name: HasSiblingToolCall :one
+SELECT EXISTS (
+  SELECT 1 FROM tool_calls call
+  JOIN tool_calls sibling ON sibling.project_id = call.project_id AND sibling.agent_id = call.agent_id
+    AND sibling.model_output_id = call.model_output_id AND sibling.id <> call.id
+  WHERE call.project_id = $1 AND call.agent_id = $2 AND call.id = $3
+    AND sibling.name = ANY($4::text[])
+)::boolean
+`
+
+type HasSiblingToolCallParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+	Names     []string
+}
+
+func (q *Queries) HasSiblingToolCall(ctx context.Context, arg HasSiblingToolCallParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasSiblingToolCall,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ID,
+		arg.Names,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listCompletedToolCallsAtWatermark = `-- name: ListCompletedToolCallsAtWatermark :many
 WITH selected_calls AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,

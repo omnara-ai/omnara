@@ -27,6 +27,7 @@ type GitHubCheckRun struct {
 	Done          bool
 	Restart       bool
 	Unfinished    bool
+	Eligible      bool
 	revision      int64
 }
 
@@ -39,6 +40,10 @@ type githubCheckRunData struct {
 	Claim   string    `json:"claim,omitempty"`
 }
 
+func githubCheckRunKey(agentID uuid.UUID, address ConversationAddress) string {
+	return agentID.String() + " " + address.Ref
+}
+
 func (s *Store) MarkGitHubCheckRun(
 	ctx context.Context, projectID, integrationID, agentID uuid.UUID, address ConversationAddress, restart bool,
 ) error {
@@ -48,7 +53,7 @@ func (s *Store) MarkGitHubCheckRun(
 	}
 	return s.q.MergeIntegrationState(ctx, dbsqlc.MergeIntegrationStateParams{
 		ProjectID: projectID, IntegrationID: integrationID, Kind: githubCheckRunStateKind,
-		Key: agentID.String() + " " + address.Ref, ScopeKind: &address.Kind, ScopeRef: &address.Ref, Data: data,
+		Key: githubCheckRunKey(agentID, address), ScopeKind: &address.Kind, ScopeRef: &address.Ref, Data: data,
 		Force: restart,
 	})
 }
@@ -101,7 +106,7 @@ func (s *Store) ListGitHubCheckRuns(
 				Kind: storeutil.TextOrEmpty(state.ScopeKind), Ref: storeutil.TextOrEmpty(state.ScopeRef),
 			},
 			Run: data.Run, Waiting: data.Waiting, Done: data.Done, Restart: data.Restart, Unfinished: data.Claim != "",
-			revision: state.Revision,
+			Eligible: state.Eligible, revision: state.Revision,
 		})
 	}
 	return runs, nil

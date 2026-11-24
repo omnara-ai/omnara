@@ -409,6 +409,9 @@ func deriveIntegrationLaunchConfig(
 		additions.GitCredentials = &agentconfig.GitCredentialsSource{Integration: integration.Name}
 	}
 	for _, tool := range toolcatalog.IntegrationTools(integration.IntegrationKind) {
+		if tool.Scope != toolcatalog.IntegrationToolScopeConversation {
+			continue
+		}
 		name := toolcatalog.IntegrationToolName(integration.Name, tool.Operation)
 		additions.Tools[name] = agentconfig.AgentConfigToolSource{}
 	}

@@ -252,7 +252,7 @@ func TestWriteDaemonConfigRejectsBindingChange(t *testing.T) {
 func TestWriteDaemonConfigRejectsInvalidAuthAtAPIURLOverride(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "rejected", http.StatusUnauthorized)
+		http.Error(w, `{"code":"unauthorized","error":"rejected"}`, http.StatusUnauthorized)
 	}))
 	defer server.Close()
 	writeTestDaemonConfig(t, home, daemonConfig{
@@ -286,7 +286,7 @@ func TestWriteDaemonConfigRejectsInvalidAuthAtAPIURLOverride(t *testing.T) {
 func TestWriteDaemonConfigRejectsInvalidAuthWithoutWriting(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "rejected", http.StatusUnauthorized)
+		http.Error(w, `{"code":"unauthorized","error":"rejected"}`, http.StatusUnauthorized)
 	}))
 	defer server.Close()
 	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "bad-token")
@@ -827,7 +827,7 @@ func bootstrapServer(
 			return
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer "+token {
-			http.Error(w, "bad token", http.StatusUnauthorized)
+			http.Error(w, `{"code":"unauthorized","error":"bad token"}`, http.StatusUnauthorized)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{

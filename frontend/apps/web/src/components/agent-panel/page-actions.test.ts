@@ -97,8 +97,8 @@ const point: PageAction = {
 it('answers each waiting call once, in order, with what the user now sees', async () => {
   const button = document.createElement('button')
   const dashboard = page({ 'New provider': button })
-  dashboard.runner.observe([open, point])
-  dashboard.runner.observe([open, point])
+  dashboard.runner.take([open, point])
+  dashboard.runner.take([open, point])
   await dashboard.runner.settled()
 
   expect(dashboard.log).toEqual(['open /models', 'find New provider'])
@@ -111,7 +111,7 @@ it('answers each waiting call once, in order, with what the user now sees', asyn
 
 it('tells the assistant when a page or a target is not there', async () => {
   const dashboard = page({})
-  dashboard.runner.observe([{ id: 'api', tool: 'dashboard_open_page', path: '/api/v1/me' }, point])
+  dashboard.runner.take([{ id: 'api', tool: 'dashboard_open_page', path: '/api/v1/me' }, point])
   await dashboard.runner.settled()
 
   expect(dashboard.pointer()).toBeNull()
@@ -124,12 +124,12 @@ it('tells the assistant when a page or a target is not there', async () => {
 it('leaves calls for a tab the user is looking at, and takes them once this one is', async () => {
   const dashboard = page({})
   dashboard.show(false)
-  dashboard.runner.observe([open])
+  dashboard.runner.take([open])
   await dashboard.runner.settled()
   expect(dashboard.answers).toEqual([])
 
   dashboard.show(true)
-  dashboard.runner.observe([open])
+  dashboard.runner.take([open])
   await dashboard.runner.settled()
   expect(dashboard.answers).toHaveLength(1)
 })

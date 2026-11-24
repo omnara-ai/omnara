@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -76,5 +77,18 @@ func TestGitHubCheckDue(t *testing.T) {
 				t.Fatalf("githubCheckDue() = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestGitHubCheckStateFinishesDetachedAgents(t *testing.T) {
+	agentID := uuid.New()
+	states := map[uuid.UUID]string{agentID: executionstore.SubagentStateRunning}
+	run := integrationstore.GitHubCheckRun{AgentID: agentID, Eligible: true}
+	if got := githubCheckState(run, states); got != executionstore.SubagentStateRunning {
+		t.Fatalf("eligible agent state = %q, want running", got)
+	}
+	run.Eligible = false
+	if got := githubCheckState(run, states); got != "" {
+		t.Fatalf("ineligible agent state = %q, want finished", got)
 	}
 }

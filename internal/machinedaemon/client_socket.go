@@ -138,23 +138,19 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		if response != nil {
-			switch response.StatusCode {
-			case http.StatusGone:
+			if response.StatusCode == http.StatusGone {
 				return false, errDaemonRuntimeUnregistered
-			case http.StatusUnauthorized, http.StatusForbidden:
-				return false, errDaemonAuthorizationRevoked
-			default:
-				var body []byte
-				var readErr error
-				if response.Body != nil {
-					body, readErr = readDaemonHTTPResponse(response.Body)
-				}
-				return false, errors.Join(
-					err,
-					newHTTPStatusError(response, body),
-					readErr,
-				)
 			}
+			var body []byte
+			var readErr error
+			if response.Body != nil {
+				body, readErr = readDaemonHTTPResponse(response.Body)
+			}
+			statusErr := newHTTPStatusError(response, body)
+			if IsAuthenticationRejected(statusErr) {
+				return false, errDaemonAuthorizationRevoked
+			}
+			return false, errors.Join(err, statusErr, readErr)
 		}
 		return false, err
 	}

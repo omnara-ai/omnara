@@ -281,7 +281,8 @@ export const zErrorCode = z.enum([
     'daemon_runtime_unregistered',
     'validation_failed',
     'csrf_check_failed',
-    'authentication_unavailable'
+    'authentication_unavailable',
+    'machine_token_not_injected'
 ]);
 
 /**
@@ -3729,7 +3730,7 @@ export const zCreateAgentRequest = z.intersection(z.union([
     name: zAgentName.optional(),
     message: z.string().optional(),
     tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
-    subscriptions: z.array(zIntegrationSubscriptionAttachment).max(100).optional(),
+    subscriptions: z.array(zIntegrationSubscriptionAttachment).max(16).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 }));

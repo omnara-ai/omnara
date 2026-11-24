@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useEffectEvent, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { PagePointer as Pointer } from './page-actions'
@@ -20,6 +20,7 @@ export function PagePointer({
 
 function Mark({ pointer, onDismiss }: { pointer: Pointer; onDismiss: () => void }) {
   const frame = useRef<HTMLDivElement>(null)
+  const dismiss = useEffectEvent(onDismiss)
 
   useEffect(() => {
     const { element } = pointer
@@ -31,7 +32,7 @@ function Mark({ pointer, onDismiss }: { pointer: Pointer; onDismiss: () => void 
     function follow() {
       const node = frame.current
       if (!element.isConnected) {
-        onDismiss()
+        dismiss()
         return
       }
       if (node != null) {
@@ -45,13 +46,21 @@ function Mark({ pointer, onDismiss }: { pointer: Pointer; onDismiss: () => void 
       next = requestAnimationFrame(follow)
     }
     follow()
-    const timer = setTimeout(onDismiss, lifetimeMs)
+    const timer = setTimeout(() => {
+      dismiss()
+    }, lifetimeMs)
     const listeners = new AbortController()
-    window.addEventListener('pointerdown', onDismiss, { capture: true, signal: listeners.signal })
+    window.addEventListener(
+      'pointerdown',
+      () => {
+        dismiss()
+      },
+      { capture: true, signal: listeners.signal },
+    )
     window.addEventListener(
       'keydown',
       (event) => {
-        if (event.key === 'Escape') onDismiss()
+        if (event.key === 'Escape') dismiss()
       },
       { signal: listeners.signal },
     )
@@ -60,7 +69,7 @@ function Mark({ pointer, onDismiss }: { pointer: Pointer; onDismiss: () => void 
       clearTimeout(timer)
       listeners.abort()
     }
-  }, [pointer, onDismiss])
+  }, [pointer])
 
   return (
     <div

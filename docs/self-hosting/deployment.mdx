@@ -4,7 +4,7 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, S3-compatible bucket, and persistent memory filesystem ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
+One Docker Compose command starts all of Omnara: the dashboard, the API, the agent workers, and background maintenance, along with Postgres, Redis, and S3-compatible storage. In production, Omnara runs on the same standard pieces as most web backends. You point it at your own Postgres, Redis, and S3-compatible bucket, plus a shared filesystem for agent memory ([Architecture](/self-hosting/architecture)), and put one public URL in front of it.
 
 ## Quick start (local)
 

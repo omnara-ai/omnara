@@ -9259,7 +9259,7 @@ paths:
       operationId: deleteIntegrationSubscription
       tags: [Integrations]
       summary: Stop forwarding an integration conversation to an agent
-      description: Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. The agent, sending tools, interaction handlers, and history remain available. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
+      description: Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. For GitHub, the agent's pull request tools also stop acting on that pull request unless the agent was launched for it. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -10483,6 +10483,7 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+            - machine_token_not_injected
     ErrorCode:
       type: string
       description: Known error codes.
@@ -10516,6 +10517,7 @@ components:
         - validation_failed
         - csrf_check_failed
         - authentication_unavailable
+        - machine_token_not_injected
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -10523,6 +10525,7 @@ components:
         - invalid_request
         - validation_failed
         - unauthorized
+        - machine_token_not_injected
         - forbidden
         - csrf_check_failed
         - not_found
@@ -13653,7 +13656,7 @@ components:
           description: Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
         subscriptions:
           type: array
-          maxItems: 100
+          maxItems: 16
           items:
             $ref: '#/components/schemas/IntegrationSubscriptionAttachment'
           description: Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
@@ -18479,7 +18482,7 @@ components:
         input_schema:
           type: object
           additionalProperties: true
-          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and, except standalone tools, use one of the agent's conversations; execution fails if it has none. Shipped interaction handlers use the assigned conversation and accept empty arguments.
     IntegrationSubscriptionID:
       type: string
       pattern: '^isub_[a-z2-7]{26}$'

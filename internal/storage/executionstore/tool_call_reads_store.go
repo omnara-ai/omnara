@@ -51,6 +51,14 @@ func (s *Store) GetToolCall(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
+func (s *Store) HasSiblingToolCall(
+	ctx context.Context, projectID, agentID, toolCallID uuid.UUID, names []string,
+) (bool, error) {
+	return s.q.HasSiblingToolCall(ctx, dbsqlc.HasSiblingToolCallParams{
+		ProjectID: projectID, AgentID: agentID, ID: toolCallID, Names: names,
+	})
+}
+
 func (s *Store) GetToolCallSummary(
 	ctx context.Context,
 	projectID, agentID, id uuid.UUID,

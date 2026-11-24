@@ -88,6 +88,10 @@ function ConversationCard({
 }) {
   const conversation = integrationConversation(integration, subscription)
   const agentName = subscription.agent_name || subscription.agent_id
+  const pullRequestNote =
+    integration.integration_kind === 'github_pr'
+      ? " The agent's pull request tools also stop acting on this pull request unless the agent was launched for it."
+      : ''
   return (
     <AgentCard
       icon={agentIcon(undefined, subscription.agent_id)}
@@ -130,7 +134,7 @@ function ConversationCard({
             onClick={() => {
               if (
                 !window.confirm(
-                  `Stop forwarding ${conversation.label} to ${agentName}? Future updates from this conversation will no longer be forwarded to this agent. The agent, its sending tools and history are kept. To resume forwarding, reattach the conversation through the subscriptions API.`,
+                  `Stop forwarding ${conversation.label} to ${agentName}? Future updates from this conversation will no longer be forwarded to this agent.${pullRequestNote} To resume forwarding, reattach the conversation through the subscriptions API.`,
                 )
               )
                 return

@@ -38,6 +38,15 @@ LEFT JOIN LATERAL (
     AND block.owner_tool_call_result_id = result.id
 ) result_blocks ON true;
 
+-- name: HasSiblingToolCall :one
+SELECT EXISTS (
+  SELECT 1 FROM tool_calls call
+  JOIN tool_calls sibling ON sibling.project_id = call.project_id AND sibling.agent_id = call.agent_id
+    AND sibling.model_output_id = call.model_output_id AND sibling.id <> call.id
+  WHERE call.project_id = sqlc.arg(project_id) AND call.agent_id = sqlc.arg(agent_id) AND call.id = sqlc.arg(id)
+    AND sibling.name = ANY(sqlc.arg(names)::text[])
+)::boolean;
+
 -- name: GetToolCallSummary :one
 SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,

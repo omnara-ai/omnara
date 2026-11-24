@@ -63,6 +63,6 @@ export function usePageActions(
     }),
   )
   useEffect(() => {
-    if (enabled) runner.observe(pendingPageActions(messages))
+    if (enabled) runner.take(pendingPageActions(messages))
   }, [enabled, messages, runner])
 }

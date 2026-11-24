@@ -2,7 +2,6 @@ package machinedaemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -52,7 +51,7 @@ func (c *Client) Sleep(ctx context.Context, runtime DaemonRuntime) error {
 	if errors.As(err, &statusErr) {
 		switch statusErr.StatusCode {
 		case http.StatusConflict:
-			if sleepConflictCode(statusErr.Body) == "not_wake_capable" {
+			if statusErr.code() == "not_wake_capable" {
 				return errDaemonSleepNotWakeCapable
 			}
 			return errDaemonSleepVetoed
@@ -61,16 +60,6 @@ func (c *Client) Sleep(ctx context.Context, runtime DaemonRuntime) error {
 		}
 	}
 	return err
-}
-
-func sleepConflictCode(body string) string {
-	var conflict struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal([]byte(body), &conflict); err != nil {
-		return ""
-	}
-	return conflict.Code
 }
 
 func (c *Client) startWakeListener(ctx context.Context) (string, error) {

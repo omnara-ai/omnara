@@ -83,7 +83,7 @@ export function createPageActionRunner(host: PageActionHost) {
 
   return {
     /** Answers each waiting call once, in order. A tab nobody is looking at leaves them be. */
-    observe: (actions: PageAction[]) => {
+    take: (actions: PageAction[]) => {
       if (!host.visible()) return
       for (const action of actions) {
         if (taken.has(action.id)) continue
