@@ -48,6 +48,11 @@ type ExecutionStore interface {
 		ctx context.Context,
 		input executionstore.ReplaceCompactionSourceInput,
 	) (executionstore.ReplaceCompactionSourceResult, error)
+	RecordModelCallGenerationID(
+		ctx context.Context,
+		agentID, runtimeLockID, modelCallContextID uuid.UUID,
+		generationID string,
+	) error
 	PublishContextCheckpoint(
 		ctx context.Context,
 		input executionstore.PublishContextCheckpointInput,

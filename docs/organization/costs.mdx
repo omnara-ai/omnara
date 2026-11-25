@@ -19,6 +19,6 @@ Usage pages and [budgets](/organization/budgets) show what model calls cost. Omn
 
 ## What isn't counted
 
-- **Calls that can't be priced.** A call with no price of its own, no reported cost, and no public list price doesn't count, and neither does a call cut off before the provider reported its tokens or cost. Usage marks totals that leave out unpriced calls. [Budgets](/organization/budgets#what-counts) refuse calls to models that have no price of their own and no public list price, unless they run through OpenRouter.
+- **Calls that can't be priced.** A call with no price of its own, no reported cost, and no public list price doesn't count. Neither does a call cut off before the provider reported its tokens or cost, unless it ran through OpenRouter: Omnara then looks up what OpenRouter billed for the call and counts that. Usage marks totals that leave out unpriced calls. [Budgets](/organization/budgets#what-counts) refuse calls to models that have no price of their own and no public list price, unless they run through OpenRouter.
 - **Machines and sandboxes**, including Omnara-managed ones.
 - **Web search.**

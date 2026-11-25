@@ -50,7 +50,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	if e.ModelResolver == nil {
 		return errors.New("kernel model resolver is required")
 	}
-
 	if input.Kind == executionstore.ModelWorkResume {
 		contextRow, found, loadErr := e.Store.Execution().GetModelCallContext(
 			ctx,

@@ -2,6 +2,7 @@ package openaichatcompletions
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,10 +11,14 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 )
+
+const saveGenerationIDTimeout = 10 * time.Second
 
 var errChatStreamTerminal = errors.New("chat completions stream reached a terminal event")
 
@@ -68,6 +73,23 @@ func (p protocol) ConsumeStream(
 		header:     header,
 		emit:       emit,
 		choices:    map[int]*chatStreamChoiceState{},
+	}
+	if p.client.compat().looksUpGenerationUsage {
+		acc.generationID = header.Get("X-Generation-Id")
+		if acc.generationID == "" {
+			logent.ModelResponseGenerationIDMissing(ctx)
+		} else if p.saveGenerationID != nil {
+			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), saveGenerationIDTimeout)
+			saved := make(chan error, 1)
+			go func() { saved <- p.saveGenerationID(saveCtx, acc.generationID) }()
+			defer func() {
+				err := <-saved
+				cancelSave()
+				if err != nil {
+					logent.ModelResponseGenerationIDSaveFailed(ctx, err)
+				}
+			}()
+		}
 	}
 	readErr := route.ReadSSEEvents(ctx, body, func(ev route.SSEEvent) error {
 		if err := acc.handle(ctx, ev); err != nil {
@@ -166,6 +188,7 @@ type chatStreamAccumulator struct {
 	nextBlockIndex int
 	choices        map[int]*chatStreamChoiceState
 	id             string
+	generationID   string
 	servedModel    string
 	provider       lenientString
 	serviceTier    lenientString
@@ -177,7 +200,7 @@ type chatStreamAccumulator struct {
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
 	out := a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
-		ID:          a.id,
+		ID:          cmp.Or(a.generationID, a.id),
 		Model:       a.servedModel,
 		Provider:    a.provider,
 		ServiceTier: a.serviceTier,
@@ -283,6 +306,9 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	}
 	if chunk.ID != "" && a.id == "" {
 		a.id = chunk.ID
+		if a.generationID != "" && a.generationID != chunk.ID {
+			logent.ModelResponseGenerationIDMismatch(ctx, a.generationID, chunk.ID)
+		}
 	}
 	if chunk.Model != "" {
 		a.servedModel = chunk.Model

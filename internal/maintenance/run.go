@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/modelprice"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
@@ -44,6 +45,7 @@ type Options struct {
 	GitHubHTTPClient     *http.Client
 	DefaultModelProvider *defaultprovider.Runner
 	ModelPrices          *modelprice.Source
+	ModelResolver        *modelprovider.Resolver
 }
 
 // Run runs every maintenance job on its own schedule until ctx ends.
@@ -120,6 +122,14 @@ func Run(ctx context.Context, options Options) {
 		jobs = append(jobs, maintenanceJob{
 			"provision_default_model_provider", interval, interval,
 			provisionDefaultModelProviders(log, options.DefaultModelProvider),
+		})
+	}
+	if options.ModelResolver != nil {
+		jobs = append(jobs, maintenanceJob{
+			modelUsageRecoveryJob, interval, 0, recoverModelUsage(&modelUsageRecovery{
+				log: log, list: execution.ListModelUsageRecoveries, lookupUsage: options.ModelResolver.LookupGenerationUsage,
+				record: execution.RecordRecoveredModelCallUsage, now: time.Now,
+			}),
 		})
 	}
 	if options.ModelPrices != nil {

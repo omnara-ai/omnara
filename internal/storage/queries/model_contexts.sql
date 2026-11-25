@@ -127,3 +127,45 @@ WHERE context.agent_id = sqlc.arg(agent_id)
     WHERE scoped_agent.project_id = sqlc.arg(project_id)
       AND scoped_agent.id = sqlc.arg(agent_id)
   );
+
+-- name: ReadModelUsageRecoveryClock :one
+SELECT statement_timestamp()::timestamptz AS database_now;
+
+-- name: ListModelUsageRecoveries :many
+WITH schedule AS (
+  SELECT delay.microseconds * interval '1 microsecond' AS delay,
+    lead(delay.microseconds) OVER (ORDER BY delay.microseconds) * interval '1 microsecond' AS next_delay
+  FROM unnest(sqlc.arg(delay_microseconds)::bigint[]) AS delay(microseconds)
+), bounds AS (
+  SELECT schedule.delay, schedule.next_delay,
+    greatest(sqlc.arg(after_due_at)::timestamptz - schedule.delay,
+      sqlc.arg(until)::timestamptz - schedule.next_delay) AS start_at,
+    CASE WHEN sqlc.arg(until)::timestamptz - schedule.next_delay
+        >= sqlc.arg(after_due_at)::timestamptz - schedule.delay
+      THEN 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
+      ELSE sqlc.arg(after_id)::uuid END AS start_id
+  FROM schedule
+)
+SELECT due.org_id, due.project_id, due.agent_id, due.id, due.provider_response_id,
+  revision.model_provider_config_id, due.due_at::timestamptz AS due_at,
+  (bounds.next_delay IS NULL)::boolean AS final
+FROM bounds
+CROSS JOIN LATERAL (
+  SELECT context.org_id, context.project_id, context.agent_id, context.id, context.provider_response_id,
+    context.configured_model_revision_id, context.completed_at + bounds.delay AS due_at
+  FROM model_call_contexts context
+  WHERE context.state IN ('failed', 'canceled')
+    AND context.api_variant = 'openrouter'
+    AND context.provider_response_id <> ''
+    AND context.provider_reported_cost_usd IS NULL
+    AND context.input_tokens_total IS NULL
+    AND context.output_tokens_total IS NULL
+    AND (context.completed_at, context.id) > (bounds.start_at, bounds.start_id)
+    AND context.completed_at <= sqlc.arg(until)::timestamptz - bounds.delay
+  ORDER BY context.completed_at, context.id
+  LIMIT sqlc.arg(limit_count)
+) due
+JOIN configured_model_revisions revision ON revision.org_id = due.org_id
+  AND revision.id = due.configured_model_revision_id
+ORDER BY due.due_at, due.id
+LIMIT sqlc.arg(limit_count);

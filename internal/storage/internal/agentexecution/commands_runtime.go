@@ -197,6 +197,28 @@ func (u *Unit) RenewRuntime(
 	return RuntimeRenewal{LeaseExpiresAt: expires, LocalStartedAt: started}, err
 }
 
+func (u *Unit) RecordInflightGenerationID(
+	ctx context.Context, agentID, runtimeID, contextID uuid.UUID, generationID string,
+) error {
+	if agentID == uuid.Nil || runtimeID == uuid.Nil || contextID == uuid.Nil || generationID == "" {
+		return errors.New("agent, runtime lock, model context, and generation are required")
+	}
+	q := executiondb.New()
+	n, err := q.WriteExecutionInflightGeneration(ctx, u.DB(), executiondb.WriteExecutionInflightGenerationParams{
+		ContextID: contextID, GenerationID: generationID, AgentID: agentID, RuntimeID: runtimeID,
+	})
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		u.runtimeLocked = true
+	}
+	_, err = q.WriteExecutionEndedGeneration(ctx, u.DB(), executiondb.WriteExecutionEndedGenerationParams{
+		GenerationID: generationID, AgentID: agentID, ContextID: contextID, RuntimeID: runtimeID,
+	})
+	return err
+}
+
 func (h *Handle) releaseRuntime(
 	ctx context.Context,
 	m *executionMutation,

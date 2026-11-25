@@ -282,6 +282,11 @@ func (e AgentExecutor) executeModelStep(
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
+		SaveGenerationID: func(ctx context.Context, generationID string) error {
+			return e.Store.Execution().RecordModelCallGenerationID(
+				ctx, input.AgentID, input.RuntimeLockID, claim.Context.ID, generationID,
+			)
+		},
 	}
 	var streamSink *harnessStreamSink
 	if claim.Context.AttemptNumber == 1 {

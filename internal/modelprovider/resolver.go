@@ -155,74 +155,9 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	credentialKind, err := modelstore.ModelProviderCredentialSecretKind(providerConfig.AuthKind)
-	if err != nil {
-		return model.ResolvedClient{}, resolverError(
-			model.ErrorKindInvalidRequest,
-			"invalid_model_provider_auth",
-			"The configured model provider authentication settings are invalid.",
-			err,
-		)
-	}
-	credential, err := r.Secrets.ReadOrgOwnedSecretPayload(
-		ctx,
-		secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:          orgID,
-			SecretID:       providerConfig.CredentialSecretID,
-			ManagementKind: providerConfig.ManagementKind,
-			Kind:           credentialKind,
-		},
-	)
-	if err != nil {
-		if storeerr.IsNotFound(err) {
-			return model.ResolvedClient{}, resolverError(
-				model.ErrorKindAuth,
-				"model_credential_unavailable",
-				"The configured model provider credential is unavailable.",
-				err,
-			)
-		}
-		return model.ResolvedClient{}, err
-	}
-	if credentialKind == secrets.KindGeneric && credential.Payload[secrets.KeyValue] == "" {
-		return model.ResolvedClient{}, resolverError(
-			model.ErrorKindAuth,
-			"model_credential_unavailable",
-			"The configured model provider credential is empty.",
-			errors.New("model provider credential secret value is required"),
-		)
-	}
-	var auth route.Auth
-	if providerConfig.AuthKind == modelstore.ModelProviderAuthKindSigV4 {
-		auth, err = r.sigV4RouteAuth(providerConfig, credential)
-	} else {
-		auth, err = routeAuthForProviderConfig(providerConfig, credential.Payload[secrets.KeyValue])
-	}
-	if err != nil {
-		return model.ResolvedClient{}, resolverError(
-			model.ErrorKindInvalidRequest,
-			"invalid_model_provider_auth",
-			"The configured model provider authentication settings are invalid.",
-			err,
-		)
-	}
-	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
-	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-		return model.ResolvedClient{}, resolverError(
-			model.ErrorKindInvalidRequest,
-			"invalid_model_provider_headers",
-			"The configured model provider headers are invalid.",
-			err,
-		)
-	}
+	auth, err := r.providerAuth(ctx, providerConfig)
 	if err != nil {
 		return model.ResolvedClient{}, err
-	}
-	if len(customHeaders) > 0 {
-		auth = route.Chain{route.Headers(customHeaders), auth}
-	}
-	if headers := r.routeHeadersForProviderConfig(providerConfig); len(headers) > 0 {
-		auth = route.Chain{route.Headers(headers), auth}
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
 	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
@@ -293,6 +228,82 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			fmt.Errorf("unsupported api_format %q", providerConfig.APIFormat),
 		)
 	}
+}
+
+func (r Resolver) providerAuth(
+	ctx context.Context,
+	providerConfig modelstore.ModelProviderConfigRecord,
+) (route.Auth, error) {
+	credentialKind, err := modelstore.ModelProviderCredentialSecretKind(providerConfig.AuthKind)
+	if err != nil {
+		return nil, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_auth",
+			"The configured model provider authentication settings are invalid.",
+			err,
+		)
+	}
+	credential, err := r.Secrets.ReadOrgOwnedSecretPayload(
+		ctx,
+		secretstore.ReadOrgOwnedSecretPayloadInput{
+			OrgID:          providerConfig.OrgID,
+			SecretID:       providerConfig.CredentialSecretID,
+			ManagementKind: providerConfig.ManagementKind,
+			Kind:           credentialKind,
+		},
+	)
+	if err != nil {
+		if storeerr.IsNotFound(err) {
+			return nil, resolverError(
+				model.ErrorKindAuth,
+				"model_credential_unavailable",
+				"The configured model provider credential is unavailable.",
+				err,
+			)
+		}
+		return nil, err
+	}
+	if credentialKind == secrets.KindGeneric && credential.Payload[secrets.KeyValue] == "" {
+		return nil, resolverError(
+			model.ErrorKindAuth,
+			"model_credential_unavailable",
+			"The configured model provider credential is empty.",
+			errors.New("model provider credential secret value is required"),
+		)
+	}
+	var auth route.Auth
+	if providerConfig.AuthKind == modelstore.ModelProviderAuthKindSigV4 {
+		auth, err = r.sigV4RouteAuth(providerConfig, credential)
+	} else {
+		auth, err = routeAuthForProviderConfig(providerConfig, credential.Payload[secrets.KeyValue])
+	}
+	if err != nil {
+		return nil, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_auth",
+			"The configured model provider authentication settings are invalid.",
+			err,
+		)
+	}
+	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
+	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		return nil, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_headers",
+			"The configured model provider headers are invalid.",
+			err,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(customHeaders) > 0 {
+		auth = route.Chain{route.Headers(customHeaders), auth}
+	}
+	if headers := r.routeHeadersForProviderConfig(providerConfig); len(headers) > 0 {
+		auth = route.Chain{route.Headers(headers), auth}
+	}
+	return auth, nil
 }
 
 func resolverError(kind model.ErrorKind, code, message string, cause error) error {

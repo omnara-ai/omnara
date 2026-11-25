@@ -494,3 +494,61 @@ func (q *Queries) ReadExecutionModelProvider(ctx context.Context, db DBTX, arg R
 	err := row.Scan(&i.Name, &i.OmnaraCredits)
 	return i, err
 }
+
+const writeExecutionRecoveredUsage = `-- name: WriteExecutionRecoveredUsage :one
+WITH recovered AS (
+UPDATE model_call_contexts c SET provider_reported_cost_usd=$1::text::numeric,
+ input_tokens_total=$2::integer,uncached_input_tokens=$3::integer,
+ cache_read_input_tokens=$4::integer,cache_write_input_tokens=$5::integer,
+ output_tokens_total=$6::integer,reasoning_output_tokens=$7::integer,
+ effective_cost_usd=$8::text::numeric,effective_cost_kind=$9::text
+WHERE c.agent_id=$10 AND c.id=$11 AND c.state IN ('failed','canceled')
+ AND c.provider_response_id=$12 AND c.provider_reported_cost_usd IS NULL
+ AND num_nonnulls(c.input_tokens_total,c.uncached_input_tokens,c.cache_read_input_tokens,
+ c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens)=0
+RETURNING c.id,c.org_id,c.project_id,c.agent_id,c.created_at,c.effective_cost_usd
+), pending AS (
+INSERT INTO pending_model_costs(model_call_context_id,org_id,project_id,agent_profile_id,agent_id,day,effective_cost_usd)
+SELECT r.id,r.org_id,r.project_id,root.agent_profile_id,r.agent_id,(r.created_at AT TIME ZONE 'UTC')::date,
+ r.effective_cost_usd
+FROM recovered r JOIN agents agent ON agent.project_id=r.project_id AND agent.id=r.agent_id
+JOIN agents root ON root.project_id=agent.project_id AND root.id=agent.root_agent_id
+WHERE r.effective_cost_usd IS NOT NULL
+)
+SELECT count(*)::bigint FROM recovered
+`
+
+type WriteExecutionRecoveredUsageParams struct {
+	Cost              *string
+	InputTokens       *int32
+	UncachedTokens    *int32
+	CacheReadTokens   *int32
+	CacheWriteTokens  *int32
+	OutputTokens      *int32
+	ReasoningTokens   *int32
+	EffectiveCost     *string
+	EffectiveCostKind *string
+	AgentID           uuid.UUID
+	ID                uuid.UUID
+	ResponseID        string
+}
+
+func (q *Queries) WriteExecutionRecoveredUsage(ctx context.Context, db DBTX, arg WriteExecutionRecoveredUsageParams) (int64, error) {
+	row := db.QueryRow(ctx, writeExecutionRecoveredUsage,
+		arg.Cost,
+		arg.InputTokens,
+		arg.UncachedTokens,
+		arg.CacheReadTokens,
+		arg.CacheWriteTokens,
+		arg.OutputTokens,
+		arg.ReasoningTokens,
+		arg.EffectiveCost,
+		arg.EffectiveCostKind,
+		arg.AgentID,
+		arg.ID,
+		arg.ResponseID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}

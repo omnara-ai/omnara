@@ -32,12 +32,29 @@ SELECT id,runtime_lock_id FROM model_call_contexts WHERE agent_id=sqlc.arg(agent
  AND (sqlc.narg(runtime_id)::uuid IS NULL OR runtime_lock_id=sqlc.narg(runtime_id)) ORDER BY id;
 
 -- name: TeardownExecutionContext :execrows
-UPDATE model_call_contexts SET state=sqlc.arg(state),recovery_kind=sqlc.narg(recovery),
+UPDATE model_call_contexts c SET state=sqlc.arg(state),recovery_kind=sqlc.narg(recovery),
  retry_at=CASE WHEN sqlc.narg(retry_microseconds)::bigint IS NULL THEN NULL
  ELSE statement_timestamp()+sqlc.narg(retry_microseconds)::bigint*interval '1 microsecond' END,
  error_kind=sqlc.arg(error_kind),error_code=sqlc.arg(error_code),error_message=sqlc.arg(error_message),
- error_details=sqlc.arg(error_details)::jsonb,completed_at=statement_timestamp()
-WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND runtime_lock_id=sqlc.arg(runtime_id) AND state='started';
+ error_details=sqlc.arg(error_details)::jsonb,completed_at=statement_timestamp(),
+ api_format=CASE WHEN inflight.generation_id IS NULL THEN c.api_format ELSE 'openai-chat-completions' END,
+ api_variant=CASE WHEN inflight.generation_id IS NULL THEN c.api_variant ELSE 'openrouter' END,
+ provider_response_id=coalesce(inflight.generation_id,c.provider_response_id)
+FROM (SELECT max(r.inflight_generation_id) AS generation_id FROM agent_runtime_locks r
+ WHERE r.agent_id=sqlc.arg(agent_id) AND r.id=sqlc.arg(runtime_id)
+ AND r.inflight_model_call_context_id=sqlc.arg(id)) inflight
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.runtime_lock_id=sqlc.arg(runtime_id) AND c.state='started';
+
+-- name: WriteExecutionInflightGeneration :execrows
+UPDATE agent_runtime_locks SET inflight_model_call_context_id=sqlc.arg(context_id)::uuid,
+ inflight_generation_id=sqlc.arg(generation_id)::text
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(runtime_id);
+
+-- name: WriteExecutionEndedGeneration :execrows
+UPDATE model_call_contexts SET api_format='openai-chat-completions',api_variant='openrouter',
+ provider_response_id=sqlc.arg(generation_id)
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(context_id) AND runtime_lock_id=sqlc.arg(runtime_id)
+ AND state IN ('failed','canceled') AND api_format='' AND provider_response_id='';
 
 -- name: ListExecutionUnfinishedTools :many
 SELECT c.id FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id

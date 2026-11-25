@@ -273,12 +273,18 @@ func (q *Queries) RequestExecutionCancel(ctx context.Context, db DBTX, arg Reque
 }
 
 const teardownExecutionContext = `-- name: TeardownExecutionContext :execrows
-UPDATE model_call_contexts SET state=$1,recovery_kind=$2,
+UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  retry_at=CASE WHEN $3::bigint IS NULL THEN NULL
  ELSE statement_timestamp()+$3::bigint*interval '1 microsecond' END,
  error_kind=$4,error_code=$5,error_message=$6,
- error_details=$7::jsonb,completed_at=statement_timestamp()
-WHERE agent_id=$8 AND id=$9 AND runtime_lock_id=$10 AND state='started'
+ error_details=$7::jsonb,completed_at=statement_timestamp(),
+ api_format=CASE WHEN inflight.generation_id IS NULL THEN c.api_format ELSE 'openai-chat-completions' END,
+ api_variant=CASE WHEN inflight.generation_id IS NULL THEN c.api_variant ELSE 'openrouter' END,
+ provider_response_id=coalesce(inflight.generation_id,c.provider_response_id)
+FROM (SELECT max(r.inflight_generation_id) AS generation_id FROM agent_runtime_locks r
+ WHERE r.agent_id=$8 AND r.id=$10
+ AND r.inflight_model_call_context_id=$9) inflight
+WHERE c.agent_id=$8 AND c.id=$9 AND c.runtime_lock_id=$10 AND c.state='started'
 `
 
 type TeardownExecutionContextParams struct {
@@ -327,4 +333,57 @@ func (q *Queries) TryLockExecutionRuntime(ctx context.Context, db DBTX, arg TryL
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const writeExecutionEndedGeneration = `-- name: WriteExecutionEndedGeneration :execrows
+UPDATE model_call_contexts SET api_format='openai-chat-completions',api_variant='openrouter',
+ provider_response_id=$1
+WHERE agent_id=$2 AND id=$3 AND runtime_lock_id=$4
+ AND state IN ('failed','canceled') AND api_format='' AND provider_response_id=''
+`
+
+type WriteExecutionEndedGenerationParams struct {
+	GenerationID string
+	AgentID      uuid.UUID
+	ContextID    uuid.UUID
+	RuntimeID    uuid.UUID
+}
+
+func (q *Queries) WriteExecutionEndedGeneration(ctx context.Context, db DBTX, arg WriteExecutionEndedGenerationParams) (int64, error) {
+	result, err := db.Exec(ctx, writeExecutionEndedGeneration,
+		arg.GenerationID,
+		arg.AgentID,
+		arg.ContextID,
+		arg.RuntimeID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const writeExecutionInflightGeneration = `-- name: WriteExecutionInflightGeneration :execrows
+UPDATE agent_runtime_locks SET inflight_model_call_context_id=$1::uuid,
+ inflight_generation_id=$2::text
+WHERE agent_id=$3 AND id=$4
+`
+
+type WriteExecutionInflightGenerationParams struct {
+	ContextID    uuid.UUID
+	GenerationID string
+	AgentID      uuid.UUID
+	RuntimeID    uuid.UUID
+}
+
+func (q *Queries) WriteExecutionInflightGeneration(ctx context.Context, db DBTX, arg WriteExecutionInflightGenerationParams) (int64, error) {
+	result, err := db.Exec(ctx, writeExecutionInflightGeneration,
+		arg.ContextID,
+		arg.GenerationID,
+		arg.AgentID,
+		arg.RuntimeID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

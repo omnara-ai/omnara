@@ -4,7 +4,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func agentRuntimeLockRecordFromSQLC(row dbsqlc.AgentRuntimeLock) AgentRuntimeLockRecord {
+func agentRuntimeLockRecordFromSQLC(row dbsqlc.GetAgentRuntimeLockForReleaseRow) AgentRuntimeLockRecord {
 	return AgentRuntimeLockRecord{
 		ID:                row.ID,
 		AgentID:           row.AgentID,

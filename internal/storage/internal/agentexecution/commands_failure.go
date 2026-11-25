@@ -163,6 +163,44 @@ func (h *Handle) finishAttempt(
 	return true, nil
 }
 
+func (h *Handle) RecordRecoveredUsage(ctx context.Context, contextID uuid.UUID, evidence ModelEvidence) (bool, error) {
+	if _, err := h.Route(); err != nil {
+		return false, err
+	}
+	if evidence.ResponseID == "" || evidence.Cost == "" {
+		return false, errors.New("recovered model call usage requires a provider response ID and a cost")
+	}
+	usage := normalizedUsage(evidence.Usage)
+	if err := modelenvelope.ValidateProviderReportedCostUSD(evidence.Cost); err != nil {
+		return false, err
+	}
+	q := executiondb.New()
+	row, err := q.ReadExecutionAttempt(ctx, h.unit.DB(), executiondb.ReadExecutionAttemptParams{
+		AgentID: h.route.AgentID, ID: contextID,
+	})
+	if err != nil {
+		return false, err
+	}
+	evidence.APIFormat = modelprotocol.APIFormat(row.ApiFormat)
+	evidence.APIVariant = modelprotocol.APIVariant(row.ApiVariant)
+	effectiveCost, effectiveCostKind := h.effectiveCost(ctx, row, evidence)
+	n, err := q.WriteExecutionRecoveredUsage(ctx, h.unit.DB(), executiondb.WriteExecutionRecoveredUsageParams{
+		Cost:              storeutil.TextFromEmpty(string(evidence.Cost)),
+		InputTokens:       tokenCount(usage.InputTokens),
+		UncachedTokens:    tokenCount(usage.UncachedInputTokens),
+		CacheReadTokens:   tokenCount(usage.CacheReadTokens),
+		CacheWriteTokens:  tokenCount(usage.CacheWriteTokens),
+		OutputTokens:      tokenCount(usage.OutputTokens),
+		ReasoningTokens:   tokenCount(usage.ReasoningTokens),
+		EffectiveCost:     effectiveCost,
+		EffectiveCostKind: effectiveCostKind,
+		AgentID:           h.route.AgentID,
+		ID:                contextID,
+		ResponseID:        evidence.ResponseID,
+	})
+	return n > 0, err
+}
+
 func (h *Handle) effectiveCost(
 	ctx context.Context,
 	row executiondb.ReadExecutionAttemptRow,

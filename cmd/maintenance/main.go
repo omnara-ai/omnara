@@ -160,6 +160,11 @@ func main() {
 			GitHubHTTPClient:     githubHTTPClient,
 			DefaultModelProvider: defaultModelProvider,
 			ModelPrices:          modelPrices,
+			ModelResolver: &modelprovider.Resolver{
+				Models:        store.Models(),
+				Secrets:       store.Secrets(),
+				HTTPTransport: modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.EndpointAllowlist),
+			},
 		})
 	}()
 	exitCode := 0
