@@ -1,9 +1,8 @@
 import type { BasicMcpServer, BasicMcpTool } from '@/components/agents/agentConfigMcp'
 import type { PermissionModeOption } from '@/components/agents/permissionModeOptions'
-import { CircleIcon, EyeIcon, EyeSlashIcon, MagnifyingGlassCircleIcon } from '@/components/icons'
+import { EyeIcon, EyeSlashIcon, MagnifyingGlassCircleIcon } from '@/components/icons'
 
 export type McpAvailability = 'enabled' | 'deferred' | 'disabled'
-export type McpToolAvailability = 'inherit' | McpAvailability
 
 export const mcpAvailabilityOptions: readonly PermissionModeOption[] = [
   {
@@ -26,24 +25,10 @@ export const mcpAvailabilityOptions: readonly PermissionModeOption[] = [
   },
 ]
 
-export const mcpToolAvailabilityOptions: readonly PermissionModeOption[] = [
-  {
-    value: 'inherit',
-    label: 'Inherit',
-    description: 'Follow the server default.',
-    icon: CircleIcon,
-  },
-  ...mcpAvailabilityOptions,
-]
-
 const mcpAvailabilities: readonly McpAvailability[] = ['enabled', 'deferred', 'disabled']
 
 export function parseMcpAvailability(value: string): McpAvailability | null {
   return mcpAvailabilities.find((candidate) => candidate === value) ?? null
-}
-
-export function parseMcpToolAvailability(value: string): McpToolAvailability | null {
-  return value === 'inherit' ? 'inherit' : parseMcpAvailability(value)
 }
 
 export function mcpServerAvailability(server: BasicMcpServer): McpAvailability {
@@ -65,23 +50,23 @@ export function mcpServerAvailabilityPatch(
 }
 
 export function mcpToolAvailability(
-  tool: BasicMcpTool,
+  tool: Pick<BasicMcpTool, 'enabled' | 'deferred'> | undefined,
   serverAvailability: McpAvailability,
-): McpToolAvailability {
+): McpAvailability {
+  if (tool == null) return serverAvailability
   if (tool.enabled === false) return 'disabled'
-  if (tool.enabled == null && serverAvailability === 'disabled') return 'inherit'
+  if (tool.enabled == null && serverAvailability === 'disabled') return 'disabled'
   if (tool.deferred === true) return 'deferred'
   if (tool.deferred === false) return 'enabled'
-  if (tool.enabled === true) return serverAvailability === 'deferred' ? 'deferred' : 'enabled'
-  return 'inherit'
+  return serverAvailability === 'deferred' ? 'deferred' : 'enabled'
 }
 
 export function mcpToolAvailabilityPatch(
-  availability: McpToolAvailability,
+  availability: McpAvailability,
+  serverAvailability: McpAvailability,
 ): Pick<BasicMcpTool, 'enabled' | 'deferred'> {
+  if (availability === serverAvailability) return { enabled: null, deferred: null }
   switch (availability) {
-    case 'inherit':
-      return { enabled: null, deferred: null }
     case 'enabled':
       return { enabled: true, deferred: false }
     case 'deferred':
