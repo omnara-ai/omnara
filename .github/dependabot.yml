@@ -1,19 +1,13 @@
 version: 2
 updates:
   - package-ecosystem: docker
-    directories:
-      - /
-      - /examples/sharepoint-mount
-      - /examples/unikraft-machine
+    directory: /
     schedule:
       interval: weekly
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
     open-pull-requests-limit: 100
-    groups:
-      shared-docker-images:
-        group-by: dependency-name
     ignore:
       - dependency-name: "*node"
         update-types:
@@ -108,6 +102,9 @@ updates:
           - patch
       shared-go-dependencies:
         group-by: dependency-name
+        exclude-patterns:
+          - github.com/aws/aws-sdk-go-v2*
+          - golang.org/x/*
     cooldown:
       default-days: 7
 
