@@ -46,6 +46,7 @@ type ChangeAgentConfigResult struct {
 	AgentConfig    AgentConfigRecord
 	ConfigChange   AgentConfigChangeRecord
 	DeleteMachines []MachineRecord
+	Created        bool
 }
 
 func (s *Store) ChangeAgentConfig(
@@ -257,7 +258,28 @@ func (s *Store) changeAgentConfigOnce(
 		AgentConfig:    config,
 		ConfigChange:   configChange,
 		DeleteMachines: deleteMachines,
+		Created:        true,
 	}, nil
+}
+
+func sourceRemovedPoolMachinesTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) ([]MachineRecord, error) {
+	poolMachines, err := listPoolMachinesTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	var machines []MachineRecord
+	for _, poolMachine := range poolMachines {
+		machine := poolMachine.Machine
+		if machine.LifecycleState == MachineLifecycleStateDeleting &&
+			poolMachine.DeleteReasonCode == "agent_config_machine_source_removed" {
+			machines = append(machines, machine)
+		}
+	}
+	return machines, nil
 }
 
 func replayAgentConfigChangeTx(
@@ -294,17 +316,9 @@ func replayAgentConfigChangeTx(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
+	deleteMachines, err := sourceRemovedPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
-	}
-	var deleteMachines []MachineRecord
-	for _, poolMachine := range poolMachines {
-		machine := poolMachine.Machine
-		if machine.LifecycleState == MachineLifecycleStateDeleting &&
-			poolMachine.DeleteReasonCode == "agent_config_machine_source_removed" {
-			deleteMachines = append(deleteMachines, machine)
-		}
 	}
 	if err := unit.Commit(ctx, "replay agent config change"); err != nil {
 		return ChangeAgentConfigResult{}, err

@@ -51,6 +51,7 @@ var definitions = map[openapi.ErrorCode]definition{
 		"provider-injected is a placeholder, not a credential",
 	},
 	openapi.ErrorCodeToolCallAlreadyCompleted:  {http.StatusConflict, "tool call already completed"},
+	openapi.ErrorCodeEditConflict:              {http.StatusConflict, "edit conflict"},
 	openapi.ErrorCodeValidationFailed:          {http.StatusBadRequest, "validation failed"},
 	openapi.ErrorCodeCsrfCheckFailed:           {http.StatusForbidden, "csrf check failed"},
 	openapi.ErrorCodeAuthenticationUnavailable: {http.StatusServiceUnavailable, "authentication unavailable"},
