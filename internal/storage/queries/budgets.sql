@@ -92,22 +92,44 @@ WITH lock AS MATERIALIZED (
 ), calls AS (
     DELETE FROM pending_model_costs cost USING pending
     WHERE cost.model_call_context_id = pending.model_call_context_id
-    RETURNING cost.org_id, cost.project_id, cost.agent_profile_id, cost.agent_id, cost.day, cost.effective_cost_usd
+    RETURNING cost.model_call_context_id, cost.org_id, cost.project_id, cost.agent_profile_id, cost.agent_id, cost.day
 ), merged AS (
-    INSERT INTO daily_model_costs(org_id, project_id, agent_profile_id, agent_id, day, effective_cost_usd)
-    SELECT calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, calls.day,
-           sum(calls.effective_cost_usd)
+    INSERT INTO daily_model_costs(
+        org_id, project_id, agent_profile_id, agent_id, configured_model_revision_id, day, effective_cost_usd,
+        model_calls, model_calls_with_effective_cost, model_calls_with_reported_cost, provider_reported_cost_usd,
+        uncached_input_tokens, cache_read_input_tokens, cache_write_input_tokens, output_tokens_total,
+        reasoning_output_tokens
+    )
+    SELECT calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, scope.configured_model_revision_id,
+           calls.day, coalesce(sum(call.effective_cost_usd), 0), count(*), count(call.effective_cost_usd),
+           count(call.provider_reported_cost_usd), coalesce(sum(call.provider_reported_cost_usd), 0),
+           coalesce(sum(call.uncached_input_tokens), 0), coalesce(sum(call.cache_read_input_tokens), 0),
+           coalesce(sum(call.cache_write_input_tokens), 0), coalesce(sum(call.output_tokens_total), 0),
+           coalesce(sum(call.reasoning_output_tokens), 0)
     FROM calls
+    JOIN model_call_contexts call ON call.id = calls.model_call_context_id
     CROSS JOIN LATERAL (VALUES
-        (NULL::uuid, NULL::uuid, NULL::uuid, true),
-        (calls.project_id, NULL, NULL, true),
-        (calls.project_id, calls.agent_profile_id, NULL, calls.agent_profile_id IS NOT NULL),
-        (calls.project_id, NULL, calls.agent_id, true)
-    ) scope(project_id, agent_profile_id, agent_id, applies)
+        (NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, true),
+        (calls.project_id, NULL, NULL, NULL, true),
+        (calls.project_id, calls.agent_profile_id, NULL, NULL, calls.agent_profile_id IS NOT NULL),
+        (calls.project_id, NULL, calls.agent_id, call.configured_model_revision_id, true)
+    ) scope(project_id, agent_profile_id, agent_id, configured_model_revision_id, applies)
     WHERE scope.applies
-    GROUP BY calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, calls.day
-    ON CONFLICT (org_id, project_id, agent_profile_id, agent_id, day) DO UPDATE
-    SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd
+    GROUP BY calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, scope.configured_model_revision_id,
+             calls.day
+    ON CONFLICT (org_id, project_id, agent_profile_id, agent_id, day, configured_model_revision_id) DO UPDATE
+    SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd,
+        model_calls = daily_model_costs.model_calls + EXCLUDED.model_calls,
+        model_calls_with_effective_cost =
+            daily_model_costs.model_calls_with_effective_cost + EXCLUDED.model_calls_with_effective_cost,
+        model_calls_with_reported_cost =
+            daily_model_costs.model_calls_with_reported_cost + EXCLUDED.model_calls_with_reported_cost,
+        provider_reported_cost_usd = daily_model_costs.provider_reported_cost_usd + EXCLUDED.provider_reported_cost_usd,
+        uncached_input_tokens = daily_model_costs.uncached_input_tokens + EXCLUDED.uncached_input_tokens,
+        cache_read_input_tokens = daily_model_costs.cache_read_input_tokens + EXCLUDED.cache_read_input_tokens,
+        cache_write_input_tokens = daily_model_costs.cache_write_input_tokens + EXCLUDED.cache_write_input_tokens,
+        output_tokens_total = daily_model_costs.output_tokens_total + EXCLUDED.output_tokens_total,
+        reasoning_output_tokens = daily_model_costs.reasoning_output_tokens + EXCLUDED.reasoning_output_tokens
 )
 SELECT count(*)::bigint FROM calls;
 

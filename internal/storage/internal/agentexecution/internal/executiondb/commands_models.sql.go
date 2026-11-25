@@ -245,14 +245,15 @@ UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
 WHERE c.agent_id=$23 AND c.id=$24 AND c.state='started' AND c.runtime_lock_id=$25
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
  AND r.id=$25 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
-RETURNING c.id,c.org_id,c.project_id,c.agent_id,c.created_at,c.effective_cost_usd
+RETURNING c.id,c.org_id,c.project_id,c.agent_id,c.created_at,c.effective_cost_usd,c.input_tokens_total,
+ c.output_tokens_total,c.provider_reported_cost_usd
 ), pending AS (
 INSERT INTO pending_model_costs(model_call_context_id,org_id,project_id,agent_profile_id,agent_id,day,effective_cost_usd)
 SELECT f.id,f.org_id,f.project_id,root.agent_profile_id,f.agent_id,(f.created_at AT TIME ZONE 'UTC')::date,
- f.effective_cost_usd
+ coalesce(f.effective_cost_usd,0)
 FROM finished f JOIN agents agent ON agent.project_id=f.project_id AND agent.id=f.agent_id
 JOIN agents root ON root.project_id=agent.project_id AND root.id=agent.root_agent_id
-WHERE f.effective_cost_usd IS NOT NULL
+WHERE f.input_tokens_total IS NOT NULL OR f.output_tokens_total IS NOT NULL OR f.provider_reported_cost_usd IS NOT NULL
 )
 SELECT count(*)::bigint FROM finished
 `
