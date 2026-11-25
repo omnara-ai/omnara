@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 )
+
+const saveGenerationIDTimeout = 10 * time.Second
 
 var errChatStreamTerminal = errors.New("chat completions stream reached a terminal event")
 
@@ -75,11 +78,14 @@ func (p protocol) ConsumeStream(
 		acc.generationID = header.Get("X-Generation-Id")
 		if acc.generationID == "" {
 			logent.ModelResponseGenerationIDMissing(ctx)
-		} else if save := model.SaveGenerationIDFromContext(ctx); save != nil {
+		} else if p.saveGenerationID != nil {
+			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), saveGenerationIDTimeout)
 			saved := make(chan error, 1)
-			go func() { saved <- save(ctx, acc.generationID) }()
+			go func() { saved <- p.saveGenerationID(saveCtx, acc.generationID) }()
 			defer func() {
-				if err := <-saved; err != nil {
+				err := <-saved
+				cancelSave()
+				if err != nil {
 					logent.ModelResponseGenerationIDSaveFailed(ctx, err)
 				}
 			}()
@@ -194,7 +200,7 @@ type chatStreamAccumulator struct {
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
 	out := a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
-		ID:          cmp.Or(a.id, a.generationID),
+		ID:          cmp.Or(a.generationID, a.id),
 		Model:       a.servedModel,
 		Provider:    a.provider,
 		ServiceTier: a.serviceTier,

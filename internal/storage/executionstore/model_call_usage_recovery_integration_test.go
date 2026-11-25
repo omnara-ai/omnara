@@ -129,6 +129,51 @@ WHERE context.id = $1`, claim.Context.ID).Scan(&effectiveCost, &effectiveKind, &
 	assertPgErrorMessage(t, err, "25006", "terminal model_call_contexts are immutable")
 }
 
+func TestRecoveredUsageSkipsCustomPricesItCannotApply(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]struct {
+		cacheWrite string
+		kind       string
+		cost       string
+	}{
+		"distinct cache-write rate": {"3.75", "provider_reported", "0.05"},
+		"same cache-write rate":     {"3", "custom", "0.0035"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "generation_pricing_"+want.kind)
+			recordGeneration(t, ctx, fixture, claim.Context.ID, "gen-1")
+			cancelAgent(t, ctx, fixture)
+			_, err := fixture.Store.pool.Exec(ctx,
+				`ALTER TABLE configured_model_revisions DISABLE TRIGGER configured_model_revisions_immutable`)
+			require.NoError(t, err)
+			_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE configured_model_revisions SET pricing = jsonb_build_object(
+  'input_mtok', '3', 'cache_write_mtok', $2::text, 'output_mtok', '5')
+WHERE id = (SELECT configured_model_revision_id FROM model_call_contexts WHERE id = $1)`,
+				claim.Context.ID, want.cacheWrite)
+			require.NoError(t, err)
+			recorded, err := fixture.Store.Execution().RecordRecoveredModelCallUsage(ctx,
+				executionstore.RecordRecoveredModelCallUsageInput{
+					ProjectID: testProjectID, AgentID: fixture.AgentID, ModelCallContextID: claim.Context.ID,
+					ProviderResponseID: "gen-1", ProviderReportedCostUSD: "0.05",
+					Usage: modelenvelope.Usage{InputTokens: 1000, OutputTokens: 100},
+				})
+			require.NoError(t, err)
+			require.True(t, recorded)
+			var cost, kind, pending string
+			require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+SELECT trim_scale(context.effective_cost_usd)::text, context.effective_cost_kind,
+  trim_scale(pending.effective_cost_usd)::text
+FROM model_call_contexts context
+JOIN pending_model_costs pending ON pending.model_call_context_id = context.id
+WHERE context.id = $1`, claim.Context.ID).Scan(&cost, &kind, &pending))
+			require.Equal(t, []string{want.kind, want.cost, want.cost}, []string{kind, cost, pending})
+		})
+	}
+}
+
 func TestListModelUsageRecoveriesFollowsSchedule(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

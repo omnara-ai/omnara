@@ -107,6 +107,34 @@ func TestRunnerReplansWhenPublishFindsUnsafeBoundary(t *testing.T) {
 	}
 }
 
+func TestRunnerSavesEachProviderCallsGenerationUnderItsOwnClaim(t *testing.T) {
+	store := &fakeStore{
+		events: []executionstore.CompactionSourceEventRecord{
+			textCompactionEvent(1, strings.Repeat("first closed event ", 20)),
+			textCompactionEvent(2, strings.Repeat("second closed event ", 20)),
+		},
+		publishErrs: []error{storeerr.ErrCheckpointBoundaryUnsafe},
+	}
+	client := &summaryModel{results: []summaryResult{
+		{response: completeSummaryResponse("Concise first summary.")},
+		{response: completeSummaryResponse("Concise replacement summary.")},
+	}}
+	compactionInput := runInput(testPlan(1, 2, 2))
+	_, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
+	)
+	require.NoError(t, err)
+	require.Len(t, client.requests, 2)
+	require.Len(t, store.claims, 2)
+	for i, generationID := range []string{"gen-first", "gen-replacement"} {
+		require.NoError(t, client.requests[i].SaveGenerationID(context.Background(), generationID))
+	}
+	require.Equal(t, []savedGeneration{
+		{store.claims[0].Context.ID, "gen-first"},
+		{store.claims[1].Context.ID, "gen-replacement"},
+	}, store.generations, "a replacement call saves its generation under its own claim")
+}
+
 func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, strings.Repeat("first closed unit ", 40)),

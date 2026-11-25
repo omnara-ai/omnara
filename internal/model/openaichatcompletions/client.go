@@ -57,14 +57,14 @@ func (c Client) endpoint() route.StaticEndpoint {
 	}
 }
 
-func (c Client) routeClient() route.Client {
+func (c Client) routeClient(saveGenerationID model.SaveGenerationIDFunc) route.Client {
 	return route.Client{
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
 		Endpoint:          c.endpoint(),
 		Auth:              c.Auth,
 		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
-		Protocol:          protocol{client: c},
+		Protocol:          protocol{client: c, saveGenerationID: saveGenerationID},
 	}
 }
 
@@ -72,18 +72,19 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	if strings.TrimSpace(c.EndpointPath) == "" {
 		return model.PreparedRequest{}, route.SetupError{Err: errors.New("model endpoint path is required")}
 	}
-	return c.routeClient().Prepare(ctx, input)
+	return c.routeClient(nil).Prepare(ctx, input)
 }
 
 func (c Client) Respond(ctx context.Context, input model.Request) (model.Response, error) {
 	if strings.TrimSpace(c.EndpointPath) == "" {
 		return model.Response{}, route.SetupError{Err: errors.New("model endpoint path is required")}
 	}
-	return c.routeClient().RespondStream(ctx, input)
+	return c.routeClient(input.SaveGenerationID).RespondStream(ctx, input)
 }
 
 type protocol struct {
-	client Client
+	client           Client
+	saveGenerationID model.SaveGenerationIDFunc
 }
 
 func (p protocol) APIFormat() modelprotocol.APIFormat {

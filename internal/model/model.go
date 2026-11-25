@@ -34,8 +34,9 @@ type Capabilities struct {
 }
 
 type Request struct {
-	ProviderRequest json.RawMessage
-	DeltaSink       StreamSink
+	ProviderRequest  json.RawMessage
+	DeltaSink        StreamSink
+	SaveGenerationID SaveGenerationIDFunc
 }
 
 type Client interface {

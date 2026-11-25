@@ -19,8 +19,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const saveGenerationIDTimeout = 2 * time.Second
-
 type AgentExecutor struct {
 	Store                    *storage.Store
 	ContextBuilder           modelcontext.Builder
@@ -52,18 +50,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	if e.ModelResolver == nil {
 		return errors.New("kernel model resolver is required")
 	}
-	ctx = model.WithSaveGenerationID(ctx, func(ctx context.Context, generationID string) error {
-		contextID, err := uuid.Parse(model.CallScopeFromContext(ctx).ModelCallContextID)
-		if err != nil {
-			return fmt.Errorf("model call context is required to save a generation ID: %w", err)
-		}
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveGenerationIDTimeout)
-		defer cancel()
-		return e.Store.Execution().RecordModelCallGenerationID(
-			ctx, input.AgentID, input.RuntimeLockID, contextID, generationID,
-		)
-	})
-
 	if input.Kind == executionstore.ModelWorkResume {
 		contextRow, found, loadErr := e.Store.Execution().GetModelCallContext(
 			ctx,

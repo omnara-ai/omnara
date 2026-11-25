@@ -201,6 +201,11 @@ func (r Runner) RunClaimed(
 		}),
 		model.Request{
 			ProviderRequest: prepared.Body,
+			SaveGenerationID: func(ctx context.Context, generationID string) error {
+				return r.Store.RecordModelCallGenerationID(
+					ctx, input.Plan.AgentID, input.RuntimeLockID, claim.Context.ID, generationID,
+				)
+			},
 		},
 	)
 	providerAttempt.ProviderRequestStarted = true

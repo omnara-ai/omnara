@@ -30,7 +30,22 @@ type fakeStore struct {
 	publishInputs    []executionstore.PublishContextCheckpointInput
 	publishErrs      []error
 	published        *executionstore.ContextCheckpointRecord
+	generations      []savedGeneration
 	clock            func() time.Time
+}
+
+type savedGeneration struct {
+	modelCallContextID uuid.UUID
+	generationID       string
+}
+
+func (s *fakeStore) RecordModelCallGenerationID(
+	_ context.Context,
+	_, _, modelCallContextID uuid.UUID,
+	generationID string,
+) error {
+	s.generations = append(s.generations, savedGeneration{modelCallContextID, generationID})
+	return nil
 }
 
 func (s *fakeStore) ListCompactionSourceEvents(
