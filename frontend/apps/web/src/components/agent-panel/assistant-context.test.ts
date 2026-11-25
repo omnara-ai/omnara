@@ -21,3 +21,15 @@ it('holds questions until the conversation can take them, then sends them one at
   finish[0]?.()
   await expect.poll(() => started).toEqual(['first', 'second'])
 })
+
+it('sends the next question after one could not be sent', async () => {
+  const queue = createAskQueue()
+  const started: string[] = []
+  queue.register((text) => {
+    started.push(text)
+    return text === 'first' ? Promise.reject(new Error('offline')) : Promise.resolve()
+  })
+  queue.ask('first')
+  queue.ask('second')
+  await expect.poll(() => started).toEqual(['first', 'second'])
+})

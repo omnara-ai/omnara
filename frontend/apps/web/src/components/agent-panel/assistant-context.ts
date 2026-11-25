@@ -29,11 +29,14 @@ export interface AssistantSurface {
   follow: () => void
 }
 
-/** Holds questions asked before the conversation can take them, and sends them in order. */
+/**
+ * Holds questions asked before the conversation can take them, and sends them in order. A
+ * question that fails to send is the conversation's to report; the ones after it still go out.
+ */
 export function createAskQueue() {
   let sender: AssistantSender | null = null
   const waiting: ((sender: AssistantSender) => void)[] = []
-  let asked = Promise.resolve()
+  let asked: Promise<unknown> = Promise.resolve()
   return {
     register: (next: AssistantSender | null) => {
       sender = next
@@ -41,14 +44,16 @@ export function createAskQueue() {
       for (const resolve of waiting.splice(0)) resolve(next)
     },
     ask: (text: string) => {
-      asked = asked.then(async () => {
-        const send =
-          sender ??
-          (await new Promise<AssistantSender>((resolve) => {
-            waiting.push(resolve)
-          }))
-        await send(text)
-      })
+      asked = asked
+        .then(async () => {
+          const send =
+            sender ??
+            (await new Promise<AssistantSender>((resolve) => {
+              waiting.push(resolve)
+            }))
+          await send(text)
+        })
+        .catch(() => undefined)
     },
   }
 }

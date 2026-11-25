@@ -60,7 +60,15 @@ const grant: ProjectModelGrantListItem = {
   supports_tools: true,
 }
 
-it('creates with the prefilled project and model, and reports it even though the form is already gone', async () => {
+const plainModelID = `mdl_${'b'.repeat(26)}`
+const withoutTools: ProjectModelGrantListItem = {
+  ...grant,
+  grant: { ...grant.grant, id: `pmog_${'b'.repeat(26)}`, configured_model_id: plainModelID },
+  model: { ...grant.model, id: plainModelID, name: 'plain-model' },
+  supports_tools: false,
+}
+
+it('creates with the prefilled project and the first model that supports tools, found on a later page, and reports it even though the form is already gone', async () => {
   const restore = enableReactActEnvironment()
   const container = document.createElement('div')
   document.body.append(container)
@@ -73,6 +81,7 @@ it('creates with the prefilled project and model, and reports it even though the
       agent_id: fakeId('agt'),
       name: 'Omnara assistant',
       can_operate: true,
+      own_assistant: true,
       scope: {
         org_id: org.id,
         org_name: org.name,
@@ -103,7 +112,10 @@ it('creates with the prefilled project and model, and reports it even though the
     {
       method: 'GET',
       path: `/api/v1/orgs/${org.id}/projects/${project.id}/model-grants`,
-      respond: () => jsonResponse({ data: [grant], next_cursor: null }),
+      respond: ({ url }) =>
+        url.searchParams.get('cursor') === 'later'
+          ? jsonResponse({ data: [grant], next_cursor: null })
+          : jsonResponse({ data: [withoutTools], next_cursor: 'later' }),
     },
     {
       method: 'POST',

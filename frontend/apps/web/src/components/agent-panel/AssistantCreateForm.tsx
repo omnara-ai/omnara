@@ -32,6 +32,8 @@ export function AssistantCreateForm({
     modelsQuery,
     models,
     model,
+    pickProject,
+    pickModel,
     noModel,
     provisioning,
     creatingAutomatically,
@@ -43,7 +45,7 @@ export function AssistantCreateForm({
 
   return (
     <>
-      {projects.length > 1 && (
+      {pickProject && (
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-project`}>Project</Label>
           <ProjectPicker
@@ -59,7 +61,7 @@ export function AssistantCreateForm({
           />
         </div>
       )}
-      {models.length > 1 && (
+      {pickModel && (
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-model`}>Model</Label>
           <ModelPicker

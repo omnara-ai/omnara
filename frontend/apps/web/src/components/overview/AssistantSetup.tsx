@@ -70,11 +70,17 @@ function SetupAction({
 }) {
   const { project, model } = setup
   if (setup.creatingAutomatically) return <Waiting>Creating your assistant…</Waiting>
-  if (model != null) {
+  // A list that failed to load is retried from its picker, so the pickers stay with the form.
+  if (model != null || setup.failed) {
     return (
       <>
-        {(setup.projects.length > 1 || setup.models.length > 1) && <Choices setup={setup} />}
-        <Button className="w-full" disabled={setup.busy} loading={creating} onClick={setup.submit}>
+        {(setup.pickProject || setup.pickModel) && <Choices setup={setup} />}
+        <Button
+          className="w-full"
+          disabled={setup.busy || model == null}
+          loading={creating}
+          onClick={setup.submit}
+        >
           Create assistant
         </Button>
       </>
@@ -99,7 +105,7 @@ function SetupAction({
 function Choices({ setup }: { setup: Creation }) {
   return (
     <div className="flex flex-col gap-4 pb-2">
-      {setup.projects.length > 1 && (
+      {setup.pickProject && (
         <Choice id="assistant-setup-project" label="Project">
           <ProjectPicker
             id="assistant-setup-project"
@@ -114,7 +120,7 @@ function Choices({ setup }: { setup: Creation }) {
           />
         </Choice>
       )}
-      {setup.models.length > 1 && (
+      {setup.pickModel && (
         <Choice id="assistant-setup-model" label="Model">
           <ModelPicker
             id="assistant-setup-model"

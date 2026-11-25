@@ -4,7 +4,7 @@ import {
   useVisibleProjectsList,
 } from '@omnara/react'
 import type { AgentPanel, CurrentUserOrg, VisibleProject } from '@omnara/sdk'
-import { useContext, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
@@ -17,6 +17,15 @@ function defaultProject(projects: VisibleProject[], preferredID: string | undefi
       .slice()
       .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))[0]
   )
+}
+
+/**
+ * Whether a list needs its picker. The prefilled item stands in for it only once the whole
+ * list is known to hold nothing else: until then the picker is where more of it is loaded and
+ * where a failed load is retried.
+ */
+function needsPicker(query: { isError: boolean; hasNextPage: boolean }, count: number): boolean {
+  return query.isError || query.hasNextPage || count > 1
 }
 
 /**
@@ -56,6 +65,12 @@ export function useAssistantCreation({
     (item) => item.grant.project_id === project?.id && item.supports_tools,
   )
   const model = models.find((item) => item.model.id === modelID) ?? models[0]
+  // The list cannot be asked for tool support, so its first page may hold no usable model
+  // while a later one does. Keeps looking, the way the server does when it picks one itself.
+  const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = modelsQuery
+  useEffect(() => {
+    if (model == null && hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isError, isFetchingNextPage, model])
   const queued = bootstrap?.scope.project_id === project?.id ? bootstrap : null
   const creatingAutomatically =
     queued != null && queued.error == null && (queued.model === 'available' || queued.pending)
@@ -103,7 +118,10 @@ export function useAssistantCreation({
     modelsQuery,
     models,
     model,
+    pickProject: needsPicker(projectsQuery, projects.length),
+    pickModel: needsPicker(modelsQuery, models.length),
     noModel: modelsQuery.isSuccess && !modelsQuery.hasNextPage && model == null,
+    failed: projectsQuery.isError || modelsQuery.isError,
     queued: queued != null,
     provisioning: queued?.model === 'provisioning',
     creatingAutomatically,
