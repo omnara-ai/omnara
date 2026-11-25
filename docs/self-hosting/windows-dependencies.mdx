@@ -175,7 +175,7 @@ For a new RustFS service, use a data path without spaces (a RustFS 1.0.4 limitat
 }
 ```
 
-Open the two files in `C:\ProgramData\Omnara\rustfs\config` with an administrator's editor to obtain the credentials. From your workstation, forward the console separately from Omnara's IIS site:
+Open the two files in `C:\ProgramData\Omnara\rustfs\config` with an administrator's editor to obtain the credentials. Workstation forwarding requires [OpenSSH Server installed and running](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) with SSH access from your workstation. Forward the console separately from Omnara's IIS site:
 
 ```sh
 ssh -L 9001:127.0.0.1:9001 <user>@<server>

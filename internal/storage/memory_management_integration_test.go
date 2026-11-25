@@ -35,6 +35,13 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	input := memorystore.WriteInput{Scope: scope, StoreID: memory.ID, Path: "nested/note.txt", Content: []byte("initial")}
 	result, err := store.Memories().Write(ctx, input)
 	require.NoError(t, err)
+	_, _, err = store.Memories().Read(ctx, scope, memory.ID, input.Path+"/child")
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.NotErrorIs(t, err, storeerr.ErrNotFound)
+	err = store.Memories().DeleteFile(ctx, scope, memory.ID, input.Path+"/child", result.Digest)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.NotErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.NotErrorIs(t, err, storeerr.ErrNotFound)
 	viewer := createSecretTestUser(t, ctx, store, "Memory Viewer", authz.OrgRoleMember)
 	_, err = store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 		OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID, Role: authz.ProjectRoleViewer,

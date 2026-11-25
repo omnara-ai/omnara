@@ -205,7 +205,7 @@ func (g globFS) Open(name string) (fs.File, error) {
 	if err == nil {
 		file, err = g.root.Open(name)
 	}
-	if errors.Is(err, syscall.ENOTDIR) {
+	if errors.Is(err, memoryops.ErrParentNotDirectory) || errors.Is(err, syscall.ENOTDIR) {
 		err = fs.ErrNotExist
 	}
 	if err != nil {

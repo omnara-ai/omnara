@@ -214,7 +214,7 @@ func TestMemoryFilesystemContentsAndQuota(t *testing.T) {
 	for _, name := range []string{"nested", "nested/.existing.bin/child", "file-link", "directory-link/new"} {
 		if _, err := stores[1].Memories().Write(ctx, memorystore.WriteInput{
 			Scope: scope, StoreID: resource.ID, Path: name, Content: []byte("invalid"),
-		}); !errors.Is(err, storeerr.ErrConflict) {
+		}); !errors.Is(err, storeerr.ErrConflict) || errors.Is(err, storeerr.ErrInvalidRequest) {
 			t.Fatalf("file type validation for %s: %v", name, err)
 		}
 	}

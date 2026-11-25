@@ -11,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +23,8 @@ const (
 	stagingDir = ".staging"
 	locksDir   = ".locks"
 )
+
+var ErrParentNotDirectory = fmt.Errorf("memory parent is a file: %w", storeerr.ErrConflict)
 
 type Filesystem struct{ root *os.Root }
 
@@ -140,7 +141,7 @@ func CheckPath(root *os.Root, name string) error {
 			return fmt.Errorf("unsupported memory file type: %w", storeerr.ErrConflict)
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return fmt.Errorf("memory parent is a file: %w: %w", storeerr.ErrConflict, syscall.ENOTDIR)
+			return ErrParentNotDirectory
 		}
 		if err := checkNativePath(root, component, info); err != nil {
 			return err

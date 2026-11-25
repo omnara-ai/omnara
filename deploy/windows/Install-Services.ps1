@@ -119,6 +119,12 @@ if ((Get-FileHash -LiteralPath $WinSWPath -Algorithm SHA256).Hash -ne $WinSWHash
     throw 'WinSW SHA256 mismatch; only the pinned official v2.14.0 x64 executable is accepted.'
 }
 
+$occupiedPorts = @(Get-NetTCPConnection -LocalPort 8080,8081,8082,8083 -State Listen -ErrorAction SilentlyContinue)
+if ($occupiedPorts.Count) {
+    $ports = ($occupiedPorts.LocalPort | Sort-Object -Unique) -join ', '
+    throw "Required Omnara ports are already in use: $ports. Free ports 8080-8083 before installing; the installer sets these loopback listeners independently of EnvironmentFile."
+}
+
 [void] (New-Item -ItemType Directory -Path $DataDirectory -Force)
 Set-PrivatePermissions $DataDirectory
 $configDirectory = Join-Path $DataDirectory 'config'
@@ -234,7 +240,7 @@ foreach ($index in 0..($services.Count - 1)) {
         if (-not $ready) { Start-Sleep -Seconds 1 }
     } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) {
-        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$($services[$index])\logs. Correct $installedEnvironment and restart the installed services with Restart-Service omnara-api, omnara-worker, omnara-maintenance; do not reinstall them."
+        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$($services[$index])\logs and fix the reported cause. For configuration or dependency errors, correct $installedEnvironment; for listener conflicts, free the required ports 8080-8083. Then restart the installed services with Restart-Service omnara-api, omnara-worker, omnara-maintenance; do not reinstall them."
     }
 }
 if (Get-ChildItem -LiteralPath (Join-Path $DataDirectory 'worker\logs') -Filter '*.log' |

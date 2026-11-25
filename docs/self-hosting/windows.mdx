@@ -105,6 +105,8 @@ Leave `OMNARA_PUBLIC_URL=http://localhost:8088` for the SSH-forwarded POC. The f
 
 ## 3. Install services and IIS
 
+The installer reserves loopback ports 8080-8083; they must be free before installation and cannot be changed in the environment file.
+
 ```powershell
 .\deploy\windows\Install-Services.ps1 `
   -BinaryDirectory C:\Omnara\bin `
@@ -123,7 +125,7 @@ Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), 
 
 The scripts run migrations once, create separate virtual service accounts, make binaries read-only to services, and create private logs, temporary directories, and a shared case-sensitive memory directory. Services use delayed automatic startup, so allow a few minutes after boot. IIS listens on `127.0.0.1:8088` and the API listeners stay on loopback; dependency addresses come from your configuration. No firewall rules are opened. These are initial-install scripts: existing Omnara services or nonempty data directories are refused. If services were installed but a dependency connection fails, correct the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying; database migrations are not rolled back.
 
-From your workstation, forward IIS and open `http://localhost:8088`:
+For workstation access, [install and start OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) on Windows and allow SSH connections from your workstation. Forward IIS and open `http://localhost:8088`:
 
 ```sh
 ssh -L 8088:127.0.0.1:8088 <user>@<server>
