@@ -29,7 +29,7 @@
     "@zip.js/zip.js": "^2.25.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "cronstrue": "^3.39.0",
+    "cronstrue": "^3.42.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.73.0",
     "modern-tar": "^0.8.6",
