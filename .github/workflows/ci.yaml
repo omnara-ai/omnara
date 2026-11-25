@@ -195,7 +195,7 @@ jobs:
         run: go test -v ./internal/config ./internal/storage/internal/memoryops ./internal/storage/memorystore ./internal/harness/tools ./internal/sandbox ./internal/testutil/integrationdb ./internal/testutil/integrationlock
 
       - name: Compile and vet Windows integration and service tests
-        run: go vet -tags=integration,servicee2e,webe2e ./internal/e2e ./internal/harness/tools ./internal/httpapi ./internal/storage/... ./internal/blobstore ./internal/httpapi/auth ./internal/notifications ./internal/redistore
+        run: go vet '-tags=integration,servicee2e,webe2e' ./internal/e2e ./internal/harness/tools ./internal/httpapi ./internal/storage/... ./internal/blobstore ./internal/httpapi/auth ./internal/notifications ./internal/redistore
 
       - name: Build Windows control-plane commands
         run: go build ./cmd/api ./cmd/worker ./cmd/maintenance ./cmd/migrate ./cmd/sandbox
