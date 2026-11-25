@@ -1,24 +1,13 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
+
 <#
-.SYNOPSIS
-Installs the three Omnara control-plane services on a single Windows Server.
 .DESCRIPTION
-Run once after provisioning PostgreSQL, Redis/Garnet, and S3 storage. Supply a
-dedicated binary directory containing omnara-{api,worker,maintenance,migrate}.exe,
-omnara-sandbox.exe, migrations, and the generated mcp-registry.json snapshot; and a
-dedicated file-tools directory containing rg.exe, GNU sed.exe, and its runtime DLLs.
-The API must include the embedded web UI. Keep Common.ps1 beside this script.
-
-The supplied binary/tool directories have their ACLs replaced: Administrators and
-SYSTEM retain full control; service accounts receive read/execute only. Do not
-point them at shared software directories. DataDirectory must be absent or empty.
-The environment file is copied into DataDirectory; edit that protected copy for
-subsequent configuration changes, then restart the services.
-
-This installs no dependencies, IIS configuration, or firewall rules. A failed
-installation leaves its files and services available for inspection; it does not
-roll back database migrations. Existing services are never replaced automatically.
+BinaryDirectory and FileToolsDirectory must be dedicated directories: their
+permissions are replaced. DataDirectory must be absent or empty. EnvironmentFile
+is copied there; edit the protected copy for subsequent configuration changes.
+A failed installation retains files and services for inspection and does not
+roll back database migrations. Existing services are never replaced.
 #>
 [CmdletBinding()]
 param(
@@ -26,12 +15,31 @@ param(
     [Parameter(Mandatory = $true)][string] $EnvironmentFile,
     [Parameter(Mandatory = $true)][string] $FileToolsDirectory,
     [string] $DataDirectory = 'C:\ProgramData\Omnara\control-plane',
-    [Parameter(Mandatory = $true)][string] $WinSWPath
+    [Parameter(Mandatory = $true)][string] $WinSWPath,
+    [ValidateRange(1, 65535)][int] $ApiPort = 8080,
+    [ValidateRange(1, 65535)][int] $ApiMetricsPort = 8081,
+    [ValidateRange(1, 65535)][int] $WorkerMetricsPort = 8082,
+    [ValidateRange(1, 65535)][int] $MaintenanceMetricsPort = 8083
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$services = @('api', 'worker', 'maintenance')
+$metricsPorts = [ordered]@{ api = $ApiMetricsPort; worker = $WorkerMetricsPort; maintenance = $MaintenanceMetricsPort }
+$services = @($metricsPorts.Keys)
+$listenPorts = @($ApiPort) + @($metricsPorts.Values)
+if (@($listenPorts | Sort-Object -Unique).Count -ne 4) {
+    throw 'ApiPort, ApiMetricsPort, WorkerMetricsPort, and MaintenanceMetricsPort must be distinct.'
+}
+foreach ($service in $services) {
+    if (Get-Service -Name "omnara-$service" -ErrorAction SilentlyContinue) {
+        throw "Service omnara-$service already exists. This script only performs initial installations."
+    }
+}
+$occupiedPorts = @(Get-NetTCPConnection -LocalPort $listenPorts -State Listen -ErrorAction SilentlyContinue)
+if ($occupiedPorts.Count) {
+    $ports = ($occupiedPorts.LocalPort | Sort-Object -Unique) -join ', '
+    throw "Required Omnara ports are already in use: $ports. Free them or choose different -ApiPort, -ApiMetricsPort, -WorkerMetricsPort, and -MaintenanceMetricsPort values; EnvironmentFile does not set these listeners."
+}
 $accounts = @($services | ForEach-Object { 'NT SERVICE\omnara-' + $_ })
 
 . (Join-Path $PSScriptRoot 'Common.ps1')
@@ -79,11 +87,6 @@ $registrySnapshot = Join-Path $BinaryDirectory 'mcp-registry.json'
 if (-not (Test-Path -LiteralPath $registrySnapshot -PathType Leaf)) {
     throw 'BinaryDirectory must contain the generated mcp-registry.json snapshot.'
 }
-foreach ($service in $services) {
-    if (Get-Service -Name "omnara-$service" -ErrorAction SilentlyContinue) {
-        throw "Service omnara-$service already exists. This script only performs initial installations."
-    }
-}
 if ((Test-Path -LiteralPath $DataDirectory) -and
     @((Get-ChildItem -LiteralPath $DataDirectory -Force)).Count -ne 0) {
     throw 'DataDirectory must be empty. Imported memory directories need a separately reviewed migration.'
@@ -119,12 +122,6 @@ if ((Get-FileHash -LiteralPath $WinSWPath -Algorithm SHA256).Hash -ne $WinSWHash
     throw 'WinSW SHA256 mismatch; only the pinned official v2.14.0 x64 executable is accepted.'
 }
 
-$occupiedPorts = @(Get-NetTCPConnection -LocalPort 8080,8081,8082,8083 -State Listen -ErrorAction SilentlyContinue)
-if ($occupiedPorts.Count) {
-    $ports = ($occupiedPorts.LocalPort | Sort-Object -Unique) -join ', '
-    throw "Required Omnara ports are already in use: $ports. Free ports 8080-8083 before installing; the installer sets these loopback listeners independently of EnvironmentFile."
-}
-
 [void] (New-Item -ItemType Directory -Path $DataDirectory -Force)
 Set-PrivatePermissions $DataDirectory
 $configDirectory = Join-Path $DataDirectory 'config'
@@ -141,10 +138,10 @@ Set-PrivatePermissions $EnvironmentFile
 if ($LASTEXITCODE -ne 0) { throw 'Could not enable case sensitivity on the empty memory directory.' }
 
 $overrides = [ordered]@{
-    OMNARA_API_ADDR = '127.0.0.1:8080'
-    OMNARA_API_METRICS_ADDR = '127.0.0.1:8081'
-    OMNARA_WORKER_METRICS_ADDR = '127.0.0.1:8082'
-    OMNARA_MAINTENANCE_METRICS_ADDR = '127.0.0.1:8083'
+    OMNARA_API_ADDR = "127.0.0.1:$ApiPort"
+    OMNARA_API_METRICS_ADDR = "127.0.0.1:$($metricsPorts['api'])"
+    OMNARA_WORKER_METRICS_ADDR = "127.0.0.1:$($metricsPorts['worker'])"
+    OMNARA_MAINTENANCE_METRICS_ADDR = "127.0.0.1:$($metricsPorts['maintenance'])"
     OMNARA_WEB_SERVING = 'embedded'
     OMNARA_MEMORY_DIR = $memoryDirectory
     OMNARA_MIGRATIONS_DIR = $migrationsDirectory
@@ -225,9 +222,9 @@ foreach ($service in $services) {
     Start-Service -Name "omnara-$service"
 }
 
-foreach ($index in 0..($services.Count - 1)) {
-    $id = 'omnara-' + $services[$index]
-    $url = 'http://127.0.0.1:' + (8081 + $index) + '/readyz'
+foreach ($service in $services) {
+    $id = 'omnara-' + $service
+    $url = "http://127.0.0.1:$($metricsPorts[$service])/readyz"
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     $ready = $false
     do {
@@ -240,7 +237,7 @@ foreach ($index in 0..($services.Count - 1)) {
         if (-not $ready) { Start-Sleep -Seconds 1 }
     } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) {
-        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$($services[$index])\logs and fix the reported cause. For configuration or dependency errors, correct $installedEnvironment; for listener conflicts, free the required ports 8080-8083. Then restart the installed services with Restart-Service omnara-api, omnara-worker, omnara-maintenance; do not reinstall them."
+        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$service\logs and fix the reported cause. For configuration or dependency errors, correct $installedEnvironment; for listener conflicts, free the selected ports $($listenPorts -join ', '). Then restart the installed services with Restart-Service omnara-api, omnara-worker, omnara-maintenance; do not reinstall them."
     }
 }
 if (Get-ChildItem -LiteralPath (Join-Path $DataDirectory 'worker\logs') -Filter '*.log' |
@@ -248,4 +245,5 @@ if (Get-ChildItem -LiteralPath (Join-Path $DataDirectory 'worker\logs') -Filter 
     Write-Warning 'One or more worker file tools failed startup checks; inspect the protected worker logs. An edit-probe failure disables scripted edits until omnara-worker restarts. Searches check availability on each call.'
 }
 Write-Host "Omnara services are running and ready. Configuration: $installedEnvironment"
-Write-Host 'The dashboard and API listen on 127.0.0.1:8080 for an IIS reverse proxy.'
+Write-Host "The dashboard and API listen on 127.0.0.1:$ApiPort. Configure IIS with -BackendPort $ApiPort."
+Write-Host "Loopback metrics ports: API $ApiMetricsPort, worker $WorkerMetricsPort, maintenance $MaintenanceMetricsPort."

@@ -1,12 +1,4 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-Builds the native Windows x64 control-plane release from this checkout.
-.DESCRIPTION
-Requires Go from go.mod, Node from .node-version, and Corepack. Run in Windows
-PowerShell; administrator access is not required. The frontend and MCP registry
-snapshot require internet access. OutputDirectory must be absent or empty.
-#>
 [CmdletBinding()]
 param([string] $OutputDirectory = (Join-Path $PSScriptRoot '..\..\bin\windows'))
 

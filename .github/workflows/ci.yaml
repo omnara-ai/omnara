@@ -204,6 +204,48 @@ jobs:
             }
           }
 
+      - name: Check Windows installer port validation
+        shell: powershell
+        run: |
+          function Assert-Rejected($Script, $Parameters, $Message) {
+            $failure = $null
+            try { & $Script @Parameters } catch { $failure = $_.Exception.Message }
+            if (-not $failure -or $failure -notlike $Message) { throw "Expected '$Message', got '$failure'" }
+          }
+          $installer = '.\deploy\windows\Install-Services.ps1'
+          $iis = '.\deploy\windows\Configure-IIS.ps1'
+          $parameters = @{
+            BinaryDirectory = 'unused'; FileToolsDirectory = 'unused'
+            EnvironmentFile = 'unused'; WinSWPath = 'unused'
+          }
+          $ports = @('ApiPort', 'ApiMetricsPort', 'WorkerMetricsPort', 'MaintenanceMetricsPort')
+          foreach ($port in $ports) {
+            foreach ($value in @(0, 65536)) {
+              $case = $parameters.Clone()
+              $case[$port] = $value
+              Assert-Rejected $installer $case "Cannot validate argument on parameter '$port'.*"
+            }
+          }
+          foreach ($port in @('Port', 'BackendPort')) {
+            foreach ($value in @(0, 65536)) {
+              Assert-Rejected $iis @{ $port = $value } "Cannot validate argument on parameter '$port'.*"
+            }
+          }
+          $case = $parameters.Clone()
+          $case.ApiPort = 8081
+          Assert-Rejected $installer $case '*must be distinct.*'
+          Assert-Rejected $iis @{ Port = 8090; BackendPort = 8090 } 'Port and BackendPort must be different.'
+          $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, 0)
+          try {
+            $listener.Start()
+            $port = $listener.LocalEndpoint.Port
+            $case = $parameters.Clone()
+            $case.WorkerMetricsPort = $port
+            Assert-Rejected $installer $case "Required Omnara ports are already in use:*$port*"
+          } finally {
+            $listener.Stop()
+          }
+
       - name: Test Windows storage, file tools, configuration, and process helpers
         run: go test -count=1 -v ./internal/config ./internal/storage/internal/memoryops ./internal/storage/memorystore ./internal/harness/tools ./internal/sandbox ./internal/testutil/integrationdb ./internal/testutil/integrationlock
 

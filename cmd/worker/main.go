@@ -165,7 +165,7 @@ func main() {
 		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	if runtime.GOOS != "windows" {
-		// Preserve Linux's existing per-call recovery behavior.
+		// Linux retries sandbox setup per call.
 		scriptSupportErr = nil
 	}
 	store := storage.NewStore(db, storeOpts...)

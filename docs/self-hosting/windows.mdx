@@ -1,10 +1,10 @@
 ---
 title: Windows Server
-description: Run a native Windows control-plane POC behind IIS
+description: Run Omnara natively on Windows Server behind IIS
 icon: "windows"
 ---
 
-This single-machine POC was tested on Windows Server 2022 x64. It runs the API, worker, maintenance, migrations, and embedded dashboard without Docker or a Linux VM. The machine daemon (`omnarad`) is separate and is not included.
+Run the API, worker, maintenance service, migrations, and dashboard natively on Windows Server, without Docker or a Linux VM. These steps were tested on Windows Server 2022 x64 and do not install the machine daemon (`omnarad`).
 
 PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. IIS fronts the embedded dashboard and API without changing other sites' proxy settings.
 
@@ -23,9 +23,9 @@ if ((Get-FileHash .\omnara-windows-amd64.zip -Algorithm SHA256).Hash -eq $expect
 }
 ```
 
-The bundle contains `bin` with all five executables, the embedded dashboard, migrations and MCP registry; `deploy/windows` with setup scripts; `WINDOWS-SETUP.mdx` with these instructions and `WINDOWS-DEPENDENCIES.mdx` with optional dependency recipes; and `SOURCE.txt` identifying the source commit. Go, Node, and a source checkout are not needed. These unsigned POC executables use the fresh-install steps below; the installers do not upgrade existing services.
+The download includes the executables, dashboard, setup scripts, and these guides. Go, Node, and a source checkout are not required. The executables are unsigned. The scripts install new services; they do not upgrade existing ones.
 
-Tagged release ZIPs also have GitHub build attestations. To verify their provenance with the optional GitHub CLI, run `gh attestation verify .\omnara-windows-amd64.zip --repo omnara-ai/omnara` from the download directory.
+To verify that a tagged release ZIP was built by this repository's GitHub workflow, use the optional GitHub CLI: run `gh attestation verify .\omnara-windows-amd64.zip --repo omnara-ai/omnara` from the download directory.
 
 For builds ahead of a tagged release, download the `omnara-windows-amd64-bundle` artifact from a successful [push-to-main CI run](https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml?query=branch%3Amain+event%3Apush). GitHub login is required and these artifacts expire after 14 days. Extract the artifact download to obtain the same ZIP and checksum pair, then follow the commands above. Release assets remain available independently of CI artifact retention.
 
@@ -68,7 +68,7 @@ Supply each service independently; installing a local Redis server does not requ
 | Dependency | What Omnara needs |
 | --- | --- |
 | PostgreSQL | Version 18+, a dedicated UTF-8 database owned by the application role, and `pg_trgm` available for migrations. SQL Server cannot replace it. |
-| Redis | A standalone Redis-compatible endpoint with atomic Lua (`EVAL`, `cjson`, `TIME`), TTLs, and Pub/Sub. State is ephemeral; disk storage and restart persistence are not required. Size memory for your workload; key loss resets temporary sign-in, rate-limit, and presence state. Direct Cluster and Sentinel configurations are unsupported. |
+| Redis | One Redis-compatible endpoint with atomic Lua scripts (`EVAL`, `cjson`, and `TIME`), expiring keys, and Pub/Sub. Cluster and Sentinel connections are unsupported. Omnara uses Redis for temporary data; it does not need to survive restarts. Losing keys resets pending sign-ins, rate limits, and presence. |
 | S3 | An existing bucket and credentials with object Get/Put/Delete access to `artifacts/*` and `skills/*`. Omnara does not create buckets. |
 
 For a dependency you need to install, follow its separate [native Windows recipe](/self-hosting/windows-dependencies) (`WINDOWS-DEPENDENCIES.mdx` in the download). The tested choices are PostgreSQL's Windows installer, Garnet, and RustFS. An existing service may be local or remote; allow connections from the Windows server and configure TLS for remote endpoints. Certificates and credentials must be accessible to the service accounts, not just your interactive login.
@@ -101,11 +101,11 @@ Replace all remaining `REPLACE_` values with your chosen endpoints and credentia
 
 Set the S3 bucket, region, access key and secret key. For local RustFS, use endpoint `http://127.0.0.1:9000`, region `us-east-1`, and path style `1`. For AWS S3, leave the custom endpoint empty and use path style `0`. If using the AWS default credential chain instead of static keys, leave both key fields empty and make those credentials available to the API and worker service accounts.
 
-Leave `OMNARA_PUBLIC_URL=http://localhost:8088` for the SSH-forwarded POC. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample enables console email and development mode; development mode also lets `web_fetch` reach loopback, so keep this POC private.
+Keep `OMNARA_PUBLIC_URL=http://localhost:8088` when using the SSH forward below. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample writes signup links to private API logs and enables development settings, including access from `web_fetch` to local services. Keep this configuration private.
 
 ## 3. Install services and IIS
 
-The installer reserves loopback ports 8080-8083; they must be free before installation and cannot be changed in the environment file.
+The installer uses loopback ports 8080-8083 by default. To choose different ports, pass `-ApiPort`, `-ApiMetricsPort`, `-WorkerMetricsPort`, and `-MaintenanceMetricsPort` to `Install-Services.ps1`; all four must be distinct and free. These parameters set the installed service listeners, overriding addresses in the environment file.
 
 ```powershell
 .\deploy\windows\Install-Services.ps1 `
@@ -123,7 +123,11 @@ Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), 
 .\deploy\windows\Configure-IIS.ps1
 ```
 
-The scripts run migrations once, create separate virtual service accounts, make binaries read-only to services, and create private logs, temporary directories, and a shared case-sensitive memory directory. Services use delayed automatic startup, so allow a few minutes after boot. IIS listens on `127.0.0.1:8088` and the API listeners stay on loopback; dependency addresses come from your configuration. No firewall rules are opened. These are initial-install scripts: existing Omnara services or nonempty data directories are refused. If services were installed but a dependency connection fails, correct the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying; database migrations are not rolled back.
+For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command, then run `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090`. IIS `-BackendPort` must match the installer's `-ApiPort`. IIS `-Port` defaults to 8088 and must differ from all four service ports; changing backend ports does not change `OMNARA_PUBLIC_URL`.
+
+The installer updates the database, creates a separate Windows account for each service, prepares permissions and storage, and starts the services. They start automatically after a reboot; allow a few minutes. IIS listens on `127.0.0.1:8088` by default, and Omnara accepts connections only from this machine. No firewall rules are opened.
+
+These scripts are for new installations. If services were installed but a dependency connection fails, fix the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying. Database migrations are not rolled back.
 
 For workstation access, [install and start OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) on Windows and allow SSH connections from your workstation. Forward IIS and open `http://localhost:8088`:
 
@@ -133,13 +137,13 @@ ssh -L 8088:127.0.0.1:8088 <user>@<server>
 
 Sign up using the verification link in the protected API logs under `C:\ProgramData\Omnara\control-plane\api\logs`. Add a model provider and API key in the dashboard, create an agent, send a conversation that uses tools, and upload a file. Check that the conversation and file remain after restarting the services.
 
-## 4. Operate the POC
+## 4. Operate the services
 
 Edit `C:\ProgramData\Omnara\control-plane\config\control-plane.env` for subsequent configuration changes, then restart the affected services. Logs are under each service's `logs` directory. Coordinate database and S3 backups with their owners, and retain the entire memory directory and configuration containing encryption keys with them.
 
-Memory search and scripted edits use native ripgrep and GNU sed. Windows does not apply Linux Landlock, seccomp, or chroot isolation; GNU sed's restricted mode and process lifetime/output limits still apply. These tools have the worker account's filesystem access. Startup failures produce a warning. A failed edit check disables scripted edits until you fix the executable/DLL setup and restart `omnara-worker`; searches check availability on each call.
+Memory search and scripted edits use ripgrep and GNU sed. On Windows, these tools run with the worker account's file permissions, without the extra isolation used on Linux. Time, memory, and output limits still apply. If scripted edits are disabled at startup, check the worker logs, fix the file-tool installation, and restart `omnara-worker`. Ordinary memory reads and writes remain available.
 
-WinSW 2 does not provide a Windows preshutdown hook. Before a planned reboot, stop Omnara explicitly so the worker can drain:
+Before rebooting Windows, stop Omnara so the worker can shut down cleanly:
 
 ```powershell
 Stop-Service omnara-worker, omnara-api, omnara-maintenance
@@ -147,6 +151,6 @@ Stop-Service omnara-worker, omnara-api, omnara-maintenance
 
 WinSW 2.14 can fail a stop after the process exits and then restart the service. Wait 15 seconds and confirm these services still report `Stopped` with `Get-Service omnara-worker, omnara-api, omnara-maintenance`. If one restarted after a failed stop, stop it again and recheck before proceeding. The [upstream fix](https://github.com/winsw/winsw/pull/1544) has not shipped in a release binary.
 
-Then follow the shutdown procedure for any dependencies hosted on this machine before restarting Windows. Do not stop remote or shared customer services as part of Omnara maintenance.
+Then follow the shutdown procedure for dependencies hosted on this machine before restarting Windows. Leave shared or remote services running.
 
-This page describes a private POC. Use the [configuration reference](/self-hosting/configuration) when planning public URLs, TLS, email delivery, or additional dependency options.
+These steps keep Omnara private. Before exposing it publicly, configure HTTPS and email delivery, set `OMNARA_PUBLIC_URL` to the public address, and turn off development defaults. See the [configuration reference](/self-hosting/configuration).

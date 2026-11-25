@@ -1,26 +1,19 @@
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
-<#
-.SYNOPSIS
-Creates the local IIS entry point for an Omnara Windows POC.
-.DESCRIPTION
-Requires IIS with WebSocket Protocol, URL Rewrite 2.1, and Application Request
-Routing 3 installed. Omnara must already listen on 127.0.0.1:8080 with its embedded
-dashboard. Keep Common.ps1 and web.config beside this script.
-
-Creates the Omnara site/application pool and the OmnaraControlPlane ARR farm,
-containing only 127.0.0.1:8080. Existing sites, application pools, farms, and site
-content are never overwritten. Settings for other sites and the global
-ARR proxy remain unchanged. No firewall rule or public binding is created.
-#>
 [CmdletBinding()]
 param(
     [string] $SiteDirectory = 'C:\ProgramData\Omnara\iis',
-    [ValidateRange(1, 65535)][int] $Port = 8088
+    [ValidateRange(1, 65535)][int] $Port = 8088,
+    [ValidateRange(1, 65535)][int] $BackendPort = 8080
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($Port -eq $BackendPort) { throw 'Port and BackendPort must be different.' }
+$listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
+if ($listener.Count -ne 1 -or (Get-Process -Id $listener[0].OwningProcess).ProcessName -ne 'omnara-api') {
+    throw "omnara-api must be listening on 127.0.0.1:$BackendPort. Set -BackendPort to the -ApiPort used by Install-Services.ps1."
+}
 $siteName = 'Omnara'
 $farmName = 'OmnaraControlPlane'
 $binding = "127.0.0.1:${Port}:"
@@ -71,7 +64,7 @@ try {
     $farm['name'] = $farmName
     $backend = $farm.GetCollection().CreateElement('server')
     $backend['address'] = '127.0.0.1'
-    $backend.GetChildElement('applicationRequestRouting')['httpPort'] = [uint32]8080
+    $backend.GetChildElement('applicationRequestRouting')['httpPort'] = [uint32]$BackendPort
     [void] $farm.GetCollection().Add($backend)
     $protocol = $farm.GetChildElement('applicationRequestRouting').GetChildElement('protocol')
     $protocol['preserveHostHeader'] = $true
@@ -99,8 +92,6 @@ try {
     [void] (New-Item -ItemType Directory -Path $SiteDirectory -Force)
     $manager.CommitChanges()
 
-    # The pool identity now exists. Only it, SYSTEM, and administrators need the
-    # proxy configuration; no application secrets or dashboard files live here.
     Set-PrivatePermissions $SiteDirectory @('IIS AppPool\Omnara')
     Copy-Item -LiteralPath $template -Destination (Join-Path $SiteDirectory 'web.config')
 } finally {
@@ -110,7 +101,6 @@ try {
 $deadline = [DateTime]::UtcNow.AddSeconds(30)
 $ready = $false
 do {
-    # Read fresh runtime state while IIS activates the committed configuration.
     try {
         $runtime = New-Object Microsoft.Web.Administration.ServerManager
         try {
@@ -127,7 +117,7 @@ do {
     if (-not $ready) { Start-Sleep -Seconds 1 }
 } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
 if (-not $ready) {
-    throw 'IIS did not return the embedded Omnara dashboard. Check the Omnara services and IIS logs.'
+    throw "IIS did not return the embedded Omnara dashboard from backend port $BackendPort. Check that -BackendPort matches -ApiPort, then inspect the Omnara services and IIS logs."
 }
 Write-Host "Omnara is available through IIS at http://localhost:$Port using the $farmName farm."
-Write-Host 'The IIS binding is loopback only; use an SSH port forward for this POC.'
+Write-Host 'The IIS binding is loopback only; use an SSH port forward to access it from another machine.'

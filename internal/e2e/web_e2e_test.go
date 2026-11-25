@@ -213,7 +213,6 @@ func TestWebE2E(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
 	if runtime.GOOS == "windows" {
-		// The Windows pnpm installation supplies a .cmd shim.
 		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
 	}
 	cmd.WaitDelay = 5 * time.Second

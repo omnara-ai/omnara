@@ -1,4 +1,3 @@
-# Shared installation helpers. Dot-source from the Windows setup scripts.
 $WinSWHash = '4ebd9dc3e817f80b2bd8c18f5bfe0d550241c1d08b57bd9694777a6e56a7b24f'
 
 function Resolve-LocalPath([string] $Path) {

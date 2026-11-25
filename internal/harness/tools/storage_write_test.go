@@ -66,7 +66,6 @@ func TestFailedScriptProbeDisablesExecution(t *testing.T) {
 	if probeErr == nil {
 		t.Fatal("probe succeeded without file tools")
 	}
-	// A nil store proves the disabled operation stops before accessing files.
 	_, err := runStorageWriteAsync(t.Context(), asyncToolContext{
 		Executor: Executor{ScriptEditSupportError: probeErr},
 		Call:     model.ToolCall{Input: json.RawMessage(`{"path":"/memory/team/file.txt","script":"s/x/y/"}`)},

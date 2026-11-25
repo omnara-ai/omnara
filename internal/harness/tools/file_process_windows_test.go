@@ -78,7 +78,6 @@ func TestWindowsScriptMemoryLimit(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, context.DeadlineExceeded)
 	require.ErrorContains(t, err, "memory")
-	// Exhausting one tool's job must not affect the worker or the next tool.
 	output, err := editFileText(t.Context(), []byte("a"), "s/a/b/")
 	require.NoError(t, err)
 	require.Equal(t, "b", string(output))

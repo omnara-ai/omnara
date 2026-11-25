@@ -15,8 +15,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// API validation only needs a native absolute registry path.
-	// The container default is tested explicitly below.
 	registryPath, err := filepath.Abs("mcp-registry.json")
 	if err == nil {
 		err = os.Setenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", registryPath)

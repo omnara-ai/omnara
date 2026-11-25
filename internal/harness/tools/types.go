@@ -68,9 +68,8 @@ type Executor struct {
 	BackgroundRunner         BackgroundRunner
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
-	// ScriptEditSupportError disables scripted edits after a failed startup probe.
-	ScriptEditSupportError error
-	Log                    *slog.Logger
+	ScriptEditSupportError   error
+	Log                      *slog.Logger
 }
 
 func (e Executor) logger() *slog.Logger {

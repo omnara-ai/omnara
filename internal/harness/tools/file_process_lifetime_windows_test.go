@@ -148,8 +148,6 @@ func TestWindowsScriptLaunchFailureCleanup(t *testing.T) {
 			require.Empty(t, entries)
 		})
 	}
-	// Exercise the caller's own early-return cleanup when the launcher cannot
-	// be found, rather than only the command's cleanup callback above.
 	t.Run("unavailable_launcher", func(t *testing.T) {
 		dir := privateFileToolTemp(t)
 		sed, err := exec.LookPath("sed")
@@ -293,8 +291,6 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 	defer stdout.Close()
 	if mode == "before_assignment" {
 		command.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
-		// A tiny tool with an observable side effect catches a launcher that
-		// accidentally starts a child before joining and closing the job handle.
 		executable, err := os.Executable()
 		require.NoError(t, err)
 		command.Args = append(command.Args[:2], executable, "-test.run=^TestWindowsFileToolLifetimeHelper$")
