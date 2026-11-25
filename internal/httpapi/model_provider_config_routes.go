@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	openapigen "github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -167,7 +168,27 @@ func createConfiguredModelInputFromOpenAPI(
 	if body.OutputModalities != nil {
 		input.OutputModalities = append([]string(nil), (*body.OutputModalities)...)
 	}
+	if body.Pricing != nil {
+		input.Pricing = modelPricingFromRequest(*body.Pricing)
+	}
 	return input
+}
+
+func modelPricingFromRequest(pricing openapigen.ModelPricing) *modelprice.Pricing {
+	return &modelprice.Pricing{
+		Input: pricing.InputMtok, CacheRead: valueOrZero(pricing.CacheReadMtok),
+		CacheWrite: valueOrZero(pricing.CacheWriteMtok), Output: pricing.OutputMtok,
+	}
+}
+
+func modelPricingResponse(pricing *modelprice.Pricing) *openapigen.ModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	return &openapigen.ModelPricing{
+		InputMtok: pricing.Input, CacheReadMtok: optionalNonEmpty(pricing.CacheRead),
+		CacheWriteMtok: optionalNonEmpty(pricing.CacheWrite), OutputMtok: pricing.Output,
+	}
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
@@ -801,6 +822,16 @@ func patchConfiguredModelInput(
 		value := append(json.RawMessage(nil), body.ApiVariantOptions...)
 		input.APIVariantOptions = &value
 	}
+	if body.Pricing.IsSpecified() {
+		input.Pricing.Set = true
+		if !body.Pricing.IsNull() {
+			pricing, err := body.Pricing.Get()
+			if err != nil {
+				return modelstore.PatchConfiguredModelInput{}, err
+			}
+			input.Pricing.Value = modelPricingFromRequest(pricing)
+		}
+	}
 	return input, nil
 }
 
@@ -1241,6 +1272,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		InputModalities:           inputModalities,
 		OutputModalities:          outputModalities,
 		ApiVariantOptions:         jsonOrFallback(record.APIVariantOptions, json.RawMessage(`{}`)),
+		Pricing:                   modelPricingResponse(record.Pricing),
 		CreatedAt:                 record.CreatedAt,
 		UpdatedAt:                 record.UpdatedAt,
 		RevisionCreatedAt:         record.RevisionCreatedAt,

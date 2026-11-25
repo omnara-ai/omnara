@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
@@ -15,7 +16,6 @@ import (
 )
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
-	_ = ctx
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return model.Response{}, classifyHTTPError(p.errorSource(), resp.StatusCode, resp.Header, body)
@@ -27,6 +27,9 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		return responseEvidence(decoded), p.invalidResponseError(resp, decoded, err)
 	}
+	if _, valid := modelenvelope.ProviderReportedCostFromTicks(decoded.Usage.CostInUSDTicks); !valid {
+		logent.ModelResponseProviderCostInvalid(ctx)
+	}
 	if decoded.Status == "" && decoded.Error.present() {
 		return responseEvidence(decoded), responseFailureError(p.errorSource(), decoded, resp.StatusCode, resp.Header)
 	}
@@ -34,7 +37,9 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	case "failed":
 		return responseEvidence(decoded), responseFailureError(p.errorSource(), decoded, resp.StatusCode, resp.Header)
 	case "queued", "in_progress":
-		return responseEvidence(decoded), model.AmbiguousProviderOutcome(model.ProviderError{
+		out := responseEvidence(decoded)
+		out.Usage.Incomplete = out.Usage != (model.Usage{})
+		return out, model.AmbiguousProviderOutcome(model.ProviderError{
 			Kind:       model.ErrorKindTransient,
 			Source:     p.errorSource(),
 			StatusCode: resp.StatusCode,
@@ -218,11 +223,14 @@ func responseFunctionCallForReplay(
 }
 
 func responseEvidence(response responsesResponse) model.Response {
-	return model.Response{
+	out := model.Response{
 		ID:                      response.ID,
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
+	out.ProviderMetadata.OpenAI.ServiceTier = response.ServiceTier
+	out.ProviderReportedCostUSD, _ = modelenvelope.ProviderReportedCostFromTicks(response.Usage.CostInUSDTicks)
+	return out
 }
 
 type responsesResponse struct {
@@ -234,6 +242,7 @@ type responsesResponse struct {
 	IncompleteDetails responsesIncompleteDetails `json:"incomplete_details"`
 	Output            []json.RawMessage          `json:"output"`
 	Usage             responsesUsage             `json:"usage"`
+	ServiceTier       string                     `json:"service_tier"`
 }
 
 type responsesError struct {
@@ -259,6 +268,7 @@ type responsesUsage struct {
 	OutputTokens        int                   `json:"output_tokens"`
 	OutputTokensDetails responsesTokenDetails `json:"output_tokens_details"`
 	InputTokensDetails  responsesTokenDetails `json:"input_tokens_details"`
+	CostInUSDTicks      json.RawMessage       `json:"cost_in_usd_ticks"`
 }
 
 type responsesTokenDetails struct {

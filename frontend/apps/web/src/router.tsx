@@ -118,6 +118,12 @@ const organizationUsageRoute = createRoute({
   ),
 })
 
+const otelExportersRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/otel-exporters',
+  component: lazyRouteComponent(() => import('@/routes/OtelExportersPage')),
+})
+
 const secretsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/secrets',
@@ -316,6 +322,12 @@ const projectWebhooksRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectWebhooksPage')),
 })
 
+const projectOtelExportersRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/otel-exporters',
+  component: lazyRouteComponent(() => import('@/routes/ProjectOtelExportersPage')),
+})
+
 const projectUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/usage',
@@ -392,6 +404,17 @@ const agentEventsRoute = createRoute({
 const agentChatRoute = createRoute({
   getParentRoute: () => agentRoute,
   path: '/chat',
+})
+
+const agentTracesSearch = z.object({
+  turn: z.string().optional().catch(undefined),
+  span: z.string().optional().catch(undefined),
+})
+
+const agentTracesRoute = createRoute({
+  getParentRoute: () => agentRoute,
+  path: '/traces',
+  validateSearch: agentTracesSearch,
 })
 
 const deviceAuthRoute = createRoute({
@@ -485,6 +508,7 @@ const routeTree = rootRoute.addChildren([
       organizationAgentsRoute,
       organizationIntegrationsRoute,
       organizationUsageRoute,
+      otelExportersRoute,
       secretsRoute,
       skillsRoute,
       skillRoute,
@@ -509,6 +533,7 @@ const routeTree = rootRoute.addChildren([
       memoryStoreRoute,
       projectUsageRoute,
       projectWebhooksRoute,
+      projectOtelExportersRoute,
       agentProfileRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
@@ -517,7 +542,7 @@ const routeTree = rootRoute.addChildren([
         agentProfileUsageRoute,
       ]),
       createAgentRoute,
-      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute]),
+      agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute, agentTracesRoute]),
     ]),
   ]),
 ])

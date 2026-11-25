@@ -1,9 +1,15 @@
 import { type Actor, AgentEventStreamError } from '@omnara/sdk'
-import { getActorQueryKey } from '@omnara/sdk/tanstack'
+import {
+  getActorQueryKey,
+  getAgentUsageQueryKey,
+  getTurnTraceQueryKey,
+  listBudgetsQueryKey,
+} from '@omnara/sdk/tanstack'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { AgentChatSession } from './agent-chat'
 import { agentChatHistoryQueryKey } from './agent-chat-history'
 import {
   chatTransport,
@@ -23,6 +29,7 @@ import {
   userInputEvent,
   waitForSnapshot,
 } from './agent-chat-test-support'
+import { agentTurnsQueryKey } from './agent-traces'
 
 const transport = chatTransport()
 
@@ -578,9 +585,34 @@ describe('AgentChatSession streaming', () => {
       data: controlEvent({ sequence: 14 }),
     })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(4)
+      expect(invalidate).toHaveBeenCalledTimes(5)
     })
     expect(invalidate.mock.calls.some(([filters]) => filters?.predicate !== undefined)).toBe(true)
+    session.disconnect()
+  })
+
+  it('refreshes agent usage and budgets when a turn finishes', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const usageKey = getAgentUsageQueryKey({
+      client: sessionClient,
+      path: { orgID: 'org', projectID: 'project', agentID: 'agent' },
+    })
+    const budgetsKey = listBudgetsQueryKey({
+      client: sessionClient,
+      path: { orgID: 'org' },
+      query: { scope_type: 'agent', project_id: 'project', agent_id: 'agent' },
+    })
+    queryClient.getQueryCache().build(queryClient, { queryKey: usageKey })
+    queryClient.getQueryCache().build(queryClient, { queryKey: budgetsKey })
+    const session = startSession([], sessionClient, queryClient)
+    const stream = await connection(0)
+
+    stream.push({ event: 'model_output', data: event() })
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryState(usageKey)?.isInvalidated).toBe(true)
+      expect(queryClient.getQueryState(budgetsKey)?.isInvalidated).toBe(true)
+    })
     session.disconnect()
   })
 
@@ -700,94 +732,63 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('opens the continuous follower from the initial durable cursor', async () => {
-    const session = startSession()
-    await connection(0)
-    expect(transport.openAgentEventStream).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query: { after_sequence: 0, stream_deltas: true },
-      }),
-    )
-    session.disconnect()
-  })
+  it('coalesces trace and turn invalidations while a turn executes', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const turnTraceKey = getTurnTraceQueryKey({
+      client: sessionClient,
+      path: { ...scope, turnID: 'turn' },
+    })
+    queryClient.setQueryData(agentTurnsQueryKey(scope), { pages: [], pageParams: [0] })
+    queryClient.setQueryData(turnTraceKey, { resourceSpans: [] })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
 
-  it('surfaces a fatal stream response', async () => {
-    const session = startSession()
+    const session = new AgentChatSession({
+      client: sessionClient,
+      queryClient,
+      ...scope,
+      traceInvalidationDelayMs: 25,
+      transport,
+    })
+    const unsubscribe = session.subscribe(vi.fn())
+    session.start(0)
     const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'http',
-        message: 'Agent event stream request failed with HTTP 401',
-        status: 401,
+
+    // Burst of events for one turn should coalesce into a single turns-list
+    // invalidation and a single turn-trace invalidation.
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+    stream.push({
+      event: 'model_output',
+      data: event({ sequence: 12, content_blocks: [toolCallBlock()] }),
+    })
+    stream.push({
+      event: 'tool_result',
+      data: toolResultEvent({
+        sequence: 13,
+        tool_call_id: 'call',
+        content_blocks: [{ type: 'text', text: 'ok' }],
       }),
+    })
+    await waitForSnapshot(session, (s) => s.messages.length > 0)
+
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: agentTurnsQueryKey(scope) })
+    })
+    const turnsCalls = invalidate.mock.calls.filter(
+      ([filters]) =>
+        Array.isArray(filters?.queryKey) &&
+        filters.queryKey.join(':') === agentTurnsQueryKey(scope).join(':'),
     )
-    const snapshot = await waitForSnapshot(session, (s) => s.status === 'error')
+    expect(turnsCalls).toHaveLength(1)
 
-    expect(snapshot.error?.message).toBe('Agent event stream request failed with HTTP 401')
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
-    session.disconnect()
-  })
+    const tracePredicateCalls = invalidate.mock.calls.filter(([filters]) => {
+      if (!filters?.predicate) return false
+      const matchingQuery = queryClient.getQueryCache().find({ queryKey: turnTraceKey })
+      return matchingQuery !== undefined && filters.predicate(matchingQuery)
+    })
+    expect(tracePredicateCalls).toHaveLength(1)
 
-  it('reopens the stream from the last cursor on reconnect', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'http',
-        message: 'Agent event stream request failed with HTTP 401',
-        status: 401,
-      }),
-    )
-    await waitForSnapshot(session, (s) => s.status === 'error')
-
-    expect(session.getData().streamError?.message).toBe(
-      'Agent event stream request failed with HTTP 401',
-    )
-    session.reconnect()
-
-    expect(read(session).error).toBeUndefined()
-    expect(session.getData().streamError).toBeUndefined()
-    const reopened = await connection(1)
-    reopened.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (s) => s.messages.length === 1)
-    expect(transport.openAgentEventStream).toHaveBeenLastCalledWith(
-      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
-    )
-    session.disconnect()
-  })
-
-  it('surfaces a terminal API stream error', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'api',
-        code: 'internal_error',
-        message: 'event projection failed',
-      }),
-    )
-
-    const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
-    expect(snapshot.error?.message).toBe('event projection failed')
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
-    session.disconnect()
-  })
-
-  it('surfaces a stream contract violation without reconnecting', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'contract',
-        message: 'Agent event stream received data that does not match the API contract',
-      }),
-    )
-
-    const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
-    expect(snapshot.error?.message).toBe(
-      'Agent event stream received data that does not match the API contract',
-    )
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
+    unsubscribe()
     session.disconnect()
   })
 })

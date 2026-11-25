@@ -495,6 +495,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ModelOutputToolUseStreamBlock.tool_name":                 "",
 		"ModelToolCallContentBlock.name":                          "",
 		"OrgMember.display_name":                                  "",
+		"OtelExporterAuthOptions.header_name":                     "",
 		"ToolCall.name":                                           "",
 		"ToolCallUpdate.name":                                     "",
 		"ToolCatalogEntry.name":                                   "",

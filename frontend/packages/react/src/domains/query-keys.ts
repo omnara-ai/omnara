@@ -7,6 +7,8 @@ const generatedQueryKeyEntry = z.object({
     .object({
       orgID: z.string().optional(),
       projectID: z.string().optional(),
+      agentID: z.string().optional(),
+      turnID: z.string().optional(),
     })
     .optional(),
 })

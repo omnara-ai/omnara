@@ -1,6 +1,7 @@
 package cronschedule
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,95 @@ func TestNextRejectsTimezonePrefixes(t *testing.T) {
 	want := time.Date(2026, time.August, 18, 9, 0, 0, 0, time.UTC)
 	if !next.Equal(want) {
 		t.Fatalf("next fire = %v, want %v", next, want)
+	}
+}
+
+func TestNextFiresFixedTimesOncePerLocalDayAcrossDSTChanges(t *testing.T) {
+	utc := func(month time.Month, day, hour, minute int) time.Time {
+		return time.Date(2026, month, day, hour, minute, 0, 0, time.UTC)
+	}
+	tests := []struct {
+		name       string
+		expression string
+		timezone   string
+		from, to   time.Time
+		want       []time.Time
+	}{
+		{
+			name:       "fall back runs a fixed time in the repeated hour once",
+			expression: "30 1 * * *",
+			timezone:   "America/New_York",
+			from:       utc(time.October, 31, 12, 0),
+			to:         utc(time.November, 2, 12, 0),
+			want:       []time.Time{utc(time.November, 1, 5, 30), utc(time.November, 2, 6, 30)},
+		},
+		{
+			name:       "fall back in Europe runs a fixed time in the repeated hour once",
+			expression: "30 2 * * *",
+			timezone:   "Europe/Berlin",
+			from:       utc(time.October, 24, 12, 0),
+			to:         utc(time.October, 26, 12, 0),
+			want:       []time.Time{utc(time.October, 25, 0, 30), utc(time.October, 26, 1, 30)},
+		},
+		{
+			name:       "fall back keeps interval schedules running through the repeated hour",
+			expression: "*/30 * * * *",
+			timezone:   "America/New_York",
+			from:       utc(time.November, 1, 4, 10),
+			to:         utc(time.November, 1, 7, 10),
+			want: []time.Time{
+				utc(time.November, 1, 4, 30), utc(time.November, 1, 5, 0), utc(time.November, 1, 5, 30),
+				utc(time.November, 1, 6, 0), utc(time.November, 1, 6, 30), utc(time.November, 1, 7, 0),
+			},
+		},
+		{
+			name:       "spring forward runs a skipped fixed time when the clocks change",
+			expression: "30 2 * * *",
+			timezone:   "America/New_York",
+			from:       utc(time.March, 7, 12, 0),
+			to:         utc(time.March, 9, 12, 0),
+			want:       []time.Time{utc(time.March, 8, 7, 0), utc(time.March, 9, 6, 30)},
+		},
+		{
+			name:       "spring forward at midnight still runs a daily midnight schedule",
+			expression: "0 0 * * *",
+			timezone:   "America/Santiago",
+			from:       utc(time.September, 4, 12, 0),
+			to:         utc(time.September, 7, 12, 0),
+			want: []time.Time{
+				utc(time.September, 5, 4, 0), utc(time.September, 6, 4, 0), utc(time.September, 7, 3, 0),
+			},
+		},
+		{
+			name:       "spring forward leaves fixed times outside the skipped hour alone",
+			expression: "30 3 * * *",
+			timezone:   "America/New_York",
+			from:       utc(time.March, 7, 12, 0),
+			to:         utc(time.March, 9, 12, 0),
+			want:       []time.Time{utc(time.March, 8, 7, 30), utc(time.March, 9, 7, 30)},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Mirror the store: each completed firing schedules the next run from
+			// the time it completed, shortly after the run was due.
+			var fired []time.Time
+			after := test.from
+			for {
+				next, err := Next(test.expression, test.timezone, after)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if next.After(test.to) {
+					break
+				}
+				fired = append(fired, next)
+				after = next.Add(time.Minute)
+			}
+			if !slices.EqualFunc(fired, test.want, time.Time.Equal) {
+				t.Fatalf("fired at %v, want %v", fired, test.want)
+			}
+		})
 	}
 }
 

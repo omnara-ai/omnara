@@ -12,7 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ReportedCost } from '@/components/usage/ReportedCost'
+import { CostInfo } from '@/components/usage/CostInfo'
+import { UsageCost } from '@/components/usage/UsageCost'
 import { type UsageStat, UsageStats, UsageStatsSkeleton } from '@/components/usage/UsageStats'
 import { formatCount } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
@@ -22,6 +23,7 @@ export function UsageReportView({
   emptyMessage,
   emptyAction,
   chart,
+  budget,
 }: {
   query: UseQueryResult<UsageReportData, unknown>
   /** Says which window is empty; usage pages default to the last 30 days, not all time. */
@@ -30,6 +32,7 @@ export function UsageReportView({
   emptyAction?: ReactNode
   /** Usage over time, shown between the summary and the per-model table when usage exists. */
   chart?: ReactNode
+  budget?: ReactNode
 }) {
   if (query.isPending) {
     return (
@@ -42,26 +45,33 @@ export function UsageReportView({
   }
   if (query.isError) {
     return (
-      <p className="text-destructive text-sm" role="alert">
-        {errorMessage(query.error, 'Could not load usage.')}
-      </p>
+      <div className="flex flex-col gap-6">
+        <p className="text-destructive text-sm" role="alert">
+          {errorMessage(query.error, 'Could not load usage.')}
+        </p>
+        {budget}
+      </div>
     )
   }
   const report = query.data
   if (report.totals.model_calls === 0) {
     return (
-      <Empty className="rounded-xl border">
-        <EmptyHeader>
-          <EmptyDescription>{emptyMessage}</EmptyDescription>
-        </EmptyHeader>
-        {emptyAction && <EmptyContent>{emptyAction}</EmptyContent>}
-      </Empty>
+      <div className="flex flex-col gap-6">
+        <Empty className="rounded-xl border">
+          <EmptyHeader>
+            <EmptyDescription>{emptyMessage}</EmptyDescription>
+          </EmptyHeader>
+          {emptyAction && <EmptyContent>{emptyAction}</EmptyContent>}
+        </Empty>
+        {budget}
+      </div>
     )
   }
   return (
     <div className="flex flex-col gap-6">
       {chart}
       <UsageStats stats={usageSummaryStats(report.totals)} />
+      {budget}
       <UsageByModelTable rows={report.by_model} />
     </div>
   )
@@ -70,8 +80,9 @@ export function UsageReportView({
 function usageSummaryStats(totals: UsageTotals): UsageStat[] {
   return [
     {
-      label: 'Provider-reported cost',
-      value: <ReportedCost modelCalls={totals.model_calls} cost={totals.cost} />,
+      label: 'Cost',
+      info: <CostInfo />,
+      value: <UsageCost modelCalls={totals.model_calls} cost={totals.cost} />,
     },
     { label: 'Input tokens', value: formatCount(totals.tokens.input_tokens_total) },
     { label: 'Output tokens', value: formatCount(totals.tokens.output_tokens_total) },
@@ -92,7 +103,12 @@ function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {
             <TableHead className="text-right">Cache write</TableHead>
             <TableHead className="text-right">Output</TableHead>
             <TableHead className="text-right">Reasoning</TableHead>
-            <TableHead className="pr-4 text-right">Cost</TableHead>
+            <TableHead className="pr-4 text-right">
+              <span className="inline-flex items-center gap-1">
+                Cost
+                <CostInfo />
+              </span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -125,7 +141,7 @@ function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {
                 {formatCount(row.tokens.reasoning_output_tokens)}
               </TableCell>
               <TableCell className="pr-4 text-right tabular-nums">
-                <ReportedCost modelCalls={row.model_calls} cost={row.cost} />
+                <UsageCost modelCalls={row.model_calls} cost={row.cost} />
               </TableCell>
             </TableRow>
           ))}

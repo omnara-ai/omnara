@@ -45,6 +45,8 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { TraceInvalidationCoalescer } from './agent-traces'
+import { invalidateBudgetQueries } from './budgets'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -71,6 +73,7 @@ export class AgentChatSession {
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
   private readonly inputReconciliationDelayMs: number
+  private readonly traceInvalidator: TraceInvalidationCoalescer
 
   private listeners: (() => void)[] = []
   private runController: AbortController | null = null
@@ -80,7 +83,9 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
-  private lastFailedSend: (LocalAgentInput & { hint?: string; hintResolved: boolean }) | null = null
+  // `hinted` is set once the hint was resolved, so a retry sends the same one.
+  private lastFailedSend: (LocalAgentInput & { hinted?: { hint: string | undefined } }) | null =
+    null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
 
@@ -101,6 +106,7 @@ export class AgentChatSession {
     projectID,
     agentID,
     inputReconciliationDelayMs = 1000,
+    traceInvalidationDelayMs = 250,
     transport = sdkAgentChatTransport,
   }: AgentChatSessionOptions) {
     this.client = client
@@ -108,6 +114,11 @@ export class AgentChatSession {
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
     this.inputReconciliationDelayMs = inputReconciliationDelayMs
+    this.traceInvalidator = new TraceInvalidationCoalescer(
+      queryClient,
+      this.scope,
+      traceInvalidationDelayMs,
+    )
   }
 
   getData = (): AgentChatData => this.data
@@ -142,25 +153,21 @@ export class AgentChatSession {
     const previous = this.lastFailedSend
     const retry = previous != null && sameMessage(previous, normalized) ? previous : null
     const id = retry?.id ?? crypto.randomUUID()
-    let hint = retry?.hint
-    let hintResolved = retry?.hintResolved ?? false
+    let hinted = retry?.hinted
     this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
     this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      if (!hintResolved) {
-        hint = resolveHint == null ? undefined : await resolveHint()
-        hintResolved = true
-      }
+      hinted ??= { hint: resolveHint == null ? undefined : await resolveHint() }
       const input = await createAgentChatInput(
         this.transport,
         this.client,
         this.scope,
         id,
         normalized,
-        hint,
+        hinted.hint,
       )
       this.acceptAgentInput(id, input)
     } catch (error) {
@@ -181,7 +188,7 @@ export class AgentChatSession {
           return
         }
         if (this.localInputs.get(id)?.agentInputID != null) return
-        this.lastFailedSend = { id, ...normalized, placement, hint, hintResolved }
+        this.lastFailedSend = { id, ...normalized, placement, hinted }
       }
       this.localInputs.delete(id)
       this.error = sendError
@@ -317,6 +324,7 @@ export class AgentChatSession {
       void this.queryClient.invalidateQueries({
         predicate: agentUsageQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
+      void invalidateBudgetQueries(this.queryClient, this.scope.orgID)
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()
@@ -324,6 +332,7 @@ export class AgentChatSession {
     const hasEvent = this.hasLoadedEvent.bind(this)
     invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
     void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
+    this.traceInvalidator.onEvent(event.turn_id, event.is_opening_event)
     this.notify()
   }
 
@@ -360,7 +369,10 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) this.invalidateInteractions()
+    if (state.reconnected) {
+      this.invalidateInteractions()
+      this.traceInvalidator.onReconnect()
+    }
   }
 
   disconnect = (): void => {
@@ -370,6 +382,7 @@ export class AgentChatSession {
       this.deltas = []
       this.notify()
     }
+    this.traceInvalidator.cancel()
   }
 
   reconnect = (): void => {

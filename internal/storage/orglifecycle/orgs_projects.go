@@ -24,6 +24,7 @@ type CreateOrgForUserInput struct {
 	IdempotencyKey                string
 	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
 	ProvisionDefaultModelProvider bool
+	Budgets                       []identitystore.BudgetAttachment
 }
 
 func (s *Service) CreateOrgForUser(
@@ -66,6 +67,11 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, err
 	}
 	if record.Created {
+		if err := identitystore.CreateBudgetsTx(
+			ctx, tx, identitystore.CreateBudgetInput{OrgID: record.Org.ID}, input.Budgets,
+		); err != nil {
+			return identitystore.CreateOrgForUserRecord{}, err
+		}
 		q := dbsqlc.New(tx)
 		eligible, err := q.ConsumeAgentPanelBootstrapEligibility(
 			ctx, dbsqlc.ConsumeAgentPanelBootstrapEligibilityParams{UserID: input.UserID},
@@ -172,6 +178,9 @@ func deleteProjectOwnedContentTx(
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, &projectID)
 	if err != nil {
 		return nil, err
+	}
+	if err := q.DeleteBudgetsForProjectDeletion(ctx, dbsqlc.DeleteBudgetsForProjectDeletionParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return nil, fmt.Errorf("delete project budgets: %w", err)
 	}
 	if err := q.DeleteSkillsForOwner(ctx, dbsqlc.DeleteSkillsForOwnerParams{OrgID: orgID, OwnerProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("delete project skills: %w", err)
@@ -514,6 +523,16 @@ func (s *Service) deleteProjectOnce(
 	if err != nil {
 		return nil, err
 	}
+	if err := q.DeleteProjectOtelExporters(ctx, dbsqlc.DeleteProjectOtelExportersParams{
+		OrgID: orgID, ProjectID: projectID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete project otel exporters: %w", err)
+	}
+	if err := q.DeleteProjectOtelExportDeliveries(ctx, dbsqlc.DeleteProjectOtelExportDeliveriesParams{
+		OrgID: orgID, ProjectID: projectID,
+	}); err != nil {
+		return nil, fmt.Errorf("delete project otel export deliveries: %w", err)
+	}
 	rows, err := q.DeleteProject(ctx, dbsqlc.DeleteProjectParams{OrgID: orgID, ID: projectID})
 	if err != nil {
 		return nil, fmt.Errorf("delete project: %w", err)
@@ -651,6 +670,9 @@ func (s *Service) deleteOrganizationOnce(
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {
 		return nil, err
+	}
+	if err := q.DeleteOrganizationBudgets(ctx, dbsqlc.DeleteOrganizationBudgetsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization budgets: %w", err)
 	}
 	if err := q.DeleteSkillsForOwner(ctx, dbsqlc.DeleteSkillsForOwnerParams{OrgID: orgID, OwnerProjectID: nil}); err != nil {
 		return nil, fmt.Errorf("delete organization skills: %w", err)

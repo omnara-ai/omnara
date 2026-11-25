@@ -367,6 +367,58 @@ export const zEventWebhookEventType = z.enum([
     'tool_call_update'
 ]);
 
+export const zOtelExporterId = z.string().regex(/^otx_[a-z2-7]{26}$/);
+
+/**
+ * Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+ */
+export const zOtelTraceVariant = z.enum([
+    'otel',
+    'langfuse',
+    'braintrust',
+    'langsmith'
+]);
+
+/**
+ * OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
+ */
+export const zOtelExporterEncoding = z.enum(['protobuf', 'json']);
+
+/**
+ * An OTLP ExportTraceServiceRequest in its JSON encoding. Field names follow the OTLP specification.
+ */
+export const zOtelTrace = z.object({
+    resourceSpans: z.array(z.record(z.string(), z.unknown()))
+});
+
+/**
+ * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
+ */
+export const zOtelExporterAuthKind = z.enum([
+    'none',
+    'bearer_token',
+    'api_key_header',
+    'basic'
+]);
+
+/**
+ * Non-secret authentication settings. Must be empty for none and bearer_token. With api_key_header, set {"header_name":"..."}. With basic, set {"username":"..."} (for Langfuse, use the public key).
+ */
+export const zOtelExporterAuthOptions = z.object({
+    header_name: z.string().min(1).optional(),
+    username: z.string().min(1).max(1024).optional()
+});
+
+/**
+ * Plain request headers sent with every export, by header name. Values are stored and returned as plain text, so Authorization is not accepted here; use auth_kind or secret_headers for credentials.
+ */
+export const zOtelExporterHeaders = z.record(z.string(), z.string().min(1).max(8192));
+
+/**
+ * Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
+ */
+export const zOtelExporterSamplePercent = z.number().gte(0).lte(100);
+
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
 export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
@@ -471,6 +523,16 @@ export const zModelCatalog = z.object({
     error: z.string().optional()
 });
 
+/**
+ * Your own prices in USD per million tokens, as exact decimal strings, named like genai-prices catalog entries. Missing cache prices use the input price.
+ */
+export const zModelPricing = z.object({
+    input_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/),
+    cache_read_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    cache_write_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/).optional(),
+    output_mtok: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,15})?$/)
+});
+
 export const zCreateConfiguredModelRequest = z.object({
     name: zResourceName,
     provider_model_slug: z.string().min(1),
@@ -484,7 +546,8 @@ export const zCreateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zModelPricing.optional()
 });
 
 /**
@@ -503,7 +566,8 @@ export const zUpdateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zModelPricing.nullish()
 });
 
 /**
@@ -606,6 +670,57 @@ export const zEventWebhook = z.object({
 
 export const zListEventWebhooksResponse = z.object({
     data: z.array(zEventWebhook),
+    next_cursor: z.string().nullable()
+});
+
+/**
+ * Extra request headers whose values come from generic secrets available to the project, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
+ */
+export const zOtelExporterSecretHeaders = z.record(z.string(), zSecretId);
+
+export const zCreateOtelExporterRequest = z.object({
+    endpoint: z.string().min(1).max(2048),
+    variant: zOtelTraceVariant.optional(),
+    encoding: zOtelExporterEncoding.optional().default('protobuf'),
+    auth_kind: zOtelExporterAuthKind.optional().default('none'),
+    auth_options: zOtelExporterAuthOptions.optional(),
+    credential_secret_id: zSecretId.optional(),
+    headers: zOtelExporterHeaders.optional(),
+    secret_headers: zOtelExporterSecretHeaders.optional(),
+    sample_percent: zOtelExporterSamplePercent.optional().default(100)
+});
+
+export const zUpdateOtelExporterRequest = z.object({
+    endpoint: z.string().min(1).max(2048).optional(),
+    variant: zOtelTraceVariant.optional(),
+    encoding: zOtelExporterEncoding.optional(),
+    auth_kind: zOtelExporterAuthKind.optional(),
+    auth_options: zOtelExporterAuthOptions.optional(),
+    credential_secret_id: zSecretId.nullish(),
+    headers: zOtelExporterHeaders.optional(),
+    secret_headers: zOtelExporterSecretHeaders.optional(),
+    sample_percent: zOtelExporterSamplePercent.optional()
+});
+
+export const zOtelExporter = z.object({
+    id: zOtelExporterId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    endpoint: z.string().min(1).max(2048),
+    variant: zOtelTraceVariant,
+    encoding: zOtelExporterEncoding,
+    auth_kind: zOtelExporterAuthKind,
+    auth_options: zOtelExporterAuthOptions,
+    credential_secret_id: zSecretId.optional(),
+    headers: zOtelExporterHeaders,
+    secret_headers: zOtelExporterSecretHeaders,
+    sample_percent: zOtelExporterSamplePercent,
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zListOtelExportersResponse = z.object({
+    data: z.array(zOtelExporter),
     next_cursor: z.string().nullable()
 });
 
@@ -723,6 +838,7 @@ export const zConfiguredModel = z.object({
     input_modalities: z.array(z.string()),
     output_modalities: z.array(z.string()),
     api_variant_options: zModelApiVariantOptions,
+    pricing: zModelPricing.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     revision_created_at: zTimestamp
@@ -1371,11 +1487,6 @@ export const zAgentConfigSummary = z.object({
 
 export const zAgentConfigGeneratedSource = z.object({
     source: z.string()
-});
-
-export const zCreateAgentProfileRequest = z.object({
-    name: zResourceName,
-    config: zAgentConfigId
 });
 
 export const zUpdateAgentProfileRequest = z.object({
@@ -2435,10 +2546,6 @@ export const zSecretGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zCreateOrganizationRequest = z.object({
-    name: zResourceName
-});
-
 export const zOrganization = z.object({
     id: zOrganizationId,
     name: zResourceName,
@@ -3064,10 +3171,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zCreateProjectRequest = z.object({
-    name: zResourceName
-});
-
 export const zUpdateProjectRequest = z.object({
     name: zResourceName
 });
@@ -3138,6 +3241,115 @@ export const zOrgOverviewAgentProfileReference = z.object({
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
+export const zBudgetId = z.string().regex(/^bdg_[a-z2-7]{26}$/);
+
+export const zBudgetScopeType = z.enum([
+    'org',
+    'project',
+    'profile',
+    'agent'
+]);
+
+export const zOrgBudgetScope = z.object({
+    type: z.enum(['org'])
+});
+
+export const zProjectBudgetScope = z.object({
+    type: z.enum(['project']),
+    project_id: zProjectId
+});
+
+/**
+ * Counts the profile's top-level agents and their subagents.
+ */
+export const zAgentProfileBudgetScope = z.object({
+    type: z.enum(['profile']),
+    project_id: zProjectId,
+    agent_profile_id: zAgentProfileId
+});
+
+/**
+ * Counts a top-level agent and its subagents.
+ */
+export const zAgentBudgetScope = z.object({
+    type: z.enum(['agent']),
+    project_id: zProjectId,
+    agent_id: zAgentId
+});
+
+export const zBudgetScope = z.discriminatedUnion('type', [
+    zOrgBudgetScope.extend({ type: z.literal('org') }),
+    zProjectBudgetScope.extend({ type: z.literal('project') }),
+    zAgentProfileBudgetScope.extend({ type: z.literal('profile') }),
+    zAgentBudgetScope.extend({ type: z.literal('agent') })
+]);
+
+/**
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ */
+export const zBudgetInterval = z.enum([
+    'day',
+    'week',
+    'month',
+    'lifetime'
+]);
+
+/**
+ * Amount in USD as a positive decimal string.
+ */
+export const zBudgetAmount = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$/);
+
+export const zBudgetAttachment = z.object({
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zCreateAgentProfileRequest = z.object({
+    name: zResourceName,
+    config: zAgentConfigId,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateOrganizationRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateProjectRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zBudgetUsage = z.object({
+    amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
+export const zBudget = z.object({
+    id: zBudgetId,
+    org_id: zOrganizationId,
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount,
+    usage: zBudgetUsage.optional(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateBudgetRequest = z.object({
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zUpdateBudgetRequest = z.object({
+    amount_usd: zBudgetAmount
+});
+
+export const zListBudgetsResponse = z.object({
+    data: z.array(zBudget),
+    next_cursor: z.string().nullable()
+});
+
 export const zUsageTimeseriesInterval = z.enum([
     'hour',
     'day',
@@ -3146,7 +3358,7 @@ export const zUsageTimeseriesInterval = z.enum([
 ]);
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export const zUsageTimeseriesMetric = z.enum([
     'sum_tokens',
@@ -3188,7 +3400,9 @@ export const zUsageTokenTotals = z.object({
 
 export const zUsageCostTotals = z.object({
     provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    effective_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_effective_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
 export const zUsageTotals = z.object({
@@ -3731,6 +3945,7 @@ export const zCreateAgentRequest = z.intersection(z.union([
     message: z.string().optional(),
     tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
     subscriptions: z.array(zIntegrationSubscriptionAttachment).max(16).optional(),
+    budgets: z.array(zBudgetAttachment).max(4).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 }));
@@ -3986,6 +4201,82 @@ export const zUpdateEventWebhookPath = z.object({
  */
 export const zUpdateEventWebhookResponse = zEventWebhook;
 
+export const zListOrgOtelExportersPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgOtelExportersQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Exporters across the caller's readable projects.
+ */
+export const zListOrgOtelExportersResponse = zListOtelExportersResponse;
+
+export const zListOtelExportersPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListOtelExportersQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * The project's exporters.
+ */
+export const zListOtelExportersResponse2 = zListOtelExportersResponse;
+
+export const zCreateOtelExporterBody = zCreateOtelExporterRequest;
+
+export const zCreateOtelExporterPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Exporter created.
+ */
+export const zCreateOtelExporterResponse = zOtelExporter;
+
+export const zDeleteOtelExporterPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    exporterID: zOtelExporterId
+});
+
+/**
+ * Exporter deleted.
+ */
+export const zDeleteOtelExporterResponse = z.void();
+
+export const zGetOtelExporterPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    exporterID: zOtelExporterId
+});
+
+/**
+ * The exporter.
+ */
+export const zGetOtelExporterResponse = zOtelExporter;
+
+export const zUpdateOtelExporterBody = zUpdateOtelExporterRequest;
+
+export const zUpdateOtelExporterPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    exporterID: zOtelExporterId
+});
+
+/**
+ * Exporter updated.
+ */
+export const zUpdateOtelExporterResponse = zOtelExporter;
+
 export const zListPersonalAccessTokensQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4133,6 +4424,67 @@ export const zGetOrgOverviewPath = z.object({
  * Overview data for the organization.
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
+
+export const zListBudgetsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListBudgetsQuery = z.object({
+    scope_type: zBudgetScopeType.optional(),
+    project_id: zProjectId.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    agent_id: zAgentId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Budgets matching the requested scope.
+ */
+export const zListBudgetsResponse2 = zListBudgetsResponse;
+
+export const zCreateBudgetBody = zCreateBudgetRequest;
+
+export const zCreateBudgetPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Budget created.
+ */
+export const zCreateBudgetResponse = zBudget;
+
+export const zDeleteBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget deleted.
+ */
+export const zDeleteBudgetResponse = z.void();
+
+export const zGetBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * The budget.
+ */
+export const zGetBudgetResponse = zBudget;
+
+export const zUpdateBudgetBody = zUpdateBudgetRequest;
+
+export const zUpdateBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget updated.
+ */
+export const zUpdateBudgetResponse = zBudget;
 
 export const zGetOrgUsagePath = z.object({
     orgID: zOrganizationId
@@ -5431,6 +5783,22 @@ export const zListTurnEventsQuery = z.object({
  * Turn events.
  */
 export const zListTurnEventsResponse2 = zListTurnEventsResponse;
+
+export const zGetTurnTracePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/),
+    turnID: z.string().regex(/^trn_[a-z2-7]{26}$/)
+});
+
+export const zGetTurnTraceQuery = z.object({
+    variant: zOtelTraceVariant.optional()
+});
+
+/**
+ * The turn's trace.
+ */
+export const zGetTurnTraceResponse = zOtelTrace;
 
 export const zListEventsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

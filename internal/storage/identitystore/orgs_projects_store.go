@@ -96,9 +96,6 @@ func (s *Store) ProvisionOrganizationTx(
 	}
 	org.IdempotencyKey = input.IdempotencyKey
 	org.Created = created
-	if org.Name != input.Name {
-		return CreateOrgForUserRecord{}, storeerr.ErrIdempotencyConflict
-	}
 
 	var membership OrgMembershipRecord
 	if created {
@@ -266,9 +263,6 @@ func (s *Store) CreateProjectForPrincipal(
 			return ProjectRecord{}, fmt.Errorf("load idempotent project: %w", err)
 		}
 		record = projectRecordFromGetByIdempotencySQLC(idempotentRow)
-		if record.Name != input.Name {
-			return ProjectRecord{}, storeerr.ErrIdempotencyConflict
-		}
 	}
 	if created {
 		if err := resourceguard.Lock(ctx, qtx, resourceProjects, input.OrgID.String()); err != nil {
@@ -301,6 +295,10 @@ func (s *Store) CreateProjectForPrincipal(
 			},
 		); err != nil {
 			return ProjectRecord{}, fmt.Errorf("create project creator membership: %w", err)
+		}
+		scope := CreateBudgetInput{OrgID: input.OrgID, ProjectID: &record.ID}
+		if err := CreateBudgetsTx(ctx, tx, scope, input.Budgets); err != nil {
+			return ProjectRecord{}, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -392,9 +390,6 @@ func (s *Store) GetOrgCreationReplay(
 	if strings.TrimSpace(input.IdempotencyKey) == "" {
 		return CreateOrgForUserRecord{}, false, errors.New("idempotency key is required")
 	}
-	if input.Name == "" {
-		return CreateOrgForUserRecord{}, false, errors.New("organization name is required")
-	}
 	scopedIdempotencyKey := scopedOrgIdempotencyKey(input.UserID, input.IdempotencyKey)
 	orgRow, err := s.q.GetOrgByIdempotencyKey(ctx, dbsqlc.GetOrgByIdempotencyKeyParams{
 		IdempotencyKey: scopedIdempotencyKey,
@@ -406,9 +401,6 @@ func (s *Store) GetOrgCreationReplay(
 		return CreateOrgForUserRecord{}, false, fmt.Errorf("load organization creation replay: %w", err)
 	}
 	org := orgRecordFromGetByIdempotencySQLC(orgRow)
-	if org.Name != input.Name {
-		return CreateOrgForUserRecord{}, true, storeerr.ErrIdempotencyConflict
-	}
 	row, err := s.q.GetOrgCreationReplayForUser(ctx, dbsqlc.GetOrgCreationReplayForUserParams{
 		UserID:         input.UserID,
 		IdempotencyKey: scopedIdempotencyKey,

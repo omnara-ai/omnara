@@ -65,7 +65,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 .DEFAULT_GOAL := help
 
 .PHONY: \
-	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
+	help ci test-all test verify verify-go verify-static fmt-check golangci-lint govulncheck race-machinedaemon \
 	go-modules-check integration-packages-check tagged-packages-check golangci-lint-tagged race-unit \
 	config-schema-generate openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
@@ -99,19 +99,11 @@ prometheus-check: ## Validate and test event-delivery alert rules (requires Dock
 		prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 \
 		test rules /rules/delivery.test.yml
 
-verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
+verify-static: fmt-check go-modules-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
 	@files="$$($(GO_FMT_FILES) | xargs gofmt -l)"; \
 	test -z "$$files" || { printf 'gofmt needed:\n%s\n' "$$files"; exit 1; }
-
-golangci-version-check:
-	@config_version="$$(awk '$$1 == "version:" { print $$2; exit }' .custom-gcl.yml)"; \
-	tool_version="$$(GOFLAGS= $(GO) list -m -modfile=$(CI_TOOL_MOD) -f '{{.Version}}' github.com/golangci/golangci-lint/v2)"; \
-	test "$$config_version" = "$$tool_version" || { \
-		printf 'golangci-lint version mismatch: .custom-gcl.yml=%s tools/ci=%s\n' "$$config_version" "$$tool_version"; \
-		exit 1; \
-	}
 
 go-modules-check:
 	@expected="$$(printf '%s\n' $(GO_MODULE_DIRS) | sort)"; \
@@ -147,7 +139,8 @@ govulncheck:
 
 $(GOLANGCI_LINT): .custom-gcl.yml tools/ci/go.mod tools/ci/go.sum tools/omnaralint/go.mod tools/omnaralint/go.sum $(OMNARALINT_SOURCES)
 	@mkdir -p .tools
-	$(CI_TOOL) github.com/golangci/golangci-lint/v2/cmd/golangci-lint custom
+	$(CI_TOOL) github.com/golangci/golangci-lint/v2/cmd/golangci-lint custom \
+		--version "$$(GOFLAGS= $(GO) list -m -modfile=$(CI_TOOL_MOD) -f '{{.Version}}' github.com/golangci/golangci-lint/v2)"
 
 race-machinedaemon:
 	$(GO) test -race ./internal/machinedaemon/...
@@ -518,6 +511,7 @@ test-live-openrouter:
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live OpenRouter tests}"; \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveOpenRouterSafetyIdentifiers$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openrouter_.*$$' && \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveOpenRouterReportedCostMatchesTheEstimate$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/openrouter_' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|Attachments|CompactionRecall|DockerDaemonProcessTools)$$' && \

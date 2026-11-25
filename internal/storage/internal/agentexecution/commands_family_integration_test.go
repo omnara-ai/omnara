@@ -21,7 +21,7 @@ import (
 
 func TestExecutionCreatedAgentPublication(t *testing.T) {
 	f := migratedExecutionFixture(t)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(context.Background()) }()
@@ -71,7 +71,7 @@ func familyFixture(
 		uuid.New(),
 	)
 	require.NoError(t, err)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = u.Rollback(context.Background()) })
@@ -161,8 +161,14 @@ func TestExecutionParentEffectsAtCapacity(t *testing.T) {
 					require.Equal(t, 51, inputs)
 					statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 					require.NoError(t, err)
-					require.Equal(t, 3, statements)
-					require.Equal(t, 2, roundTrips)
+					expectedStatements, expectedRoundTrips := 3, 2
+					if kind != "question" {
+						// An answer or a failure finishes the child's turn, which is
+						// queued for OpenTelemetry export in a statement of its own.
+						expectedStatements, expectedRoundTrips = 4, 3
+					}
+					require.Equal(t, expectedStatements, statements)
+					require.Equal(t, expectedRoundTrips, roundTrips)
 					_, parent := f.handle(t, pr.AgentID)
 					_, err = parent.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
 						DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "overflow"}},
@@ -269,6 +275,7 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 				reason = modelenvelope.StopReasonEndTurn
 			}
 			response := commandResponse(reason)
+			response.ProviderReportedCostUSD = "0.001"
 			response.Normalized.Content = []modelenvelope.ResponsePart{{Type: "tool_call", ProviderCallID: "call",
 				ToolName: "tool", ToolInput: json.RawMessage(`{}`)}}
 			bindings := []executionstore.ToolCallBindingInput{{ProviderCallID: "call", Type: "built_in"}}
@@ -283,6 +290,11 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 	for range inputs {
 		require.NoError(t, <-done)
 	}
+	var pending int
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM pending_model_costs WHERE agent_id IN (SELECT id FROM agents WHERE root_agent_id=$1)`,
+		parent).Scan(&pending))
+	require.Equal(t, len(inputs), pending)
 }
 
 func familyParentRuntime(t *testing.T, u *agentexecution.Unit, p *agentexecution.Handle) uuid.UUID {

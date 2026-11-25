@@ -483,7 +483,7 @@ func TestCreateOrgForUserCreatesOwnerAndDefaultProject(t *testing.T) {
 		t.Fatalf("unexpected replay: %+v", replayed)
 	}
 	preflight, found, err := store.Identity().GetOrgCreationReplay(ctx, identitystore.GetOrgCreationReplayInput{
-		UserID: user.ID, Name: "Owner Org", IdempotencyKey: "owner-org",
+		UserID: user.ID, IdempotencyKey: "owner-org",
 	})
 	if err != nil || !found || preflight.Org.ID != created.Org.ID {
 		t.Fatalf("organization replay preflight = %+v found=%v err=%v", preflight, found, err)
@@ -976,7 +976,6 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 
 	replayed, found, err := store.Identity().GetOrgCreationReplay(ctx, identitystore.GetOrgCreationReplayInput{
 		UserID:         user.ID,
-		Name:           "Cluster Model Provider Org",
 		IdempotencyKey: "cluster-model-provider-org",
 	})
 	if err != nil {

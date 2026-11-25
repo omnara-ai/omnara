@@ -29,8 +29,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/otelexport"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
@@ -45,6 +47,7 @@ import (
 const (
 	integrationHTTPClientTimeout  = 5 * time.Minute
 	cronTriggerFireInterval       = 30 * time.Second
+	modelPriceReloadInterval      = time.Minute
 	workerCapacityPerDBConnection = 8
 )
 
@@ -128,12 +131,18 @@ func main() {
 		log.Error("configure secret encryption", "error", err)
 		os.Exit(1)
 	}
+	modelPrices, err := modelprice.New()
+	if err != nil {
+		log.Error("load model prices", "error", err)
+		os.Exit(1)
+	}
 	storeOpts := []storage.Option{
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
+		storage.WithModelCostEstimator(modelPrices),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
@@ -154,6 +163,10 @@ func main() {
 		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	store := storage.NewStore(db, storeOpts...)
+	if err := loadStoredModelPrices(ctx, log, modelPrices, store.Models().ChangedModelPriceCatalog); err != nil {
+		log.Error("read model prices", "error", err)
+		os.Exit(1)
+	}
 	healthErr := metrics.Serve(
 		ctx,
 		log,
@@ -275,6 +288,17 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
+	modelPricesDone := make(chan struct{})
+	go func() {
+		defer close(modelPricesDone)
+		runBatchLoop(ctx, modelPriceReloadInterval, func() bool {
+			err := loadStoredModelPrices(ctx, log, modelPrices, store.Models().ChangedModelPriceCatalog)
+			if err != nil && ctx.Err() == nil {
+				log.Error("read model prices", "error", err)
+			}
+			return false
+		})
+	}()
 	discordRuntime := integrationruntime.DiscordRuntime{
 		Capacity:      cfg.WorkerDiscordCapacity,
 		Metrics:       metrics.NewDiscordRuntimeRecorder(metricSet),
@@ -382,6 +406,14 @@ func main() {
 		eventWebhooks.Run(ctx)
 	}()
 
+	otelExports := otelexport.New(
+		store.Execution(), log, metrics.NewOtelExportRecorder(metricSet), httpRecorder, cfg.EndpointAllowlist)
+	otelExportDone := make(chan struct{})
+	go func() {
+		defer close(otelExportDone)
+		otelExports.Run(ctx)
+	}()
+
 	exitCode := 0
 	select {
 	case err := <-workerErr:
@@ -407,6 +439,7 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
+	<-modelPricesDone
 	<-discordDone
 	if discordRunErr != nil && signalCtx.Err() == nil {
 		log.Error("Discord runtime failed", "error", discordRunErr)
@@ -418,6 +451,7 @@ func main() {
 		exitCode = 1
 	}
 	<-eventWebhookDone
+	<-otelExportDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -449,6 +483,24 @@ func cancelOnSignals(signals <-chan os.Signal, cancels ...context.CancelFunc) {
 func workerDatabaseMaxConns(capacity int) int32 {
 	maxConns := max(storage.DefaultMaxConns, 1+(capacity-1)/workerCapacityPerDBConnection)
 	return int32(min(math.MaxInt32, maxConns))
+}
+
+func loadStoredModelPrices(
+	ctx context.Context,
+	log *slog.Logger,
+	prices *modelprice.Pricer,
+	read func(context.Context, string) ([]byte, error),
+) error {
+	data, err := read(ctx, prices.Version())
+	if err != nil || data == nil {
+		return err
+	}
+	if err := prices.Load(data); err != nil {
+		log.Error("load model prices", "error", err)
+		return nil
+	}
+	log.Info("loaded model prices", "version", prices.Version())
+	return nil
 }
 
 func runBatchLoop(ctx context.Context, interval time.Duration, tick func() (batchFull bool)) {

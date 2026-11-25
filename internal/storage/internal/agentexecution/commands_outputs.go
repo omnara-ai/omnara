@@ -137,9 +137,11 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		evidence := ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
+			BaseURL:          input.Response.ProviderBaseURL,
 			InputFingerprint: successfulInputFingerprint(input.Response),
 			RequestID:        input.RequestID,
 			ResponseID:       input.Response.Normalized.ID,
+			ServedModel:      input.Response.ServedProviderModelSlug,
 			Usage:            input.Response.Normalized.Usage,
 			Cost:             input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
 		parts, proposals, err := outputParts(input.Response, input.Tools)
@@ -203,14 +205,18 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		}
 		sourceContext := attemptRecord(source).Context
 		sourceContext.State = ContextSucceeded
-		if err = applyAcceptedOutput(m,
+		finished, err := applyAcceptedOutput(m,
 			snapshot,
 			sourceContext,
 			output.ID,
 			event,
 			len(proposals) > 0,
-			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens); err != nil {
+			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens)
+		if err != nil {
 			return AcceptedOutput{}, err
+		}
+		if finished {
+			h.exportTurn(event.TurnID)
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
@@ -223,7 +229,8 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				kind,
 				strings.TrimSpace(input.Response.Text()),
 				"model_output:"+output.ID.String(),
-				uuid.Nil); err != nil {
+				uuid.Nil,
+				output.ID); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
@@ -267,7 +274,7 @@ func applyAcceptedOutput(
 	id uuid.UUID,
 	event ExecutionEvent,
 	tools, limit bool,
-) error {
+) (finished bool, err error) {
 	if snapshot.View.NormalContext != nil && snapshot.View.NormalContext.ID == source.ID {
 		snapshot.View.NormalContext = &source
 	}
@@ -281,12 +288,12 @@ func applyAcceptedOutput(
 		snapshot.View.OutputLimit.Context = source
 	}
 	if source.TurnID != m.head.CurrentTurnID || event.Sequence < m.head.StopSequence {
-		return m.updated(snapshot)
+		return false, m.updated(snapshot)
 	}
 	if snapshot.View.ToolBatch != nil {
 		completion := snapshot.View.ToolBatch.Completion
 		if completion == nil || source.InputEventSequence < completion.LastResultSequence {
-			return errors.New("accepted model output does not cover pending tool results")
+			return false, errors.New("accepted model output does not cover pending tool results")
 		}
 		m.head.PendingToolOutputID = uuid.Nil
 		snapshot.View.ToolBatch = nil
@@ -305,7 +312,10 @@ func applyAcceptedOutput(
 		snapshot.View.Turn.LatestSemantic = event.EventBoundary
 	}
 	snapshot.databaseNow = event.Time
-	return m.updated(snapshot)
+	if err := m.updated(snapshot); err != nil {
+		return false, err
+	}
+	return !m.loaded.Selection.TurnContinuable, nil
 }
 
 func (h *Handle) rejectProposal(ctx context.Context, m *executionMutation, call outputProposal) error {

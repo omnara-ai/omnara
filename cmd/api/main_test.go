@@ -96,6 +96,7 @@ func TestDefaultReconciliationPrintsReviewableChanges(t *testing.T) {
 			Changes: []string{
 				"update model settings",
 				"clear request allowance",
+				"update model settings",
 			},
 			Warnings: []string{
 				"configuration is referenced",
@@ -103,10 +104,10 @@ func TestDefaultReconciliationPrintsReviewableChanges(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	want := "plan: change: update model settings\n" +
-		"plan: change: clear request allowance\n" +
-		"plan: warning: configuration is referenced\n" +
-		"plan: changes=2 warnings=1\n"
+	want := "plan: change: clear request allowance (orgs=1)\n" +
+		"plan: change: update model settings (orgs=2)\n" +
+		"plan: warning: configuration is referenced (orgs=1)\n" +
+		"plan: changes=3 warnings=1\n"
 	if output.String() != want {
 		t.Fatalf("output=%q", output.String())
 	}

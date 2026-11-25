@@ -22,6 +22,10 @@ import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadMemoryUpload, memoryDownloadOp, zMemoryUploadBody } from './memory-files.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 
+const zInitialBudgets = schemas.zCreateAgentProfileRequest.shape.budgets.describe(
+  'budgets created with it, one per interval',
+)
+
 export const commandGroups: CommandGroup[] = [
   ...integrationCommandGroups,
   {
@@ -74,10 +78,12 @@ export const commandGroups: CommandGroup[] = [
             .describe('agent profile ID; runs its current config unless a config is given'),
           name: schemas.zAgentName.optional(),
           message: z.string().optional(),
+          budgets: zInitialBudgets,
         }),
-        transformBody: ({ profile, name, message, ...attachment }) => ({
+        transformBody: ({ profile, name, message, budgets, ...attachment }) => ({
           name,
           message,
+          budgets,
           ...renderLaunchConfig(profile, attachment),
         }),
       }),
@@ -630,6 +636,51 @@ export const commandGroups: CommandGroup[] = [
     ],
   },
   {
+    name: 'budgets',
+    aliases: ['budget'],
+    summary: 'Manage model spend budgets',
+    operations: [
+      op({
+        verb: 'list',
+        summary: 'List budgets for the organization, a project, a profile, or an agent',
+        fn: sdk.listBudgets,
+        format: formatTable(['id', 'scope', 'interval', 'amount_usd', 'usage']),
+        path: schemas.zListBudgetsPath,
+        query: schemas.zListBudgetsQuery,
+      }),
+      op({
+        verb: 'get',
+        summary: 'Fetch a budget with its current spend',
+        fn: sdk.getBudget,
+        format: formatRecord(),
+        path: schemas.zGetBudgetPath,
+      }),
+      op({
+        verb: 'create',
+        summary: 'Create a budget',
+        fn: sdk.createBudget,
+        format: formatRecord(),
+        path: schemas.zCreateBudgetPath,
+        body: schemas.zCreateBudgetBody,
+      }),
+      op({
+        verb: 'update',
+        summary: "Update a budget's amount",
+        fn: sdk.updateBudget,
+        format: formatRecord(),
+        path: schemas.zUpdateBudgetPath,
+        body: schemas.zUpdateBudgetBody,
+      }),
+      op({
+        verb: 'delete',
+        summary: 'Delete a budget',
+        fn: sdk.deleteBudget,
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteBudgetPath,
+      }),
+    ],
+  },
+  {
     name: 'secrets',
     aliases: ['secret'],
     summary: 'Manage organization secrets',
@@ -848,9 +899,10 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: zConfigAttachment.extend({ name: schemas.zResourceName }),
-        transformBody: async ({ name, ...attachment }, { client, path }) => ({
+        body: zConfigAttachment.extend({ name: schemas.zResourceName, budgets: zInitialBudgets }),
+        transformBody: async ({ name, budgets, ...attachment }, { client, path }) => ({
           name,
+          budgets,
           config: await resolveConfigId(client, path, attachment),
         }),
       }),

@@ -39,7 +39,7 @@ func TestExecutionHeadTickOutcomes(t *testing.T) {
 					}
 					return report, nil
 				})
-			runMaintenanceJobOnce(ctx, recorder, maintenanceJob{executionHeadJob, executionHeadInterval, run})
+			runMaintenanceJobOnce(ctx, recorder, maintenanceJob{executionHeadJob, executionHeadInterval, 0, run})
 			if outcome == "canceled" {
 				require.Empty(t, logs.String(), "shutdown is not a sampling failure")
 			}

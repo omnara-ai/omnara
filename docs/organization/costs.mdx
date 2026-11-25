@@ -1,0 +1,24 @@
+---
+title: How costs are calculated
+description: How Omnara prices each model call in usage and budgets
+icon: "calculator"
+---
+
+Usage pages and [budgets](/organization/budgets) show what model calls cost. Omnara prices each call when it finishes, using the first of these that applies:
+
+1. **Your own prices.** If the model has [your own prices](/organization/model-providers#set-model-prices), the call counts at those rates.
+2. **The cost the provider reported.** Some providers, such as OpenRouter, report what each call cost.
+3. **An estimate from public list prices.** Otherwise Omnara estimates the cost from the call's tokens using public list prices from [genai-prices](https://github.com/pydantic/genai-prices), so it can be higher or lower than your provider's bill. When a call runs at a rate the price list doesn't cover, such as US-only inference, it counts at the model's standard price.
+
+## Where the cost comes from
+
+- **Models paid with Omnara credits** run through OpenRouter, so they count the cost OpenRouter reports. Organization owners and admins can see what Omnara charged on the **Credits** page in the sidebar.
+- **Your own OpenRouter key** counts the cost OpenRouter reports for the call. When OpenRouter sends a call through a provider key you added to OpenRouter, it also counts what that provider charged.
+- **Your own key for another provider** counts the cost the provider reports, or an estimate when it reports none.
+- **Your own prices** replace all of these for that model.
+
+## What isn't counted
+
+- **Calls that can't be priced.** A call with no price of its own, no reported cost, and no public list price doesn't count, and neither does a call cut off before the provider reported its tokens or cost. Usage marks totals that leave out unpriced calls. [Budgets](/organization/budgets#what-counts) refuse calls to models that have no price of their own and no public list price, unless they run through OpenRouter.
+- **Machines and sandboxes**, including Omnara-managed ones.
+- **Web search.**

@@ -1,6 +1,8 @@
 package modelenvelope
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"strconv"
@@ -9,6 +11,7 @@ import (
 
 const (
 	providerReportedCostUSDMaxIntegralDigits   = 15
+	costTotalUSDMaxIntegralDigits              = 131072
 	providerReportedCostUSDMaxFractionalDigits = 15
 )
 
@@ -22,6 +25,17 @@ type ProviderReportedCostUSD string
 func SumProviderReportedCostUSD(
 	rawCosts ...string,
 ) (ProviderReportedCostUSD, bool) {
+	return sumCostUSD(ParseProviderReportedCostUSD, rawCosts)
+}
+
+func SumCostTotalsUSD(rawTotals ...string) (ProviderReportedCostUSD, bool) {
+	return sumCostUSD(ParseCostTotalUSD, rawTotals)
+}
+
+func sumCostUSD(
+	parse func(string) (ProviderReportedCostUSD, bool),
+	rawCosts []string,
+) (ProviderReportedCostUSD, bool) {
 	if len(rawCosts) == 0 {
 		return "", false
 	}
@@ -29,7 +43,7 @@ func SumProviderReportedCostUSD(
 	for _, rawCost := range rawCosts {
 		// big.Rat accepts non-JSON forms such as fractions and signed values;
 		// the provider-cost parser is the grammar and range authority.
-		if _, ok := ParseProviderReportedCostUSD(rawCost); !ok {
+		if _, ok := parse(rawCost); !ok {
 			return "", false
 		}
 		value, ok := new(big.Rat).SetString(rawCost)
@@ -38,12 +52,18 @@ func SumProviderReportedCostUSD(
 		}
 		total.Add(total, value)
 	}
-	return ParseProviderReportedCostUSD(
-		total.FloatString(providerReportedCostUSDMaxFractionalDigits),
-	)
+	return parse(total.FloatString(providerReportedCostUSDMaxFractionalDigits))
 }
 
 func ParseProviderReportedCostUSD(raw string) (ProviderReportedCostUSD, bool) {
+	return parseCostUSD(raw, providerReportedCostUSDMaxIntegralDigits)
+}
+
+func ParseCostTotalUSD(raw string) (ProviderReportedCostUSD, bool) {
+	return parseCostUSD(raw, costTotalUSDMaxIntegralDigits)
+}
+
+func parseCostUSD(raw string, maxIntegralDigits int64) (ProviderReportedCostUSD, bool) {
 	if raw == "" || strings.TrimSpace(raw) != raw {
 		return "", false
 	}
@@ -99,7 +119,7 @@ func ParseProviderReportedCostUSD(raw string) (ProviderReportedCostUSD, bool) {
 		}
 		digits, scale = trimProviderCostTrailingZeros(digits, scale)
 	}
-	if int64(len(digits))-scale > providerReportedCostUSDMaxIntegralDigits {
+	if int64(len(digits))-scale > maxIntegralDigits {
 		return "", false
 	}
 
@@ -174,4 +194,21 @@ func allDecimalDigits(value string) bool {
 		}
 	}
 	return true
+}
+
+const usdTicksPerDollarExponent = "e-10"
+
+func ProviderReportedCostFromTicks(raw json.RawMessage) (ProviderReportedCostUSD, bool) {
+	ticks := string(bytes.TrimSpace(raw))
+	if ticks == "" || ticks == "null" {
+		return "", true
+	}
+	if !allDecimalDigits(ticks) {
+		return "", false
+	}
+	ticks = strings.TrimLeft(ticks, "0")
+	if ticks == "" {
+		ticks = "0"
+	}
+	return ParseProviderReportedCostUSD(ticks + usdTicksPerDollarExponent)
 }

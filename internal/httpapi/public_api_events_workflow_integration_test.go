@@ -1622,6 +1622,43 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 	}
 	assertInt64SliceEqual(t, gotTurnEventSequences, wantTurnEventSequences)
 
+	tracePath := project.ProjectPath + "/agents/" + agentPublicID + "/turns/" + turnID + "/trace"
+	trace := requestJSONWithHeaders(t, handler, http.MethodGet, tracePath+"?variant=langfuse", "", "",
+		http.StatusOK, authHeaders(project.AdminToken))
+	resourceSpans := testutil.RequireType[[]any](t, trace["resourceSpans"])
+	if len(resourceSpans) != 1 {
+		t.Fatalf("expected one resource in the trace, got %+v", trace)
+	}
+	scopeSpans := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, resourceSpans[0])["scopeSpans"])
+	traceSpans := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, scopeSpans[0])["spans"])
+	rootSpan := testutil.RequireType[map[string]any](t, traceSpans[0])
+	if !strings.HasPrefix(testutil.RequireType[string](t, rootSpan["name"]), "invoke_agent") ||
+		len(testutil.RequireType[string](t, rootSpan["traceId"])) != 32 || rootSpan["parentSpanId"] != nil {
+		t.Fatalf("unexpected root span: %+v", rootSpan)
+	}
+	rootAttributes, err := json.Marshal(rootSpan["attributes"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"gen_ai.conversation.id", "omnara.turn.id", "langfuse.observation.type"} {
+		if !strings.Contains(string(rootAttributes), `"`+key+`"`) {
+			t.Fatalf("root span is missing %s: %s", key, rootAttributes)
+		}
+	}
+	plainTrace, err := json.Marshal(requestJSONWithHeaders(t, handler, http.MethodGet, tracePath, "", "",
+		http.StatusOK, authHeaders(project.AdminToken)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plainTrace), "langfuse.") {
+		t.Fatalf("default variant must not add vendor attributes: %s", plainTrace)
+	}
+	requestJSONWithHeaders(t, handler, http.MethodGet, tracePath+"?variant=datadog", "", "",
+		http.StatusBadRequest, authHeaders(project.AdminToken))
+	requestJSONWithHeaders(t, handler, http.MethodGet,
+		project.ProjectPath+"/agents/"+agentPublicID+"/turns/"+missingTurnID+"/trace", "", "",
+		http.StatusNotFound, authHeaders(project.AdminToken))
+
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 	req, err := http.NewRequestWithContext(

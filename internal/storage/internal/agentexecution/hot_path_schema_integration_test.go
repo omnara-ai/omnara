@@ -3,9 +3,13 @@
 package agentexecution_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,4 +151,226 @@ opening_input_ids,opening_event_sequence)
 			require.Zero(t, n, table)
 		}
 	}
+}
+
+func TestExecutionBudgetReachedPlan(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	ctx := t.Context()
+	root := f.create(t, uuid.New(), uuid.Nil)
+	family := []uuid.UUID{root, f.create(t, uuid.New(), root), f.create(t, uuid.New(), root)}
+	tx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
+INSERT INTO projects(org_id,name,created_at,updated_at)
+SELECT $1,'budget-plan-'||n,now(),now() FROM generate_series(1,20) n`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO daily_model_costs(org_id,project_id,day,effective_cost_usd)
+SELECT $1,scope.id,day,1 FROM generate_series(current_date-1095,current_date,interval '1 day') day
+CROSS JOIN (SELECT id FROM projects WHERE org_id=$1 UNION ALL SELECT NULL::uuid) scope`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO daily_model_costs(org_id,project_id,agent_id,day,effective_cost_usd)
+SELECT $1,$2,agent,day,1 FROM generate_series(current_date-30,current_date,interval '1 day') day
+CROSS JOIN unnest($3::uuid[]) agent`, f.org, f.project, family)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+WITH ids AS (SELECT gen_random_uuid() AS id FROM generate_series(1,2000)),
+other AS (INSERT INTO agents(id,root_agent_id,org_id,project_id,state,current_config_id,created_at,updated_at)
+ SELECT id,id,$1,$2,'active',$3,now(),now() FROM ids RETURNING id)
+INSERT INTO budgets(org_id,project_id,agent_id,interval,amount_usd) SELECT $1,$2,id,'month',1 FROM other`,
+		f.org, f.project, f.config)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO budgets(org_id,project_id,agent_id,interval,amount_usd) VALUES
+($1,NULL,NULL,'month',1000000),($1,NULL,NULL,'week',1000000),($1,$2,NULL,'day',1000000),($1,$2,$3,'month',1000000)`,
+		f.org, f.project, root)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ANALYZE projects; ANALYZE agents; ANALYZE daily_model_costs; ANALYZE budgets;
+SET LOCAL plan_cache_mode=force_generic_plan`)
+	require.NoError(t, err)
+	plan := func(path, name string, args ...any) []byte {
+		var raw []byte
+		require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+
+			integrationdb.GeneratedQuery(t, path, name), args...).Scan(&raw))
+		usesBudgetIndex := false
+		integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+			if node.Relation == "budgets" || node.Relation == "daily_model_costs" {
+				require.NotEqual(t, "Seq Scan", node.Type, "%s %s", name, raw)
+			}
+			if node.Relation == "budgets" {
+				require.LessOrEqual(t, node.Removed, float64(16), "%s %s", name, raw)
+			}
+			usesBudgetIndex = usesBudgetIndex || node.Index == "budgets_scope_interval_idx"
+		})
+		require.True(t, usesBudgetIndex, "%s %s", name, raw)
+		return raw
+	}
+	raw := plan("internal/executiondb/commands_models.sql.go", "ExecutionBudgetReached", f.org, f.project, nil, root)
+	t.Logf("budget check plan=%s", raw)
+	usesScopeIndex := false
+	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+		usesScopeIndex = usesScopeIndex || node.Index == "daily_model_costs_scope_day_idx"
+	})
+	require.True(t, usesScopeIndex, "%s", raw)
+	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 50)
+	plan("../dbsqlc/budgets.sql.go", "ListScopedBudgets", f.org, f.project, nil, root, nil, nil, 51)
+	plan("internal/executiondb/commands_models.sql.go", "ExecutionModelRevision", root, f.project, f.config)
+}
+
+func TestBudgetSpendFollowsTheTopLevelAgent(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	ctx := t.Context()
+	profile := func(name string) uuid.UUID {
+		id, version := uuid.New(), uuid.New()
+		_, err := f.pool.Exec(ctx, `WITH profile AS (
+INSERT INTO agent_profiles(id,project_id,name,current_version_id,created_at,updated_at) VALUES($1,$2,$3,$4,now(),now()))
+INSERT INTO agent_profile_versions(id,project_id,profile_id,generation,agent_config_id,created_at)
+VALUES($4,$2,$1,1,$5,now())`, id, f.project, name, version, f.config)
+		require.NoError(t, err)
+		return id
+	}
+	rootProfile, childProfile, grandchildProfile := profile("budget-root"), profile("budget-child"),
+		profile("budget-grandchild")
+	root := f.createWithProfile(t, uuid.New(), uuid.Nil, rootProfile)
+	child := f.createWithProfile(t, uuid.New(), root, childProfile)
+	grandchild := f.createWithProfile(t, uuid.New(), child, grandchildProfile)
+	loner := f.create(t, uuid.New(), uuid.Nil)
+	openings := map[uuid.UUID][2]uuid.UUID{}
+	for _, agent := range []uuid.UUID{root, child, grandchild, loner} {
+		turn, input := f.opening(t, agent, 1, uuid.Nil, "content")
+		openings[agent] = [2]uuid.UUID{turn, input}
+	}
+	tx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2", grandchild: "8", loner: "4"} {
+		finishPricedCall(t, tx, f, agent, openings[agent], cost)
+	}
+	pending := map[[2]string]int{}
+	rows, err := tx.Query(ctx, `
+SELECT coalesce(agent_profile_id::text,''),agent_id::text FROM pending_model_costs WHERE org_id=$1 AND project_id=$2`,
+		f.org, f.project)
+	require.NoError(t, err)
+	for rows.Next() {
+		var call [2]string
+		require.NoError(t, rows.Scan(&call[0], &call[1]))
+		pending[call]++
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, map[[2]string]int{
+		{rootProfile.String(), root.String()}:       1,
+		{rootProfile.String(), child.String()}:      1,
+		{rootProfile.String(), grandchild.String()}: 1,
+		{"", loner.String()}:                        1,
+	}, pending, "each call keeps its own agent and counts toward its top-level agent's profile")
+	spent := func(projectID, profileID, agentID any) string {
+		var cost string
+		require.NoError(t, tx.QueryRow(ctx,
+			`SELECT effective_cost_usd::text FROM budget_interval_cost($1,$2,$3,$4,'lifetime')`,
+			f.org, projectID, profileID, agentID).Scan(&cost))
+		return cost
+	}
+	expectSpend := func(message string) {
+		require.Equal(t, "15.000000000000000", spent(nil, nil, nil), message)
+		require.Equal(t, "15.000000000000000", spent(f.project, nil, nil), message)
+		require.Equal(t, "11.000000000000000", spent(f.project, rootProfile, nil), message)
+		require.Equal(t, "0", spent(f.project, childProfile, nil), message)
+		require.Equal(t, "0", spent(f.project, grandchildProfile, nil), message)
+		require.Equal(t, "11.000000000000000", spent(f.project, nil, root), message)
+		require.Equal(t, "0", spent(f.project, nil, child), message)
+		require.Equal(t, "4.000000000000000", spent(f.project, nil, loner), message)
+	}
+	expectSpend("pending calls count before they merge")
+	merged, err := dbsqlc.New(tx).MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: 100})
+	require.NoError(t, err)
+	require.Equal(t, int64(4), merged)
+	expectSpend("merging moves spend into scope totals without changing it")
+	agentBuckets := map[string]string{}
+	rows, err = tx.Query(ctx, `
+SELECT agent_id::text, effective_cost_usd::text FROM daily_model_costs
+WHERE org_id=$1 AND project_id=$2 AND agent_profile_id IS NULL AND agent_id IS NOT NULL`, f.org, f.project)
+	require.NoError(t, err)
+	for rows.Next() {
+		var agent, cost string
+		require.NoError(t, rows.Scan(&agent, &cost))
+		agentBuckets[agent] = cost
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, map[string]string{
+		root.String(): "1.000000000000000", child.String(): "2.000000000000000",
+		grandchild.String(): "8.000000000000000", loner.String(): "4.000000000000000",
+	}, agentBuckets, "every agent's bucket holds only its own spend")
+}
+
+func TestMergeKeepsDrainingOtherOrgsWhenOneOrgsTotalsOutgrowACallsCost(t *testing.T) {
+	ctx := t.Context()
+	large := migratedExecutionFixture(t)
+	_, err := large.pool.Exec(ctx, `UPDATE orgs SET idempotency_key='idem-large-org' WHERE id=$1`, large.org)
+	require.NoError(t, err)
+	other := seedExecutionFixture(t, large.pool, seedExecutionFixtureConfig(t))
+	maxCost := "999999999999999.999999999999999"
+	type call struct {
+		f     executionFixture
+		agent uuid.UUID
+		cost  string
+	}
+	calls := []call{
+		{large, large.create(t, uuid.New(), uuid.Nil), maxCost},
+		{large, large.create(t, uuid.New(), uuid.Nil), maxCost},
+		{other, other.create(t, uuid.New(), uuid.Nil), "1"},
+	}
+	openings := make([][2]uuid.UUID, len(calls))
+	for i, c := range calls {
+		turn, input := c.f.opening(t, c.agent, 1, uuid.Nil, "content")
+		openings[i] = [2]uuid.UUID{turn, input}
+	}
+	tx, err := large.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	for i, c := range calls {
+		finishPricedCall(t, tx, c.f, c.agent, openings[i], c.cost)
+	}
+
+	merged, err := dbsqlc.New(tx).MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: 100})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), merged)
+	for org, want := range map[uuid.UUID]string{
+		large.org: "1999999999999999.999999999999998",
+		other.org: "1.000000000000000",
+	} {
+		var spent, pending string
+		require.NoError(t, tx.QueryRow(ctx, `
+SELECT (SELECT effective_cost_usd::text FROM budget_interval_cost($1,NULL,NULL,NULL,'lifetime')),
+       (SELECT count(*)::text FROM pending_model_costs WHERE org_id=$1)`, org).Scan(&spent, &pending))
+		require.Equal(t, want, spent)
+		require.Equal(t, "0", pending, "every org's pending costs merge")
+	}
+}
+
+func finishPricedCall(t *testing.T, tx pgx.Tx, f executionFixture, agent uuid.UUID, opening [2]uuid.UUID, cost string) {
+	t.Helper()
+	ctx := t.Context()
+	id, lock := uuid.New(), uuid.New()
+	_, err := tx.Exec(ctx, `
+INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+VALUES($1,$2,$3,now(),now(),now()+interval '1 hour')`, lock, agent, uuid.New())
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
+agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
+opening_input_ids,opening_event_sequence)
+VALUES($1,$2,$3,$4,$5,'normal',1,$6,$7,1,$8,now(),ARRAY[$9::uuid],1)`,
+		id, f.org, f.project, agent, opening[0], f.config, f.revision, lock, opening[1])
+	require.NoError(t, err)
+	tokens, kind := int32(10), "estimated"
+	finished, err := executiondb.New().FinishExecutionAttempt(ctx, tx, executiondb.FinishExecutionAttemptParams{
+		State: "succeeded", ApiFormat: "openai-chat-completions", ApiVariant: "default",
+		ErrorDetails: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
+		InputTokens: &tokens, UncachedTokens: &tokens, EffectiveCost: &cost, EffectiveCostKind: &kind,
+		AgentID: agent, ID: id, RuntimeID: lock,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), finished)
 }

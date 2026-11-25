@@ -39,7 +39,9 @@ type LaunchAgentInput struct {
 	Subagent                *SubagentLaunch
 	InitialInput            *LaunchInitialInput
 	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
+	Budgets                 []identitystore.BudgetAttachment
 	admission               *launchAdmission
+	spawnSourceToolCallID   uuid.UUID
 }
 
 type LaunchAgentResult struct {
@@ -357,6 +359,11 @@ func (s *Store) launchAgentTx(
 		subscriptions[i].AgentID = agent.ID
 	}
 	if _, err := integrationstore.RegisterIntegrationSubscriptionsTx(ctx, tx, subscriptions); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if err := identitystore.CreateBudgetsTx(ctx, tx, identitystore.CreateBudgetInput{
+		OrgID: project.OrgID, ProjectID: &input.ProjectID, AgentID: &agent.ID,
+	}, input.Budgets); err != nil {
 		return LaunchAgentResult{}, err
 	}
 

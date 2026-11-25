@@ -641,6 +641,129 @@ export type ListEventWebhooksResponse = {
     next_cursor: string | null;
 };
 
+export type OtelExporterId = string;
+
+/**
+ * Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+ */
+export type OtelTraceVariant = 'otel' | 'langfuse' | 'braintrust' | 'langsmith';
+
+/**
+ * OTLP/HTTP request body encoding. protobuf sends application/x-protobuf and is accepted by every OTLP/HTTP endpoint; json sends application/json and is available for the otel and langfuse variants only.
+ */
+export type OtelExporterEncoding = 'protobuf' | 'json';
+
+/**
+ * An OTLP ExportTraceServiceRequest in its JSON encoding. Field names follow the OTLP specification.
+ */
+export type OtelTrace = {
+    resourceSpans: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+/**
+ * How the exporter authenticates to the endpoint: none, Authorization Bearer token, a custom API key header named by auth_options.header_name, or HTTP Basic auth with auth_options.username and the secret password.
+ */
+export type OtelExporterAuthKind = 'none' | 'bearer_token' | 'api_key_header' | 'basic';
+
+/**
+ * Non-secret authentication settings. Must be empty for none and bearer_token. With api_key_header, set {"header_name":"..."}. With basic, set {"username":"..."} (for Langfuse, use the public key).
+ */
+export type OtelExporterAuthOptions = {
+    /**
+     * Header that carries the API key when auth_kind is api_key_header.
+     */
+    header_name?: string;
+    /**
+     * Non-secret username for HTTP Basic auth when auth_kind is basic (for Langfuse, the public key).
+     */
+    username?: string;
+};
+
+/**
+ * Plain request headers sent with every export, by header name. Values are stored and returned as plain text, so Authorization is not accepted here; use auth_kind or secret_headers for credentials.
+ */
+export type OtelExporterHeaders = {
+    [key: string]: string;
+};
+
+/**
+ * Extra request headers whose values come from generic secrets available to the project, by header name. Prefer auth_kind and credential_secret_id for primary endpoint credentials.
+ */
+export type OtelExporterSecretHeaders = {
+    [key: string]: SecretId;
+};
+
+/**
+ * Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
+ */
+export type OtelExporterSamplePercent = number;
+
+export type CreateOtelExporterRequest = {
+    /**
+     * Full OTLP/HTTP traces URL, used exactly as given (for example a URL ending in /v1/traces).
+     */
+    endpoint: string;
+    variant?: OtelTraceVariant;
+    encoding?: OtelExporterEncoding;
+    auth_kind?: OtelExporterAuthKind;
+    auth_options?: OtelExporterAuthOptions;
+    /**
+     * Generic secret available to the project, required when auth_kind is bearer_token, api_key_header, or basic.
+     */
+    credential_secret_id?: SecretId;
+    headers?: OtelExporterHeaders;
+    secret_headers?: OtelExporterSecretHeaders;
+    sample_percent?: OtelExporterSamplePercent;
+};
+
+export type UpdateOtelExporterRequest = {
+    /**
+     * Full OTLP/HTTP traces URL, used exactly as given.
+     */
+    endpoint?: string;
+    variant?: OtelTraceVariant;
+    encoding?: OtelExporterEncoding;
+    auth_kind?: OtelExporterAuthKind;
+    auth_options?: OtelExporterAuthOptions;
+    /**
+     * Generic secret available to the project for the selected auth_kind. Omit to preserve, or set to null when switching auth_kind to none.
+     */
+    credential_secret_id?: SecretId | null;
+    headers?: OtelExporterHeaders;
+    secret_headers?: OtelExporterSecretHeaders;
+    sample_percent?: OtelExporterSamplePercent;
+};
+
+export type OtelExporter = {
+    id: OtelExporterId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    /**
+     * Full OTLP/HTTP traces URL.
+     */
+    endpoint: string;
+    variant: OtelTraceVariant;
+    encoding: OtelExporterEncoding;
+    auth_kind: OtelExporterAuthKind;
+    auth_options: OtelExporterAuthOptions;
+    /**
+     * Generic secret available to the project, used for authentication. Omitted when auth_kind is none.
+     */
+    credential_secret_id?: SecretId;
+    headers: OtelExporterHeaders;
+    secret_headers: OtelExporterSecretHeaders;
+    sample_percent: OtelExporterSamplePercent;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ListOtelExportersResponse = {
+    data: Array<OtelExporter>;
+    next_cursor: string | null;
+};
+
 export type CronTriggerId = string;
 
 export type IntegrationTargetId = string;
@@ -945,6 +1068,9 @@ export type DiscoveredProviderModel = {
      * Reasoning effort values the model accepts, when reported.
      */
     supported_reasoning_efforts?: Array<string>;
+    /**
+     * Provider-advertised list prices, present only when the provider publishes pricing in its model catalog (OpenRouter).
+     */
     pricing?: DiscoveredModelPricing;
 };
 
@@ -956,6 +1082,28 @@ export type DiscoveredModelPricing = {
     cache_read_input_usd_per_million?: string;
     cache_write_input_usd_per_million?: string;
     output_usd_per_million: string;
+};
+
+/**
+ * Your own prices in USD per million tokens, as exact decimal strings, named like genai-prices catalog entries. Missing cache prices use the input price.
+ */
+export type ModelPricing = {
+    /**
+     * USD per million input tokens.
+     */
+    input_mtok: string;
+    /**
+     * USD per million input tokens read from the prompt cache.
+     */
+    cache_read_mtok?: string;
+    /**
+     * USD per million input tokens written to the prompt cache.
+     */
+    cache_write_mtok?: string;
+    /**
+     * USD per million output tokens.
+     */
+    output_mtok: string;
 };
 
 export type ModelProviderConfigList = {
@@ -1010,6 +1158,10 @@ export type CreateConfiguredModelRequest = {
      */
     output_modalities?: Array<string>;
     api_variant_options?: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model. Calls on it are priced from these instead of the provider-reported cost or list prices. Missing cache prices use the input price.
+     */
+    pricing?: ModelPricing;
 };
 
 /**
@@ -1062,6 +1214,10 @@ export type UpdateConfiguredModelRequest = {
      */
     output_modalities?: Array<string>;
     api_variant_options?: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model. Omit to keep them, or set to null to remove them.
+     */
+    pricing?: ModelPricing | null;
 };
 
 export type ConfiguredModel = {
@@ -1116,6 +1272,10 @@ export type ConfiguredModel = {
      */
     output_modalities: Array<string>;
     api_variant_options: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model, when set.
+     */
+    pricing?: ModelPricing;
     created_at: Timestamp;
     updated_at: Timestamp;
     revision_created_at: Timestamp;
@@ -2290,6 +2450,10 @@ export type AgentConfigGeneratedSource = {
 export type CreateAgentProfileRequest = {
     name: ResourceName;
     config: AgentConfigId;
+    /**
+     * Budgets for the new profile, created atomically with it, one per interval. Requires organization management permission. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type UpdateAgentProfileRequest = {
@@ -2545,6 +2709,10 @@ export type CreateAgentRequest = ({
      * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
      */
     subscriptions?: Array<IntegrationSubscriptionAttachment>;
+    /**
+     * Budgets for the new agent, created atomically with launch, one per interval. Requires organization management permission. Launch replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
     /**
      * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
      */
@@ -4020,6 +4188,10 @@ export type ListSecretGrantsResponse = {
 
 export type CreateOrganizationRequest = {
     name: ResourceName;
+    /**
+     * Budgets for the new organization, created atomically with it, one per interval. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type CreateOrganizationResponse = {
@@ -5229,6 +5401,10 @@ export type BootstrapDaemonResponse = {
 
 export type CreateProjectRequest = {
     name: ResourceName;
+    /**
+     * Budgets for the new project, created atomically with it, one per interval. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type UpdateProjectRequest = {
@@ -5319,10 +5495,108 @@ export type OrgOverviewAgentProfileReference = {
     agent_count: number;
 };
 
+export type BudgetId = string;
+
+export type BudgetScopeType = 'org' | 'project' | 'profile' | 'agent';
+
+export type OrgBudgetScope = {
+    type: 'org';
+};
+
+export type ProjectBudgetScope = {
+    type: 'project';
+    project_id: ProjectId;
+};
+
+/**
+ * Counts the profile's top-level agents and their subagents.
+ */
+export type AgentProfileBudgetScope = {
+    type: 'profile';
+    project_id: ProjectId;
+    agent_profile_id: AgentProfileId;
+};
+
+/**
+ * Counts a top-level agent and its subagents.
+ */
+export type AgentBudgetScope = {
+    type: 'agent';
+    project_id: ProjectId;
+    agent_id: AgentId;
+};
+
+export type BudgetScope = ({
+    type: 'org';
+} & OrgBudgetScope) | ({
+    type: 'project';
+} & ProjectBudgetScope) | ({
+    type: 'profile';
+} & AgentProfileBudgetScope) | ({
+    type: 'agent';
+} & AgentBudgetScope);
+
+export type BudgetAttachment = {
+    /**
+     * How often the budget resets.
+     */
+    interval: BudgetInterval;
+    /**
+     * Spend limit in US dollars for each interval.
+     */
+    amount_usd: BudgetAmount;
+};
+
+/**
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ */
+export type BudgetInterval = 'day' | 'week' | 'month' | 'lifetime';
+
+/**
+ * Amount in USD as a positive decimal string.
+ */
+export type BudgetAmount = string;
+
+export type BudgetUsage = {
+    /**
+     * Model spend in USD in the current interval. Each call counts the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate. Calls that could not be priced contribute nothing.
+     */
+    amount_usd: string;
+};
+
+export type Budget = {
+    id: BudgetId;
+    org_id: OrganizationId;
+    scope: BudgetScope;
+    interval: BudgetInterval;
+    amount_usd: BudgetAmount;
+    /**
+     * Spend in the current interval. Populated when the budget is returned by the list or get endpoint.
+     */
+    usage?: BudgetUsage;
+    created_at: string;
+    updated_at: string;
+};
+
+export type CreateBudgetRequest = {
+    scope: BudgetScope;
+    interval: BudgetInterval;
+    amount_usd: BudgetAmount;
+};
+
+export type UpdateBudgetRequest = {
+    amount_usd: BudgetAmount;
+};
+
+export type ListBudgetsResponse = {
+    data: Array<Budget>;
+    next_cursor: string | null;
+};
+
 export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export type UsageTimeseriesMetric = 'sum_tokens' | 'sum_input_tokens' | 'sum_output_tokens' | 'sum_cost' | 'count_model_calls';
 
@@ -5407,6 +5681,11 @@ export type UsageCostTotals = {
      */
     provider_reported_usd: string;
     model_calls_with_reported_cost: number;
+    /**
+     * Decimal sum in USD of the cost Omnara counts for each tallied model call: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate. Calls that could not be priced contribute nothing; compare model_calls_with_effective_cost against model_calls to see how complete the figure is.
+     */
+    effective_usd: string;
+    model_calls_with_effective_cost: number;
 };
 
 export type UsageTotals = {
@@ -6309,6 +6588,434 @@ export type UpdateEventWebhookResponses = {
 };
 
 export type UpdateEventWebhookResponse = UpdateEventWebhookResponses[keyof UpdateEventWebhookResponses];
+
+export type ListOrgOtelExportersData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/otel-exporters';
+};
+
+export type ListOrgOtelExportersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgOtelExportersError = ListOrgOtelExportersErrors[keyof ListOrgOtelExportersErrors];
+
+export type ListOrgOtelExportersResponses = {
+    /**
+     * Exporters across the caller's readable projects.
+     */
+    200: ListOtelExportersResponse;
+};
+
+export type ListOrgOtelExportersResponse = ListOrgOtelExportersResponses[keyof ListOrgOtelExportersResponses];
+
+export type ListOtelExportersData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters';
+};
+
+export type ListOtelExportersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOtelExportersError = ListOtelExportersErrors[keyof ListOtelExportersErrors];
+
+export type ListOtelExportersResponses = {
+    /**
+     * The project's exporters.
+     */
+    200: ListOtelExportersResponse;
+};
+
+export type ListOtelExportersResponse2 = ListOtelExportersResponses[keyof ListOtelExportersResponses];
+
+export type CreateOtelExporterData = {
+    body: CreateOtelExporterRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters';
+};
+
+export type CreateOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateOtelExporterError = CreateOtelExporterErrors[keyof CreateOtelExporterErrors];
+
+export type CreateOtelExporterResponses = {
+    /**
+     * Exporter created.
+     */
+    201: OtelExporter;
+};
+
+export type CreateOtelExporterResponse = CreateOtelExporterResponses[keyof CreateOtelExporterResponses];
+
+export type DeleteOtelExporterData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
+};
+
+export type DeleteOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteOtelExporterError = DeleteOtelExporterErrors[keyof DeleteOtelExporterErrors];
+
+export type DeleteOtelExporterResponses = {
+    /**
+     * Exporter deleted.
+     */
+    204: void;
+};
+
+export type DeleteOtelExporterResponse = DeleteOtelExporterResponses[keyof DeleteOtelExporterResponses];
+
+export type GetOtelExporterData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
+};
+
+export type GetOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOtelExporterError = GetOtelExporterErrors[keyof GetOtelExporterErrors];
+
+export type GetOtelExporterResponses = {
+    /**
+     * The exporter.
+     */
+    200: OtelExporter;
+};
+
+export type GetOtelExporterResponse = GetOtelExporterResponses[keyof GetOtelExporterResponses];
+
+export type UpdateOtelExporterData = {
+    body: UpdateOtelExporterRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        exporterID: OtelExporterId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/otel-exporters/{exporterID}';
+};
+
+export type UpdateOtelExporterErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateOtelExporterError = UpdateOtelExporterErrors[keyof UpdateOtelExporterErrors];
+
+export type UpdateOtelExporterResponses = {
+    /**
+     * Exporter updated.
+     */
+    200: OtelExporter;
+};
+
+export type UpdateOtelExporterResponse = UpdateOtelExporterResponses[keyof UpdateOtelExporterResponses];
 
 export type ListPersonalAccessTokensData = {
     body?: never;
@@ -7430,6 +8137,357 @@ export type GetOrgOverviewResponses = {
 };
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
+
+export type ListBudgetsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        scope_type?: BudgetScopeType;
+        project_id?: ProjectId;
+        agent_profile_id?: AgentProfileId;
+        agent_id?: AgentId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/budgets';
+};
+
+export type ListBudgetsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListBudgetsError = ListBudgetsErrors[keyof ListBudgetsErrors];
+
+export type ListBudgetsResponses = {
+    /**
+     * Budgets matching the requested scope.
+     */
+    200: ListBudgetsResponse;
+};
+
+export type ListBudgetsResponse2 = ListBudgetsResponses[keyof ListBudgetsResponses];
+
+export type CreateBudgetData = {
+    body: CreateBudgetRequest;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets';
+};
+
+export type CreateBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateBudgetError = CreateBudgetErrors[keyof CreateBudgetErrors];
+
+export type CreateBudgetResponses = {
+    /**
+     * Budget created.
+     */
+    201: Budget;
+};
+
+export type CreateBudgetResponse = CreateBudgetResponses[keyof CreateBudgetResponses];
+
+export type DeleteBudgetData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type DeleteBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteBudgetError = DeleteBudgetErrors[keyof DeleteBudgetErrors];
+
+export type DeleteBudgetResponses = {
+    /**
+     * Budget deleted.
+     */
+    204: void;
+};
+
+export type DeleteBudgetResponse = DeleteBudgetResponses[keyof DeleteBudgetResponses];
+
+export type GetBudgetData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type GetBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetBudgetError = GetBudgetErrors[keyof GetBudgetErrors];
+
+export type GetBudgetResponses = {
+    /**
+     * The budget.
+     */
+    200: Budget;
+};
+
+export type GetBudgetResponse = GetBudgetResponses[keyof GetBudgetResponses];
+
+export type UpdateBudgetData = {
+    body: UpdateBudgetRequest;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type UpdateBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateBudgetError = UpdateBudgetErrors[keyof UpdateBudgetErrors];
+
+export type UpdateBudgetResponses = {
+    /**
+     * Budget updated.
+     */
+    200: Budget;
+};
+
+export type UpdateBudgetResponse = UpdateBudgetResponses[keyof UpdateBudgetResponses];
 
 export type GetOrgUsageData = {
     body?: never;
@@ -15011,6 +16069,89 @@ export type ListTurnEventsResponses = {
 };
 
 export type ListTurnEventsResponse2 = ListTurnEventsResponses[keyof ListTurnEventsResponses];
+
+export type GetTurnTraceData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
+        agentID: string;
+        /**
+         * Turn ID (trn_...).
+         */
+        turnID: string;
+    };
+    query?: {
+        /**
+         * Adds the attributes one tracing backend reads for fields the shared conventions do not cover. Defaults to otel, which adds none.
+         */
+        variant?: OtelTraceVariant;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/trace';
+};
+
+export type GetTurnTraceErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetTurnTraceError = GetTurnTraceErrors[keyof GetTurnTraceErrors];
+
+export type GetTurnTraceResponses = {
+    /**
+     * The turn's trace.
+     */
+    200: OtelTrace;
+};
+
+export type GetTurnTraceResponse = GetTurnTraceResponses[keyof GetTurnTraceResponses];
 
 export type ListEventsData = {
     body?: never;

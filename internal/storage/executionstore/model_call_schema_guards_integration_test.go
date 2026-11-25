@@ -158,6 +158,20 @@ WHERE id = $1
 		"23514",
 		"model_call_contexts_cost_has_api",
 	)
+
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'succeeded',
+    api_format = 'openai-chat-completions',
+    api_variant = 'openrouter',
+    input_tokens_total = 10,
+    uncached_input_tokens = 10,
+    effective_cost_usd = 1,
+    effective_cost_kind = 'provider_reported',
+    completed_at = statement_timestamp()
+WHERE id = $1
+`, claim.Context.ID)
+	assertPgConstraint(t, err, "23514", "model_call_contexts_effective_cost_valid")
 }
 
 func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testing.T) {

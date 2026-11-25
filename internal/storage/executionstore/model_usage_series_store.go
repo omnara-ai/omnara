@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -217,22 +216,24 @@ func (s *Store) SumModelUsageSeries(
 		if bucket < 0 || bucket >= len(bucketStarts) {
 			return ModelUsageSeries{}, fmt.Errorf("sum model usage by bucket: bucket %d out of range", row.BucketNumber)
 		}
-		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		cost, effective, ok := usageCosts(row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		if !ok {
 			return ModelUsageSeries{}, fmt.Errorf(
-				"sum model usage by bucket: invalid cost total %q", row.ProviderReportedCostUsd,
+				"sum model usage by bucket: invalid cost totals %q, %q", row.ProviderReportedCostUsd, row.EffectiveCostUsd,
 			)
 		}
 		rowTotals := ModelUsageTotals{
-			ModelCalls:                 row.ModelCalls,
-			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
-			InputTokensTotal:           row.InputTokensTotal,
-			UncachedInputTokens:        row.UncachedInputTokens,
-			CacheReadInputTokens:       row.CacheReadInputTokens,
-			CacheWriteInputTokens:      row.CacheWriteInputTokens,
-			OutputTokensTotal:          row.OutputTokensTotal,
-			ReasoningOutputTokens:      row.ReasoningOutputTokens,
-			ProviderReportedCostUSD:    cost,
+			ModelCalls:                  row.ModelCalls,
+			ModelCallsWithReportedCost:  row.ModelCallsWithReportedCost,
+			ModelCallsWithEffectiveCost: row.ModelCallsWithEffectiveCost,
+			InputTokensTotal:            row.InputTokensTotal,
+			UncachedInputTokens:         row.UncachedInputTokens,
+			CacheReadInputTokens:        row.CacheReadInputTokens,
+			CacheWriteInputTokens:       row.CacheWriteInputTokens,
+			OutputTokensTotal:           row.OutputTokensTotal,
+			ReasoningOutputTokens:       row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:     cost,
+			EffectiveCostUSD:            effective,
 		}
 		totals = append(totals, rowTotals)
 		series.Rows = append(series.Rows, ModelUsageSeriesRow{

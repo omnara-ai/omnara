@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -18,6 +19,7 @@ import (
 type Config struct {
 	PostCommitPublisher   notifications.PostCommitPublisher
 	ModelCallRetryBackoff func(int, string) time.Duration
+	ModelCostEstimator    modelprice.Estimator
 	Integrations          *integrationstore.Store
 	MachinePoolProviders  MachinePoolProviders
 	Identity              *identitystore.Store
@@ -45,6 +47,7 @@ func New(pool *pgxpool.Pool, config Config) *Store {
 			pool,
 			config.PostCommitPublisher,
 			config.ModelCallRetryBackoff,
+			config.ModelCostEstimator,
 		),
 		pool:                 db,
 		q:                    dbsqlc.New(db),

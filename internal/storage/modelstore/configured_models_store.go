@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -90,6 +91,9 @@ func (s *Store) createConfiguredModelTx(
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
+	if err := normalizePricing(&input.Pricing); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
 	if err := management.Validate(managementKind); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -148,6 +152,7 @@ func (s *Store) createConfiguredModelTx(
 			InputModalities:           input.InputModalities,
 			OutputModalities:          input.OutputModalities,
 			ApiVariantOptions:         input.APIVariantOptions,
+			Pricing:                   input.Pricing,
 		},
 	)
 	if err != nil {
@@ -158,7 +163,9 @@ func (s *Store) createConfiguredModelTx(
 		}
 		return ConfiguredModelRecord{}, fmt.Errorf("insert configured model: %w", err)
 	}
-	return configuredModelRecordFromInsertSQLC(row), nil
+	record := configuredModelRecordFromInsertSQLC(row)
+	record.Pricing = input.Pricing
+	return record, nil
 }
 
 func (s *Store) PatchConfiguredModel(
@@ -167,6 +174,9 @@ func (s *Store) PatchConfiguredModel(
 ) (ConfiguredModelRecord, error) {
 	if input.OrgID == uuid.Nil || input.ModelProviderConfigID == uuid.Nil || input.ID == uuid.Nil {
 		return ConfiguredModelRecord{}, errors.New("org, provider config, and configured model are required")
+	}
+	if err := normalizePricing(&input.Pricing.Value); err != nil {
+		return ConfiguredModelRecord{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -355,6 +365,7 @@ func updateConfiguredModelTx(
 			InputModalities:           input.InputModalities,
 			OutputModalities:          input.OutputModalities,
 			ApiVariantOptions:         input.APIVariantOptions,
+			Pricing:                   input.Pricing,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -366,7 +377,9 @@ func updateConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("update configured model: %w", err)
 	}
-	return configuredModelRecordFromUpdateSQLC(row), nil
+	record := configuredModelRecordFromUpdateSQLC(row)
+	record.Pricing = input.Pricing
+	return record, nil
 }
 
 func renameConfiguredModelTx(
@@ -422,6 +435,7 @@ func updateConfiguredModelInputFromCurrent(current ConfiguredModelRecord) config
 		InputModalities:           append([]string(nil), current.InputModalities...),
 		OutputModalities:          append([]string(nil), current.OutputModalities...),
 		APIVariantOptions:         storeutil.NormalizeJSON(current.APIVariantOptions),
+		Pricing:                   current.Pricing,
 	}
 }
 
@@ -462,6 +476,9 @@ func applyConfiguredModelPatch(update *configuredModelUpdate, patch PatchConfigu
 	if patch.APIVariantOptions != nil {
 		update.APIVariantOptions = *patch.APIVariantOptions
 	}
+	if patch.Pricing.Set {
+		update.Pricing = patch.Pricing.Value
+	}
 }
 
 func configuredModelBehaviorChanged(current ConfiguredModelRecord, update configuredModelUpdate) bool {
@@ -479,7 +496,15 @@ func configuredModelBehaviorChanged(current ConfiguredModelRecord, update config
 		!jsoncanonical.Equal(
 			storeutil.NormalizeJSON(current.APIVariantOptions),
 			storeutil.NormalizeJSON(update.APIVariantOptions),
-		)
+		) ||
+		!samePricing(current.Pricing, update.Pricing)
+}
+
+func samePricing(left, right *modelprice.Pricing) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func applyNullableIntPatch(target **int, value patch.NullableInt) {
@@ -698,6 +723,7 @@ func configuredModelRecordFromGetSQLC(row dbsqlc.GetConfiguredModelRow) Configur
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -725,6 +751,7 @@ func configuredModelRecordFromLockForUseSQLC(row dbsqlc.LockConfiguredModelForUs
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -752,6 +779,7 @@ func configuredModelRecordFromDisplaySQLC(row dbsqlc.GetConfiguredModelDisplayRo
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -779,6 +807,7 @@ func configuredModelRecordFromGetByNameSQLC(row dbsqlc.GetConfiguredModelByNameR
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -806,6 +835,7 @@ func configuredModelRecordFromListSQLC(row dbsqlc.ListConfiguredModelsRow) Confi
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -860,6 +890,7 @@ func configuredModelRecordFromRenameSQLC(row dbsqlc.RenameConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -890,6 +921,7 @@ func configuredModelRecordFromLockedConfiguredModelAndRevisionSQLC(
 		InputModalities:           append([]string(nil), revision.InputModalities...),
 		OutputModalities:          append([]string(nil), revision.OutputModalities...),
 		APIVariantOptions:         storeutil.NormalizeJSON(revision.APIVariantOptions),
+		Pricing:                   revision.Pricing,
 		DeletedAt:                 configuredModel.DeletedAt,
 		CreatedAt:                 configuredModel.CreatedAt,
 		UpdatedAt:                 configuredModel.UpdatedAt,
@@ -915,6 +947,7 @@ func configuredModelRevisionRecordFromSQLC(row dbsqlc.ConfiguredModelRevision) C
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		CreatedAt:                 row.CreatedAt,
 	}
 }
@@ -940,6 +973,7 @@ func configuredModelRevisionDisplayRecordFromSQLC(
 			InputModalities:           nonNilStringSlice(row.InputModalities),
 			OutputModalities:          nonNilStringSlice(row.OutputModalities),
 			APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+			Pricing:                   row.Pricing,
 			CreatedAt:                 row.CreatedAt,
 		},
 		ConfiguredModelName: row.ConfiguredModelName,

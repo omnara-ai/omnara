@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 
 export interface UsageStat {
   label: string
+  info?: ReactNode
   value: ReactNode
 }
 
@@ -37,7 +38,10 @@ export function UsageStats({
           key={stat.label}
           className={cn('flex min-w-0 flex-col gap-1', !plain && 'bg-card px-4 py-3')}
         >
-          <dt className="text-muted-foreground truncate text-xs">{stat.label}</dt>
+          <dt className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
+            <span className="truncate">{stat.label}</span>
+            {stat.info}
+          </dt>
           <dd className="truncate text-xl font-semibold tracking-tight tabular-nums">
             {stat.value}
           </dd>
