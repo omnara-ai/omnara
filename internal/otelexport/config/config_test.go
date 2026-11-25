@@ -106,7 +106,10 @@ func TestValidateHeaderNames(t *testing.T) {
 	for _, settings := range []Settings{
 		{Headers: map[string]string{"Accept-Encoding": "gzip"}},
 		{SecretHeaders: map[string]uuid.UUID{"accept-encoding": secretID}},
-		{AuthKind: AuthKindAPIKeyHeader, CredentialSecretID: secretID, AuthOptions: AuthOptions{HeaderName: "Accept-Encoding"}},
+		{
+			AuthKind: AuthKindAPIKeyHeader, CredentialSecretID: secretID,
+			AuthOptions: AuthOptions{HeaderName: "Accept-Encoding"},
+		},
 	} {
 		settings.Endpoint, settings.SamplePercent = base.Endpoint, base.SamplePercent
 		_, err := Validate(settings, nil)
