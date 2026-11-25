@@ -93,6 +93,8 @@ func (s strictOpenAPIServer) editAgentConfigTargets(
 	stop bool,
 ) ([]openapi.AgentConfigEditResult, error) {
 	results := make([]openapi.AgentConfigEditResult, len(targets))
+	deleteMachines := make([][]executionstore.MachineRecord, len(targets))
+	defer func() { s.server.startPoolMachineDeletion(ctx, slices.Concat(deleteMachines...)) }()
 	if stop {
 		failed := false
 		for i, target := range targets {
@@ -101,7 +103,7 @@ func (s strictOpenAPIServer) editAgentConfigTargets(
 				results[i], _, err = agentConfigEditResult(target)
 				results[i].Status = openapi.AgentConfigEditResultStatusSkipped
 			} else {
-				results[i], err = s.editAgentConfigTarget(ctx, edit, target)
+				results[i], err = s.editAgentConfigTarget(ctx, edit, target, &deleteMachines[i])
 				failed = results[i].Status == openapi.AgentConfigEditResultStatusFailed
 			}
 			if err != nil {
@@ -114,7 +116,7 @@ func (s strictOpenAPIServer) editAgentConfigTargets(
 	group.SetLimit(agentConfigEditConcurrency)
 	for i, target := range targets {
 		group.Go(func() (err error) {
-			results[i], err = s.editAgentConfigTarget(ctx, edit, target)
+			results[i], err = s.editAgentConfigTarget(ctx, edit, target, &deleteMachines[i])
 			return err
 		})
 	}
@@ -241,6 +243,7 @@ func (s strictOpenAPIServer) editAgentConfigTarget(
 	ctx context.Context,
 	edit *agentConfigEditRequest,
 	target agentConfigEditTarget,
+	deleteMachines *[]executionstore.MachineRecord,
 ) (result openapi.AgentConfigEditResult, err error) {
 	result, id, err := agentConfigEditResult(target)
 	if err != nil {
@@ -256,7 +259,7 @@ func (s strictOpenAPIServer) editAgentConfigTarget(
 	if target.profile {
 		return s.editAgentProfileConfig(ctx, edit, target.id, key, result)
 	}
-	return s.editAgentConfig(ctx, edit, target.id, key, result)
+	return s.editAgentConfig(ctx, edit, target.id, key, result, deleteMachines)
 }
 
 func (s strictOpenAPIServer) editAgentConfig(
@@ -265,6 +268,7 @@ func (s strictOpenAPIServer) editAgentConfig(
 	agentID uuid.UUID,
 	key string,
 	result openapi.AgentConfigEditResult,
+	deleteMachines *[]executionstore.MachineRecord,
 ) (openapi.AgentConfigEditResult, error) {
 	store := s.server.store.Execution()
 	agent, err := store.GetAgentInProject(ctx, edit.project.ID, agentID)
@@ -272,11 +276,12 @@ func (s strictOpenAPIServer) editAgentConfig(
 		return agentConfigEditFailed(ctx, result, err)
 	}
 	if key != "" {
-		configID, found, err := store.AgentConfigChangeByIdempotencyKey(ctx, edit.project.ID, agentID, key)
+		configID, machines, found, err := store.AgentConfigChangeByIdempotencyKey(ctx, edit.project.ID, agentID, key)
 		if err != nil {
 			return agentConfigEditFailed(ctx, result, err)
 		}
 		if found {
+			*deleteMachines = machines
 			return agentConfigEditUpdated(result, configID, configID)
 		}
 	}
@@ -307,6 +312,7 @@ func (s strictOpenAPIServer) editAgentConfig(
 	if err != nil {
 		return agentConfigEditFailed(ctx, result, err)
 	}
+	*deleteMachines = change.DeleteMachines
 	if !change.Created {
 		result.Edits = nil
 		return agentConfigEditUpdated(result, change.AgentConfig.ID, change.AgentConfig.ID)

@@ -171,7 +171,8 @@ func TestEditAgentConfigs(t *testing.T) {
 	missing := testPublicID(t, publicid.KindAgent, httpTestID("agent-config-edit-missing"))
 	setShort := `"edits":[{"type":"set","path":"/model/cache_retention","value":"short"}]`
 	missingProfile := testPublicID(t, publicid.KindAgentProfile, httpTestID("agent-config-edit-missing-profile"))
-	notFound := edit(`{"targets":[{"type":"profile","agent_profile_id":"`+missingProfile+`","apply_to_instances":true},`+
+	notFound := edit(`{"targets":[{"type":"profile","agent_profile_id":"`+missingProfile+`","apply_to_profile":false,`+
+		`"apply_to_instances":true},`+
 		`{"type":"agent","agent_id":"`+missing+`"},{"type":"agent","agent_id":"`+secondEarly+`"}],`+setShort+`}`,
 		"", http.StatusOK)
 	require.Equal(t, []any{missingProfile, missing, secondEarly}, agentConfigEditTargetIDs(t, notFound))

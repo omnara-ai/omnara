@@ -59,9 +59,13 @@ func (s *Store) AgentConfigChangeByIdempotencyKey(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
 	key string,
-) (uuid.UUID, bool, error) {
+) (uuid.UUID, []MachineRecord, bool, error) {
 	input, found, err := loadAgentInputByIdempotencyMaybeTx(ctx, s.pool, projectID, agentID, "agent_config_change", key)
-	return input.AgentConfigID, found, err
+	if err != nil || !found {
+		return uuid.Nil, nil, found, err
+	}
+	machines, err := sourceRemovedPoolMachinesTx(ctx, s.q, projectID, agentID)
+	return input.AgentConfigID, machines, true, err
 }
 
 func (s *Store) AgentProfileVersionByIdempotencyKey(

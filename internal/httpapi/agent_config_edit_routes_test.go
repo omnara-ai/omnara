@@ -32,7 +32,7 @@ func TestAgentConfigEditFailedReportsInternalErrorsPerTarget(t *testing.T) {
 func TestEditAgentConfigTargetReportsPanicsPerTarget(t *testing.T) {
 	id := uuid.New()
 	result, err := strictOpenAPIServer{}.editAgentConfigTarget(context.Background(), &agentConfigEditRequest{},
-		agentConfigEditTarget{id: id})
+		agentConfigEditTarget{id: id}, nil)
 	require.NoError(t, err)
 	target, err := result.Target.AsAgentConfigEditAgentTarget()
 	require.NoError(t, err)
