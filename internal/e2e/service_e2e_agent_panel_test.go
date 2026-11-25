@@ -56,14 +56,6 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 		var arguments any
 		switch requests.Add(1) {
 		case 1:
-			if !strings.Contains(string(mustJSON(body["input"])), "This first message is automatic") {
-				t.Error("creation did not ask the assistant to introduce itself")
-			}
-			_, _ = w.Write([]byte(`{"id":"greeting","status":"completed","output":[{"id":"hello",` +
-				`"type":"message","content":[{"type":"output_text","text":"Hi, I am your Omnara assistant."}]}],` +
-				`"usage":{"input_tokens":10,"output_tokens":5}}`))
-			return
-		case 2:
 			if !strings.Contains(string(mustJSON(body["tools"])), `"type":"tool_search"`) {
 				t.Error("expected deferred Omnara discovery")
 			}
@@ -72,34 +64,34 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 				`"status":"completed","arguments":{"pattern":"whoami|projects_create"}}],` +
 				`"usage":{"input_tokens":10,"output_tokens":5}}`))
 			return
-		case 3:
+		case 2:
 			if !strings.Contains(string(mustJSON(body["input"])), `"type":"tool_search_output"`) ||
 				!strings.Contains(string(mustJSON(body["input"])), "whoami") {
 				t.Error("discovery did not return authenticated Omnara tools")
 			}
 			name, callID, arguments = "mcp__omnara__whoami", "identity", map[string]any{}
-		case 4:
+		case 3:
 			if !requestContainsToolResult(body, "identity", project.adminUserID) {
 				t.Error("MCP read did not authenticate as the assistant creator")
 			}
 			name, callID = "mcp__omnara__projects_create", "create"
 			arguments = map[string]any{"orgID": project.orgID, "name": projectName}
-		case 5:
+		case 4:
 			if !requestContainsToolResult(body, "create", projectName) {
 				t.Error("MCP write did not return created project")
 			}
 			name, callID, arguments = "dashboard_click", "click", map[string]any{"target": "Models"}
-		case 6:
+		case 5:
 			if !requestContainsToolResult(body, "click", openedPage) {
 				t.Error("the dashboard's answer did not reach the assistant")
 			}
 			name, callID, arguments = "dashboard_point_at", "point", map[string]any{"target": "New provider"}
-		case 7:
+		case 6:
 			if !requestContainsToolResult(body, "point", pointed) {
 				t.Error("the dashboard's answer to pointing did not reach the assistant")
 			}
 			name, callID, arguments = "dashboard_click", "unanswered", map[string]any{"target": "Usage"}
-		case 8:
+		case 7:
 			if !requestContainsToolResult(body, "unanswered", "No result was submitted within 5 seconds.") {
 				t.Error("a click with no dashboard to answer did not time out")
 			}
@@ -123,12 +115,6 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	defer model.Close()
 	worker := env.startWorker(t, ctx, project.projectID,
 		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: model.URL, LogLevel: "info"})
-	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		var idle bool
-		err := env.db.QueryRow(ctx, `SELECT logical_ready_at IS NULL FROM agent_execution_state
-            WHERE agent_id=$1`, agentUUID).Scan(&idle)
-		return err == nil && idle && requests.Load() == 1, "assistant did not greet and settle: " + worker.logExcerpt()
-	})
 	env.startMaintenance(t, ctx)
 	project.createInput(t, ctx, agentID, "Check my identity, create a project and show me where models are.")
 	// The dashboard answers the first click and the pointing; nothing answers the second click.
@@ -151,7 +137,7 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	var count int
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		err := env.db.QueryRow(ctx, `SELECT count(*) FROM projects WHERE name=$1`, projectName).Scan(&count)
-		return err == nil && count == 1 && requests.Load() == 8,
+		return err == nil && count == 1 && requests.Load() == 7,
 			fmt.Sprintf("journey incomplete: projects=%d requests=%d: %s", count, requests.Load(), worker.logExcerpt())
 	})
 	interactions := env.requestJSON(t, ctx, "GET", project.projectPath+"/agents/"+agentID+"/interactions",

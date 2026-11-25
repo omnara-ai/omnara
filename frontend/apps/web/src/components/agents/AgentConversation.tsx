@@ -26,10 +26,9 @@ export function AgentConversation({
   orgID: string
   projectID: string
   agentID: string
-  /** Shown until someone has sent this agent a message. */
+  /** Shown in place of the default empty state. */
   intro?: ReactNode
 }) {
-  const started = chat.messages.some((message) => message.role === 'user')
   return (
     <MessageScroller>
       <MessageScrollerViewport
@@ -92,7 +91,6 @@ export function AgentConversation({
                   />
                 </MessageScrollerItem>
               ))}
-              {!started && intro}
             </>
           )}
         </MessageScrollerContent>

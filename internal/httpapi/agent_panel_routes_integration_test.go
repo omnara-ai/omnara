@@ -76,11 +76,7 @@ func TestAgentPanelCreationReplayAndSelection(t *testing.T) {
 	path := "/api/v1/orgs/" + project.OrgID + "/assistant-agents"
 	result := requestJSONWithHeaders(t, handler, "POST", path, body, "", 200, headers)
 	after := assistantCounts(t, pool)
-	want := make([]int, len(before))
-	for i, count := range before {
-		want[i] = count + 1
-	}
-	require.Equal(t, want, after, "creation also records the hidden greeting input")
+	require.Equal(t, []int{before[0] + 1, before[1] + 1, before[2] + 1, before[3] + 1, before[4] + 1, before[5]}, after)
 	agentID := testutil.RequireType[string](t, result["agent_id"])
 	selected := testutil.RequireType[map[string]any](t, result["panel"])
 	require.Equal(t, "ready", selected["state"])
@@ -118,7 +114,7 @@ func TestAgentPanelCreationReplayAndSelection(t *testing.T) {
 	require.NotContains(t, replayPanel, "selection")
 	require.Equal(t, after, assistantCounts(t, pool))
 	overview := requestJSONWithHeaders(t, handler, "GET", "/api/v1/orgs/"+project.OrgID+"/overview", "", "", 200, headers)
-	require.Len(t, overview["recent_agents"], 1)
+	require.Empty(t, overview["recent_agents"])
 	agents := requestJSONWithHeaders(t, handler, "GET", project.ProjectPath+"/agents", "", "", 200, headers)
 	require.Len(t, agents["data"], 1)
 	var machines int

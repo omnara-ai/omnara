@@ -61,10 +61,6 @@ export function AgentPanelChat({
     (connection) => connection.state === 'failed',
   )
 
-  const replied = chat.messages.some(
-    (message) => message.role === 'assistant' && message.parts.some((part) => part.type === 'text'),
-  )
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <MessageScrollerProvider autoScroll>
@@ -84,7 +80,7 @@ export function AgentPanelChat({
             chat={chat}
             currentActorId={currentActorId}
             {...scope}
-            intro={<AssistantWelcome canAsk={canOperate} greeted={replied} />}
+            intro={<AssistantWelcome canAsk={canOperate} />}
           />
         </div>
         <div className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto p-3">

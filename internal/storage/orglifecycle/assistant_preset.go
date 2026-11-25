@@ -16,16 +16,6 @@ import (
 //go:embed assistant_instruction.md
 var assistantInstruction string
 
-//go:embed assistant_greeting.md
-var assistantGreeting string
-
-// The assistant's first input: an instruction to introduce itself, hidden from the conversation.
-func assistantGreetingInput() (json.RawMessage, error) {
-	return json.Marshal([]map[string]any{{
-		"type": "text", "text": assistantGreeting, "metadata": map[string]string{"omnara_hidden": "true"},
-	}})
-}
-
 // Both page tools are answered by the dashboard in the user's browser. Their timeouts are what
 // the assistant waits when nobody has the dashboard open.
 const (

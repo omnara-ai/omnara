@@ -326,14 +326,9 @@ func (s *Service) createAssistantAgentOnce(ctx context.Context, input CreateAssi
 	if err != nil {
 		return uuid.Nil, storeerr.InvalidRequest(err)
 	}
-	greeting, err := assistantGreetingInput()
-	if err != nil {
-		return uuid.Nil, err
-	}
 	name := "Omnara assistant"
 	launched, err := s.execution.LaunchAgentInUnit(ctx, unit, executionstore.LaunchAgentInput{
 		ProjectID: input.ProjectID, LaunchedBy: input.Principal, Name: &name,
-		InitialInput: &executionstore.LaunchInitialInput{ContentBlocks: greeting},
 		DerivedConfig: &executionstore.CreateAgentConfigInput{
 			OrgID: input.OrgID, ProjectID: input.ProjectID, Source: compiled.Source,
 			SourceFormat: string(compiled.SourceFormat), ConfiguredModelID: model.ID,
