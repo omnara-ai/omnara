@@ -197,6 +197,20 @@ func TestModelUsageRecoveryCoolsDownRateLimitedProviders(t *testing.T) {
 	require.Equal(t, 3, h.looked["throttled"])
 }
 
+func TestModelUsageRecoveryContainsPanics(t *testing.T) {
+	h := newUsageRecoveryHarness()
+	provider := uuid.New()
+	h.lookups["panics"] = func() (model.GenerationUsage, error) { panic("decoder bug") }
+	h.lookups["costed"] = func() (model.GenerationUsage, error) {
+		return model.GenerationUsage{ProviderReportedCostUSD: "0.01"}, nil
+	}
+	broken := h.call(provider, "panics", false)
+	h.due = []executionstore.ModelUsageRecovery{broken, h.call(provider, "costed", false)}
+	result := h.run()
+	require.ErrorContains(t, result.err, broken.ModelCallContextID.String()+" panicked: decoder bug")
+	require.True(t, result.worked, "other calls keep recovering")
+}
+
 func TestModelUsageRecoveryStaysQuietOnShutdown(t *testing.T) {
 	h := newUsageRecoveryHarness()
 	provider := uuid.New()

@@ -98,7 +98,12 @@ func (r *modelUsageRecovery) run(ctx context.Context) maintenanceResult {
 func (r *modelUsageRecovery) recoverCall(
 	ctx context.Context,
 	call executionstore.ModelUsageRecovery,
-) (bool, error) {
+) (ok bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			ok, err = false, fmt.Errorf("recover usage for model call %s panicked: %v", call.ModelCallContextID, recovered)
+		}
+	}()
 	usage, err := r.lookup(ctx, call)
 	if err != nil {
 		cause := "lookup"
