@@ -5,7 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,4 +27,18 @@ func TestAgentConfigEditFailedReportsInternalErrorsPerTarget(t *testing.T) {
 	cancel()
 	_, err = agentConfigEditFailed(canceled, openapi.AgentConfigEditResult{}, internal)
 	require.ErrorIs(t, err, internal)
+}
+
+func TestEditAgentConfigTargetReportsPanicsPerTarget(t *testing.T) {
+	id := uuid.New()
+	result, err := strictOpenAPIServer{}.editAgentConfigTarget(context.Background(), &agentConfigEditRequest{},
+		agentConfigEditTarget{id: id})
+	require.NoError(t, err)
+	target, err := result.Target.AsAgentConfigEditAgentTarget()
+	require.NoError(t, err)
+	agentID, err := publicID(publicid.KindAgent, id)
+	require.NoError(t, err)
+	require.Equal(t,
+		[]any{agentID, openapi.AgentConfigEditResultStatusFailed, openapi.ErrorCodeInternalError},
+		[]any{target.AgentId, result.Status, *result.Code})
 }

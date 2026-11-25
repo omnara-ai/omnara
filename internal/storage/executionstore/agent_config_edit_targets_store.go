@@ -32,15 +32,14 @@ func (s *Store) ListAgentConfigEditProfileAgentIDs(
 }
 
 type AgentConfigEditTargetCheck struct {
-	Profiles int64
-	Agents   int64
+	Profiles []uuid.UUID
 	Cutoff   time.Time
 }
 
 func (s *Store) CheckAgentConfigEditTargets(
 	ctx context.Context,
 	projectID uuid.UUID,
-	profileIDs, agentIDs []uuid.UUID,
+	profileIDs []uuid.UUID,
 	profileKeys []string,
 ) (AgentConfigEditTargetCheck, error) {
 	keys := make([]string, len(profileKeys))
@@ -48,7 +47,7 @@ func (s *Store) CheckAgentConfigEditTargets(
 		keys[i] = agentProfileRetargetIdempotencyKey(key)
 	}
 	row, err := s.q.CheckAgentConfigEditTargets(ctx, dbsqlc.CheckAgentConfigEditTargetsParams{
-		ProjectID: projectID, ProfileIds: profileIDs, AgentIds: agentIDs, ProfileKeys: keys,
+		ProjectID: projectID, ProfileIds: profileIDs, ProfileKeys: keys,
 	})
 	if err != nil {
 		return AgentConfigEditTargetCheck{}, fmt.Errorf("check agent config edit targets: %w", err)

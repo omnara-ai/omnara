@@ -70,6 +70,8 @@ func TestApplyEditsOutcomes(t *testing.T) {
 			setEdit("/mcp/linear", `{"url":"https://mcp.linear.app/mcp"}`),
 			"applied", true,
 		},
+		{"set index in missing list section", setEdit("/memory_stores/0", `{"name":"notes"}`), "path_not_found", false},
+		{"set inside missing scalar section", setEdit("/max_depth/x", `1`), "path_not_found", false},
 		{
 			"set with missing deeper parent",
 			setEdit("/tools/web_fetch/permission/mode", `"always_ask"`),
@@ -136,7 +138,7 @@ func TestApplyEditsRejectsEditsThatCannotFit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ApplyEdits(SourceFormatYAML, tt.source, []Edit{tt.edit})
-			require.ErrorIs(t, err, ErrInvalidEdit)
+			require.Error(t, err)
 		})
 	}
 }
@@ -200,7 +202,7 @@ func TestApplyEditsKeepsAnchoredEditsLocal(t *testing.T) {
 		})
 	}
 	_, err := ApplyEdits(SourceFormatYAML, "a: &x\n  b: *x\n", []Edit{setEdit("/c", `1`)})
-	require.ErrorIs(t, err, ErrInvalidEdit)
+	require.Error(t, err)
 }
 
 func TestApplyEditsCapsConfigSize(t *testing.T) {
@@ -210,7 +212,7 @@ func TestApplyEditsCapsConfigSize(t *testing.T) {
 		doubling[i] = Edit{Type: "replace_text", Path: "/instruction", Find: "a", Replace: "aa"}
 	}
 	_, err := ApplyEdits(SourceFormatYAML, "instruction: "+strings.Repeat("a", 4096)+"\n"+model, doubling)
-	require.ErrorIs(t, err, ErrInvalidEdit)
+	require.Error(t, err)
 
 	source := "instruction: x\n" + model + "tools:\n"
 	var acrossFields []Edit
@@ -222,12 +224,12 @@ func TestApplyEditsCapsConfigSize(t *testing.T) {
 		})
 	}
 	_, err = ApplyEdits(SourceFormatYAML, source, acrossFields)
-	require.ErrorIs(t, err, ErrInvalidEdit)
+	require.Error(t, err)
 	require.Regexp(t, `^edit \d+: `, err.Error())
 
 	_, err = ApplyEdits(SourceFormatYAML, "instruction: x\n"+model,
 		[]Edit{setEdit("/instruction", `"`+strings.Repeat("z", maxEditedSourceBytes)+`"`)})
-	require.ErrorIs(t, err, ErrInvalidEdit)
+	require.Error(t, err)
 
 	shrinkThenGrow, err := ApplyEdits(SourceFormatYAML, "instruction: "+strings.Repeat("a", 600_000)+"\n"+model, []Edit{
 		{Type: "replace_text", Path: "/instruction", Find: "aa", Replace: "a"},

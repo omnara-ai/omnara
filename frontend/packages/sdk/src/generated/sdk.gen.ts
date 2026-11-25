@@ -2025,7 +2025,7 @@ export const resolveAgentConfigTools = <ThrowOnError extends boolean = true>(opt
 /**
  * Edit agent configs
  *
- * Applies the same edits to agent profiles and agents, at most 500 after profile targets expand into their agents. Each target reports its own result, and on_failed_edit decides what happens to the others when one fails. Targets run, and results come back, in this order: profiles, then listed agents, then each profile's instances oldest first. Agents launched during the request may be skipped. YAML sources keep their text outside the changed entries when possible. Reusing an Idempotency-Key returns earlier results for targets it already edited, even with a different body.
+ * Applies the same edits to agent profiles and agents, at most 500 after profile targets expand into their agents. Each target reports its own result, and on_failed_edit decides what happens to the others when one fails. Results come back in this order: profiles, then listed agents, then each profile's instances oldest first. Agents launched during the request may be skipped. YAML sources keep their text outside the changed entries when possible. Reusing an Idempotency-Key returns earlier results for targets it already edited, even with a different body.
  */
 export const editAgentConfigs = <ThrowOnError extends boolean = true>(options: Options<EditAgentConfigsData, ThrowOnError>): RequestResult<EditAgentConfigsResponses, EditAgentConfigsErrors, ThrowOnError> => (options.client ?? client).post<EditAgentConfigsResponses, EditAgentConfigsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zEditAgentConfigsResponse2),

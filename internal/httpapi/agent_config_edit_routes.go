@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,17 +21,20 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	"golang.org/x/sync/errgroup"
 )
 
-const maxAgentConfigEditTargets = 500
+const (
+	maxAgentConfigEditTargets  = 500
+	agentConfigEditConcurrency = 4
+)
 
 type agentConfigEditRequest struct {
-	project        identitystore.ProjectRecord
-	principal      identitystore.PrincipalRecord
-	edits          []agentconfig.Edit
-	allowPartial   bool
-	rolloutKey     string
-	deleteMachines []executionstore.MachineRecord
+	project      identitystore.ProjectRecord
+	principal    identitystore.PrincipalRecord
+	edits        []agentconfig.Edit
+	allowPartial bool
+	rolloutKey   string
 }
 
 type agentConfigEditTarget struct {
@@ -62,24 +66,15 @@ func (s strictOpenAPIServer) EditAgentConfigs(
 	if request.Params.IdempotencyKey != nil && *request.Params.IdempotencyKey != "" {
 		edit.rolloutKey = shortHash(*request.Params.IdempotencyKey)
 	}
-	targets, err := s.agentConfigEditTargets(ctx, edit, body.Targets)
+	targets, err := s.resolveAgentConfigEditTargets(ctx, edit, body.Targets)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { s.server.startPoolMachineDeletion(ctx, edit.deleteMachines) }()
-	response := openapi.EditAgentConfigs200JSONResponse{Data: make([]openapi.AgentConfigEditResult, 0, len(targets))}
-	stopped := false
-	for _, target := range targets {
-		var result openapi.AgentConfigEditResult
-		if stopped {
-			result, _, err = agentConfigEditResult(target)
-			result.Status = openapi.AgentConfigEditResultStatusSkipped
-		} else {
-			result, err = s.editAgentConfigTarget(ctx, edit, target)
-		}
-		if err != nil {
-			return nil, err
-		}
+	results, err := s.editAgentConfigTargets(ctx, edit, targets, body.OnFailedEdit == openapi.OnFailedEditStop)
+	if err != nil {
+		return nil, err
+	}
+	for _, result := range results {
 		if result.Status != openapi.AgentConfigEditResultStatusUpdated && result.Edits != nil {
 			for i, outcome := range *result.Edits {
 				if outcome == openapi.AgentConfigEditResultEditsApplied {
@@ -87,14 +82,49 @@ func (s strictOpenAPIServer) EditAgentConfigs(
 				}
 			}
 		}
-		stopped = stopped || body.OnFailedEdit == openapi.OnFailedEditStop &&
-			result.Status == openapi.AgentConfigEditResultStatusFailed
-		response.Data = append(response.Data, result)
 	}
-	return response, nil
+	return openapi.EditAgentConfigs200JSONResponse{Data: results}, nil
 }
 
-func (s strictOpenAPIServer) agentConfigEditTargets(
+func (s strictOpenAPIServer) editAgentConfigTargets(
+	ctx context.Context,
+	edit *agentConfigEditRequest,
+	targets []agentConfigEditTarget,
+	stop bool,
+) ([]openapi.AgentConfigEditResult, error) {
+	results := make([]openapi.AgentConfigEditResult, len(targets))
+	if stop {
+		failed := false
+		for i, target := range targets {
+			var err error
+			if failed {
+				results[i], _, err = agentConfigEditResult(target)
+				results[i].Status = openapi.AgentConfigEditResultStatusSkipped
+			} else {
+				results[i], err = s.editAgentConfigTarget(ctx, edit, target)
+				failed = results[i].Status == openapi.AgentConfigEditResultStatusFailed
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		return results, nil
+	}
+	var group errgroup.Group
+	group.SetLimit(agentConfigEditConcurrency)
+	for i, target := range targets {
+		group.Go(func() (err error) {
+			results[i], err = s.editAgentConfigTarget(ctx, edit, target)
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func (s strictOpenAPIServer) resolveAgentConfigEditTargets(
 	ctx context.Context,
 	edit *agentConfigEditRequest,
 	input []openapi.AgentConfigEditTarget,
@@ -139,9 +169,7 @@ func (s strictOpenAPIServer) agentConfigEditTargets(
 			if !ok {
 				return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent_id")
 			}
-			if !slices.Contains(agents, id) {
-				agents = append(agents, id)
-			}
+			agents = append(agents, id)
 		default:
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid target")
 		}
@@ -153,25 +181,26 @@ func (s strictOpenAPIServer) agentConfigEditTargets(
 			listed = append(listed, id)
 		}
 	}
-	check, err := store.CheckAgentConfigEditTargets(ctx, edit.project.ID, listed, agents, profileKeys)
+	check, err := store.CheckAgentConfigEditTargets(ctx, edit.project.ID, listed, profileKeys)
 	if err != nil {
 		return nil, err
 	}
-	if check.Profiles != int64(len(listed)) || check.Agents != int64(len(agents)) {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	targets := make([]agentConfigEditTarget, 0, len(profiles)+len(agents))
-	for _, id := range profiles {
-		targets = append(targets, agentConfigEditTarget{profile: true, id: id})
+	targets := make([]agentConfigEditTarget, 0, len(listed)+len(agents))
+	for _, id := range listed {
+		if !slices.Contains(check.Profiles, id) || slices.Contains(profiles, id) {
+			targets = append(targets, agentConfigEditTarget{profile: true, id: id})
+		}
 	}
 	seen := make(map[uuid.UUID]bool, len(agents))
 	for _, id := range agents {
 		targets, seen[id] = append(targets, agentConfigEditTarget{id: id}), true
 	}
 	for _, profileID := range instances {
+		if !slices.Contains(check.Profiles, profileID) {
+			continue
+		}
 		ids, err := store.ListAgentConfigEditProfileAgentIDs(ctx, edit.project.ID, profileID,
-			executionstore.AgentConfigEditProfileAgentsWindow{CreatedBefore: check.Cutoff},
-			maxAgentConfigEditTargets-len(targets)+len(agents)+1)
+			executionstore.AgentConfigEditProfileAgentsWindow{CreatedBefore: check.Cutoff}, maxAgentConfigEditTargets+1)
 		if err != nil {
 			return nil, err
 		}
@@ -212,11 +241,17 @@ func (s strictOpenAPIServer) editAgentConfigTarget(
 	ctx context.Context,
 	edit *agentConfigEditRequest,
 	target agentConfigEditTarget,
-) (openapi.AgentConfigEditResult, error) {
+) (result openapi.AgentConfigEditResult, err error) {
 	result, id, err := agentConfigEditResult(target)
 	if err != nil {
 		return openapi.AgentConfigEditResult{}, err
 	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
+			result, err = agentConfigEditFailed(ctx, result, fmt.Errorf("panicked: %v", recovered))
+		}
+	}()
 	key := agentConfigEditKey(edit.rolloutKey, id)
 	if target.profile {
 		return s.editAgentProfileConfig(ctx, edit, target.id, key, result)
@@ -272,7 +307,6 @@ func (s strictOpenAPIServer) editAgentConfig(
 	if err != nil {
 		return agentConfigEditFailed(ctx, result, err)
 	}
-	edit.deleteMachines = append(edit.deleteMachines, change.DeleteMachines...)
 	if !change.Created {
 		result.Edits = nil
 		return agentConfigEditUpdated(result, change.AgentConfig.ID, change.AgentConfig.ID)

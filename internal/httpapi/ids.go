@@ -61,18 +61,3 @@ func idOrNil(kind publicid.Kind, id uuid.UUID) (*string, error) {
 	}
 	return &value, nil
 }
-
-func publicIDsFromParams(kind publicid.Kind, name string, values *[]string) ([]uuid.UUID, error) {
-	if values == nil {
-		return nil, nil
-	}
-	ids := make([]uuid.UUID, 0, len(*values))
-	for _, value := range *values {
-		id, ok := parseOpenAPIPublicID(kind, value)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid "+name)
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
-}

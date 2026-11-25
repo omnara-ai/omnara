@@ -11,12 +11,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"gopkg.in/yaml.v3"
 )
-
-var ErrInvalidEdit = errors.New("invalid agent config edit")
 
 const maxEditedSourceBytes = 1024 * 1024
 
@@ -37,7 +36,7 @@ type EditResult struct {
 func ApplyEdits(format SourceFormat, source string, edits []Edit) (EditResult, error) {
 	jsonSource, doc, err := sourceJSON(format, []byte(source))
 	if err != nil {
-		return EditResult{}, fmt.Errorf("%w: parse config source: %w", ErrInvalidEdit, err)
+		return EditResult{}, fmt.Errorf("parse config source: %w", err)
 	}
 	before, err := objectValue(jsonSource)
 	if err != nil {
@@ -64,7 +63,7 @@ func ApplyEdits(format SourceFormat, source string, edits []Edit) (EditResult, e
 		return EditResult{}, err
 	}
 	if len(encoded) > limit {
-		return EditResult{}, fmt.Errorf("%w: edited config would exceed %d bytes", ErrInvalidEdit, limit)
+		return EditResult{}, fmt.Errorf("edited config would exceed %d bytes", limit)
 	}
 	return EditResult{Source: encoded, Edits: outcomes, Changed: true}, nil
 }
@@ -72,7 +71,7 @@ func ApplyEdits(format SourceFormat, source string, edits []Edit) (EditResult, e
 func sourceValue(format SourceFormat, raw []byte) (map[string]any, error) {
 	jsonSource, _, err := sourceJSON(format, raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: parse config source: %w", ErrInvalidEdit, err)
+		return nil, fmt.Errorf("parse config source: %w", err)
 	}
 	return objectValue(jsonSource)
 }
@@ -80,11 +79,11 @@ func sourceValue(format SourceFormat, raw []byte) (map[string]any, error) {
 func objectValue(jsonSource []byte) (map[string]any, error) {
 	value, err := jsonValue(jsonSource)
 	if err != nil {
-		return nil, fmt.Errorf("%w: parse config source: %w", ErrInvalidEdit, err)
+		return nil, fmt.Errorf("parse config source: %w", err)
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("%w: config source must be an object", ErrInvalidEdit)
+		return nil, errors.New("config source must be an object")
 	}
 	return root, nil
 }
@@ -155,7 +154,7 @@ func apply(root map[string]any, edit Edit, limit int) (string, error) {
 	case "add_item", "remove_item":
 		updated, outcome, err = editItems(target, edit)
 	default:
-		return "", fmt.Errorf("%w: unknown edit type %q", ErrInvalidEdit, edit.Type)
+		return "", fmt.Errorf("unknown edit type %q", edit.Type)
 	}
 	if err == nil && outcome == "applied" {
 		setChild(parent, key, updated)
@@ -186,17 +185,17 @@ func remove(path []any, keys []string) string {
 func replaceText(root map[string]any, target any, edit Edit, limit int) (any, string, error) {
 	text, ok := target.(string)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: %s is not text", ErrInvalidEdit, edit.Path)
+		return nil, "", fmt.Errorf("%s is not text", edit.Path)
 	}
 	if edit.Find == "" {
-		return nil, "", fmt.Errorf("%w: find is required", ErrInvalidEdit)
+		return nil, "", errors.New("find is required")
 	}
 	count := strings.Count(text, edit.Find)
 	if count == 0 {
 		return nil, "text_not_found", nil
 	}
 	if growth := count * (len(edit.Replace) - len(edit.Find)); growth > 0 && textSize(root)+growth > limit {
-		return nil, "", fmt.Errorf("%w: edited config would exceed %d bytes", ErrInvalidEdit, limit)
+		return nil, "", fmt.Errorf("edited config would exceed %d bytes", limit)
 	}
 	if replaced := strings.ReplaceAll(text, edit.Find, edit.Replace); replaced != text {
 		return replaced, "applied", nil
@@ -224,7 +223,7 @@ func textSize(value any) int {
 func editItems(target any, edit Edit) (any, string, error) {
 	list, ok := target.([]any)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: %s is not a list", ErrInvalidEdit, edit.Path)
+		return nil, "", fmt.Errorf("%s is not a list", edit.Path)
 	}
 	value, err := editValue(edit.Value)
 	if err != nil {
@@ -251,22 +250,39 @@ func editValue(raw json.RawMessage) (any, error) {
 			return value, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: invalid value: %w", ErrInvalidEdit, err)
+	return nil, fmt.Errorf("invalid value: %w", err)
 }
 
 func parsePointer(path string) ([]string, error) {
 	pointer := jsontext.Pointer(path)
 	if path == "" || path == "/" || !pointer.IsValid() {
-		return nil, fmt.Errorf("%w: path must be a JSON Pointer such as /instruction", ErrInvalidEdit)
+		return nil, errors.New("path must be a JSON Pointer such as /instruction")
 	}
 	return slices.Collect(pointer.Tokens()), nil
 }
+
+var objectSections = sync.OnceValue(func() map[string]bool {
+	sections := map[string]bool{}
+	source := reflect.TypeFor[AgentConfigSource]()
+	for i := range source.NumField() {
+		field := source.Field(i)
+		kind := field.Type.Kind()
+		if kind == reflect.Pointer {
+			kind = field.Type.Elem().Kind()
+		}
+		if kind == reflect.Map || kind == reflect.Struct {
+			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+			sections[name] = true
+		}
+	}
+	return sections
+})
 
 func walk(root map[string]any, keys []string, createSection bool) ([]any, bool) {
 	path := []any{root}
 	for _, key := range keys {
 		next, found := child(path[len(path)-1], key)
-		if !found && createSection && len(path) == 1 && len(keys) == 1 {
+		if !found && createSection && len(path) == 1 && len(keys) == 1 && objectSections()[key] {
 			next, found = map[string]any{}, true
 			root[key] = next
 		}
@@ -317,7 +333,7 @@ func encodeEdited(format SourceFormat, raw []byte, doc *yaml.Node, before, after
 		encoder := json.NewEncoder(&out)
 		encoder.SetEscapeHTML(false)
 		if err := encoder.Encode(after); err != nil {
-			return "", fmt.Errorf("%w: %w", ErrInvalidEdit, err)
+			return "", err
 		}
 		return strings.TrimSuffix(out.String(), "\n"), nil
 	}
@@ -329,7 +345,7 @@ func encodeEdited(format SourceFormat, raw []byte, doc *yaml.Node, before, after
 			return canonical, nil
 		}
 	}
-	return "", fmt.Errorf("%w: the edited config can't be written as YAML", ErrInvalidEdit)
+	return "", errors.New("the edited config can't be written as YAML")
 }
 
 func writesValue(source string, want map[string]any) bool {

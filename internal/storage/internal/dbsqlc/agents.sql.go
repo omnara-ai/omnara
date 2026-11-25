@@ -198,43 +198,33 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 
 const checkAgentConfigEditTargets = `-- name: CheckAgentConfigEditTargets :one
 SELECT
-    (SELECT count(*) FROM agent_profiles profile
+    ARRAY(SELECT profile.id FROM agent_profiles profile
      WHERE profile.project_id = $1
        AND profile.deleted_at IS NULL
-       AND profile.id = ANY($2::uuid[]))::bigint AS profiles,
-    (SELECT count(*) FROM agents agent
-     WHERE agent.project_id = $1
-       AND agent.id = ANY($3::uuid[]))::bigint AS agents,
+       AND profile.id = ANY($2::uuid[]))::uuid[] AS profiles,
     least(statement_timestamp(), (
         SELECT min(version.created_at) FROM agent_profile_versions version
         WHERE version.project_id = $1
           AND version.profile_id = ANY($2::uuid[])
-          AND version.idempotency_key = ANY($4::text[])
+          AND version.idempotency_key = ANY($3::text[])
     ))::timestamptz AS cutoff
 `
 
 type CheckAgentConfigEditTargetsParams struct {
 	ProjectID   uuid.UUID
 	ProfileIds  []uuid.UUID
-	AgentIds    []uuid.UUID
 	ProfileKeys []string
 }
 
 type CheckAgentConfigEditTargetsRow struct {
-	Profiles int64
-	Agents   int64
+	Profiles []uuid.UUID
 	Cutoff   time.Time
 }
 
 func (q *Queries) CheckAgentConfigEditTargets(ctx context.Context, arg CheckAgentConfigEditTargetsParams) (CheckAgentConfigEditTargetsRow, error) {
-	row := q.db.QueryRow(ctx, checkAgentConfigEditTargets,
-		arg.ProjectID,
-		arg.ProfileIds,
-		arg.AgentIds,
-		arg.ProfileKeys,
-	)
+	row := q.db.QueryRow(ctx, checkAgentConfigEditTargets, arg.ProjectID, arg.ProfileIds, arg.ProfileKeys)
 	var i CheckAgentConfigEditTargetsRow
-	err := row.Scan(&i.Profiles, &i.Agents, &i.Cutoff)
+	err := row.Scan(&i.Profiles, &i.Cutoff)
 	return i, err
 }
 

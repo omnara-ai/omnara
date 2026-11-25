@@ -515,13 +515,10 @@ LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: CheckAgentConfigEditTargets :one
 SELECT
-    (SELECT count(*) FROM agent_profiles profile
+    ARRAY(SELECT profile.id FROM agent_profiles profile
      WHERE profile.project_id = sqlc.arg(project_id)
        AND profile.deleted_at IS NULL
-       AND profile.id = ANY(sqlc.arg(profile_ids)::uuid[]))::bigint AS profiles,
-    (SELECT count(*) FROM agents agent
-     WHERE agent.project_id = sqlc.arg(project_id)
-       AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]))::bigint AS agents,
+       AND profile.id = ANY(sqlc.arg(profile_ids)::uuid[]))::uuid[] AS profiles,
     least(statement_timestamp(), (
         SELECT min(version.created_at) FROM agent_profile_versions version
         WHERE version.project_id = sqlc.arg(project_id)
