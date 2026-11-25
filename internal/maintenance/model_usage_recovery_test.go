@@ -30,6 +30,7 @@ type usageRecoveryHarness struct {
 	logs     *bytes.Buffer
 	now      time.Time
 	due      []executionstore.ModelUsageRecovery
+	more     bool
 	listErr  error
 	writeErr error
 	lookups  map[string]func() (model.GenerationUsage, error)
@@ -47,9 +48,9 @@ func newUsageRecoveryHarness() *usageRecoveryHarness {
 	h.recovery = &modelUsageRecovery{
 		log: slog.New(slog.NewTextHandler(h.logs, nil)),
 		list: func(
-			context.Context, executionstore.ModelUsageRecoveryCursor, time.Duration, []time.Duration,
-		) ([]executionstore.ModelUsageRecovery, executionstore.ModelUsageRecoveryCursor, error) {
-			return h.due, executionstore.ModelUsageRecoveryCursor{}, h.listErr
+			context.Context, executionstore.ModelUsageRecoveryCursor, time.Duration, int32, []time.Duration,
+		) ([]executionstore.ModelUsageRecovery, executionstore.ModelUsageRecoveryCursor, bool, error) {
+			return h.due, executionstore.ModelUsageRecoveryCursor{}, h.more, h.listErr
 		},
 		lookupUsage: func(
 			_ context.Context, orgID, providerConfigID uuid.UUID, generationID string,
@@ -116,7 +117,9 @@ func TestModelUsageRecoveryOutcomes(t *testing.T) {
 	h.due = []executionstore.ModelUsageRecovery{
 		costed, h.call(provider, "missing", false), h.call(provider, "missing", true),
 	}
-	require.Equal(t, maintenanceResult{worked: true}, h.run())
+	h.more = true
+	require.Equal(t, maintenanceResult{worked: true, more: true}, h.run(), "a full page asks to run again")
+	h.more = false
 	require.Equal(t, []executionstore.RecordRecoveredModelCallUsageInput{{
 		ProjectID: costed.ProjectID, AgentID: costed.AgentID, ModelCallContextID: costed.ModelCallContextID,
 		ProviderResponseID: "costed", Usage: usage, ProviderReportedCostUSD: "0.01",

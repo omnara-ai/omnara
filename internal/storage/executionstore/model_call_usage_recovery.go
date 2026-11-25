@@ -21,7 +21,8 @@ type RecordRecoveredModelCallUsageInput struct {
 }
 
 type ModelUsageRecoveryCursor struct {
-	until time.Time
+	dueAt time.Time
+	id    uuid.UUID
 }
 
 type ModelUsageRecovery struct {
@@ -82,25 +83,25 @@ func (s *Store) ListModelUsageRecoveries(
 	ctx context.Context,
 	after ModelUsageRecoveryCursor,
 	lookback time.Duration,
+	limit int32,
 	schedule []time.Duration,
-) ([]ModelUsageRecovery, ModelUsageRecoveryCursor, error) {
+) ([]ModelUsageRecovery, ModelUsageRecoveryCursor, bool, error) {
 	until, err := s.q.ReadModelUsageRecoveryClock(ctx)
 	if err != nil {
-		return nil, after, err
+		return nil, after, false, err
 	}
-	since := after.until
-	if since.IsZero() {
-		since = until.Add(-lookback)
+	if after.dueAt.IsZero() {
+		after.dueAt = until.Add(-lookback)
 	}
 	delays := make([]int64, len(schedule))
 	for i, delay := range schedule {
 		delays[i] = delay.Microseconds()
 	}
 	rows, err := s.q.ListModelUsageRecoveries(ctx, dbsqlc.ListModelUsageRecoveriesParams{
-		Until: until, After: since, DelayMicroseconds: delays,
+		AfterDueAt: after.dueAt, AfterID: after.id, Until: until, LimitCount: limit, DelayMicroseconds: delays,
 	})
 	if err != nil {
-		return nil, after, err
+		return nil, after, false, err
 	}
 	recoveries := make([]ModelUsageRecovery, len(rows))
 	for i, row := range rows {
@@ -114,5 +115,9 @@ func (s *Store) ListModelUsageRecoveries(
 			Final:                 row.Final,
 		}
 	}
-	return recoveries, ModelUsageRecoveryCursor{until: until}, nil
+	if len(rows) < int(limit) {
+		return recoveries, ModelUsageRecoveryCursor{dueAt: until, id: uuid.Max}, false, nil
+	}
+	last := rows[len(rows)-1]
+	return recoveries, ModelUsageRecoveryCursor{dueAt: last.DueAt, id: last.ID}, true, nil
 }

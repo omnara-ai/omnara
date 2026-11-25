@@ -21,6 +21,7 @@ import (
 const (
 	modelUsageRecoveryJob         = "recover_model_usage"
 	modelUsageRecoveryLookback    = time.Hour
+	modelUsageRecoveryBatch       = 64
 	modelUsageRecoveryConcurrency = 16
 	modelUsageRecoveryCooldown    = time.Minute
 )
@@ -36,8 +37,12 @@ var errModelUsageCoolingDown = errors.New("model provider credential is rate lim
 type modelUsageRecovery struct {
 	log  *slog.Logger
 	list func(
-		context.Context, executionstore.ModelUsageRecoveryCursor, time.Duration, []time.Duration,
-	) ([]executionstore.ModelUsageRecovery, executionstore.ModelUsageRecoveryCursor, error)
+		ctx context.Context,
+		after executionstore.ModelUsageRecoveryCursor,
+		lookback time.Duration,
+		limit int32,
+		schedule []time.Duration,
+	) ([]executionstore.ModelUsageRecovery, executionstore.ModelUsageRecoveryCursor, bool, error)
 	lookupUsage func(
 		ctx context.Context, orgID, providerConfigID uuid.UUID, generationID string,
 	) (model.GenerationUsage, error)
@@ -55,7 +60,9 @@ func recoverModelUsage(recovery *modelUsageRecovery) func(context.Context) maint
 }
 
 func (r *modelUsageRecovery) run(ctx context.Context) maintenanceResult {
-	due, next, err := r.list(ctx, r.cursor, modelUsageRecoveryLookback, modelUsageRecoverySchedule)
+	due, next, more, err := r.list(
+		ctx, r.cursor, modelUsageRecoveryLookback, modelUsageRecoveryBatch, modelUsageRecoverySchedule,
+	)
 	if err != nil {
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
@@ -85,7 +92,7 @@ func (r *modelUsageRecovery) run(ctx context.Context) maintenanceResult {
 	if outcome.err != nil {
 		r.log.Error("recover model usage", "error", outcome.err)
 	}
-	return maintenanceResult{worked: recovered, err: outcome.err}
+	return maintenanceResult{worked: recovered, more: more, err: outcome.err}
 }
 
 func (r *modelUsageRecovery) recoverCall(

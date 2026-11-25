@@ -198,7 +198,7 @@ WHERE id = $1`, claim.Context.ID, ago.Microseconds())
 		[]executionstore.ModelUsageRecovery, executionstore.ModelUsageRecoveryCursor,
 	) {
 		t.Helper()
-		due, next, err := execution.ListModelUsageRecoveries(ctx, after, lookback, schedule)
+		due, next, _, err := execution.ListModelUsageRecoveries(ctx, after, lookback, 10, schedule)
 		require.NoError(t, err)
 		return due, next
 	}
@@ -240,6 +240,44 @@ WHERE id = $1`, claim.Context.ID, ago.Microseconds())
 	require.True(t, recorded)
 	due, _ = list(start, 10*time.Second)
 	require.Empty(t, due, "a call with a cost leaves the sweep")
+}
+
+func TestListModelUsageRecoveriesPagesThroughEveryDueCall(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "generation_pages")
+	recordGeneration(t, ctx, fixture, claim.Context.ID, "gen-0")
+	cancelAgent(t, ctx, fixture)
+	_, err := fixture.Store.pool.Exec(ctx,
+		`ALTER TABLE model_call_contexts DISABLE TRIGGER model_call_contexts_transition_guard`)
+	require.NoError(t, err)
+	_, err = fixture.Store.pool.Exec(ctx, `
+INSERT INTO model_call_contexts
+SELECT (jsonb_populate_record(c, jsonb_build_object(
+  'id', gen_random_uuid(), 'attempt_number', c.attempt_number + g, 'provider_response_id', 'gen-' || g))).*
+FROM model_call_contexts c, generate_series(1, 4) g WHERE c.id = $1`, claim.Context.ID)
+	require.NoError(t, err)
+	_, err = fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts SET created_at = statement_timestamp() - interval '1 minute',
+  completed_at = statement_timestamp() - interval '20 seconds'
+    - substr(provider_response_id, 5)::int * interval '1 second'
+WHERE agent_id = $1`, fixture.AgentID)
+	require.NoError(t, err)
+	schedule := []time.Duration{15 * time.Second, 30 * time.Second, 24 * time.Hour}
+	var cursor executionstore.ModelUsageRecoveryCursor
+	var pages [][]string
+	for more := true; more && len(pages) < 10; {
+		var due []executionstore.ModelUsageRecovery
+		due, cursor, more, err = fixture.Store.Execution().ListModelUsageRecoveries(ctx, cursor, time.Minute, 2, schedule)
+		require.NoError(t, err)
+		var generations []string
+		for _, call := range due {
+			generations = append(generations, call.GenerationID)
+		}
+		pages = append(pages, generations)
+	}
+	require.Equal(t, [][]string{{"gen-4", "gen-3"}, {"gen-2", "gen-1"}, {"gen-0"}}, pages,
+		"pages list every due call once, oldest due first, and stop at the clock")
 }
 
 func recordGeneration(

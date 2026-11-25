@@ -219,31 +219,49 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 const listModelUsageRecoveries = `-- name: ListModelUsageRecoveries :many
 WITH schedule AS (
   SELECT delay.microseconds * interval '1 microsecond' AS delay,
-    max(delay.microseconds) OVER () * interval '1 microsecond' AS last_delay
+    lead(delay.microseconds) OVER (ORDER BY delay.microseconds) * interval '1 microsecond' AS next_delay
   FROM unnest($3::bigint[]) AS delay(microseconds)
+), bounds AS (
+  SELECT schedule.delay, schedule.next_delay,
+    greatest($4::timestamptz - schedule.delay,
+      $1::timestamptz - schedule.next_delay) AS start_at,
+    CASE WHEN $1::timestamptz - schedule.next_delay
+        >= $4::timestamptz - schedule.delay
+      THEN 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
+      ELSE $5::uuid END AS start_id
+  FROM schedule
 )
-SELECT context.org_id, context.project_id, context.agent_id, context.id,
-  context.provider_response_id, revision.model_provider_config_id,
-  bool_or(schedule.delay = schedule.last_delay)::boolean AS final
-FROM schedule
-JOIN model_call_contexts context ON context.completed_at > $1::timestamptz - schedule.delay
-  AND context.completed_at <= $2::timestamptz - schedule.delay
-JOIN configured_model_revisions revision ON revision.org_id = context.org_id
-  AND revision.id = context.configured_model_revision_id
-WHERE context.state IN ('failed', 'canceled')
-  AND context.api_variant = 'openrouter'
-  AND context.provider_response_id <> ''
-  AND context.provider_reported_cost_usd IS NULL
-  AND context.input_tokens_total IS NULL
-  AND context.output_tokens_total IS NULL
-GROUP BY context.id, revision.model_provider_config_id
-ORDER BY context.completed_at, context.id
+SELECT due.org_id, due.project_id, due.agent_id, due.id, due.provider_response_id,
+  revision.model_provider_config_id, due.due_at::timestamptz AS due_at,
+  (bounds.next_delay IS NULL)::boolean AS final
+FROM bounds
+CROSS JOIN LATERAL (
+  SELECT context.org_id, context.project_id, context.agent_id, context.id, context.provider_response_id,
+    context.configured_model_revision_id, context.completed_at + bounds.delay AS due_at
+  FROM model_call_contexts context
+  WHERE context.state IN ('failed', 'canceled')
+    AND context.api_variant = 'openrouter'
+    AND context.provider_response_id <> ''
+    AND context.provider_reported_cost_usd IS NULL
+    AND context.input_tokens_total IS NULL
+    AND context.output_tokens_total IS NULL
+    AND (context.completed_at, context.id) > (bounds.start_at, bounds.start_id)
+    AND context.completed_at <= $1::timestamptz - bounds.delay
+  ORDER BY context.completed_at, context.id
+  LIMIT $2
+) due
+JOIN configured_model_revisions revision ON revision.org_id = due.org_id
+  AND revision.id = due.configured_model_revision_id
+ORDER BY due.due_at, due.id
+LIMIT $2
 `
 
 type ListModelUsageRecoveriesParams struct {
-	After             time.Time
 	Until             time.Time
+	LimitCount        int32
 	DelayMicroseconds []int64
+	AfterDueAt        time.Time
+	AfterID           uuid.UUID
 }
 
 type ListModelUsageRecoveriesRow struct {
@@ -253,11 +271,18 @@ type ListModelUsageRecoveriesRow struct {
 	ID                    uuid.UUID
 	ProviderResponseID    string
 	ModelProviderConfigID uuid.UUID
+	DueAt                 time.Time
 	Final                 bool
 }
 
 func (q *Queries) ListModelUsageRecoveries(ctx context.Context, arg ListModelUsageRecoveriesParams) ([]ListModelUsageRecoveriesRow, error) {
-	rows, err := q.db.Query(ctx, listModelUsageRecoveries, arg.After, arg.Until, arg.DelayMicroseconds)
+	rows, err := q.db.Query(ctx, listModelUsageRecoveries,
+		arg.Until,
+		arg.LimitCount,
+		arg.DelayMicroseconds,
+		arg.AfterDueAt,
+		arg.AfterID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +297,7 @@ func (q *Queries) ListModelUsageRecoveries(ctx context.Context, arg ListModelUsa
 			&i.ID,
 			&i.ProviderResponseID,
 			&i.ModelProviderConfigID,
+			&i.DueAt,
 			&i.Final,
 		); err != nil {
 			return nil, err

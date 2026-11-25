@@ -126,7 +126,7 @@ func Run(ctx context.Context, options Options) {
 	}
 	if options.ModelResolver != nil {
 		jobs = append(jobs, maintenanceJob{
-			modelUsageRecoveryJob, interval, interval, recoverModelUsage(&modelUsageRecovery{
+			modelUsageRecoveryJob, interval, 0, recoverModelUsage(&modelUsageRecovery{
 				log: log, list: execution.ListModelUsageRecoveries, lookupUsage: options.ModelResolver.LookupGenerationUsage,
 				record: execution.RecordRecoveredModelCallUsage, now: time.Now,
 			}),
