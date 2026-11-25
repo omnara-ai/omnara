@@ -1,6 +1,7 @@
 package openaichatcompletions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,8 @@ type openRouterGeneration struct {
 	TotalCost              json.RawMessage `json:"total_cost"`
 	UpstreamInferenceCost  json.RawMessage `json:"upstream_inference_cost"`
 	IsBYOK                 json.RawMessage `json:"is_byok"`
+	Canceled               json.RawMessage `json:"cancelled"`
+	CacheDiscount          json.RawMessage `json:"cache_discount"`
 	NativeTokensPrompt     lenientCount    `json:"native_tokens_prompt"`
 	NativeTokensCached     lenientCount    `json:"native_tokens_cached"`
 	NativeTokensCompletion lenientCount    `json:"native_tokens_completion"`
@@ -107,7 +110,6 @@ func (g openRouterGeneration) usage() (model.GenerationUsage, error) {
 	}
 	tokens := model.Usage{
 		InputTokens:     g.NativeTokensPrompt.count,
-		CacheReadTokens: g.NativeTokensCached.count,
 		OutputTokens:    g.NativeTokensCompletion.count,
 		ReasoningTokens: g.NativeTokensReasoning.count,
 		Incomplete:      !g.NativeTokensPrompt.valid || !g.NativeTokensCompletion.valid,
@@ -115,7 +117,17 @@ func (g openRouterGeneration) usage() (model.GenerationUsage, error) {
 	if tokens.ReasoningTokens > tokens.OutputTokens {
 		tokens.ReasoningTokens = 0
 	}
+	if g.inputSplitUnknown() {
+		tokens = model.Usage{OutputTokens: tokens.OutputTokens, ReasoningTokens: tokens.ReasoningTokens, Incomplete: true}
+	}
 	return model.GenerationUsage{Usage: modelenvelope.NormalizeUsage(tokens), ProviderReportedCostUSD: cost}, nil
+}
+
+func (g openRouterGeneration) inputSplitUnknown() bool {
+	canceled, valid := optionalProviderBool(g.Canceled)
+	return !valid || canceled == nil || !*canceled ||
+		!bytes.Equal(bytes.TrimSpace(g.CacheDiscount), []byte("null")) ||
+		!g.NativeTokensCached.valid || g.NativeTokensCached.count != 0
 }
 
 func (g openRouterGeneration) cost() modelenvelope.ProviderReportedCostUSD {

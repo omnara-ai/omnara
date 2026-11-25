@@ -183,9 +183,6 @@ func (h *Handle) RecordRecoveredUsage(ctx context.Context, contextID uuid.UUID, 
 	}
 	evidence.APIFormat = modelprotocol.APIFormat(row.ApiFormat)
 	evidence.APIVariant = modelprotocol.APIVariant(row.ApiVariant)
-	if row.Pricing != nil && row.Pricing.CacheWrite != "" && row.Pricing.CacheWrite != row.Pricing.Input {
-		evidence.Usage.Incomplete = true
-	}
 	effectiveCost, effectiveCostKind := h.effectiveCost(ctx, row, evidence)
 	n, err := q.WriteExecutionRecoveredUsage(ctx, h.unit.DB(), executiondb.WriteExecutionRecoveredUsageParams{
 		Cost:              storeutil.TextFromEmpty(string(evidence.Cost)),

@@ -183,6 +183,9 @@ linters:
       - linters:
           - lll
         source: '^\s*\)\.[A-Za-z]'
+      - linters:
+          - misspell
+        source: '"cancelled"'
       - path: (internal/storage/internal/dbsqlc/|internal/storage/internal/agentexecution/internal/executiondb/|internal/machinedaemon/statedb/internal/dbsqlc/)
         linters:
           - errcheck

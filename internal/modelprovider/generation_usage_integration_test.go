@@ -47,8 +47,8 @@ func TestLookupGenerationUsageNeedsNoProjectGrant(t *testing.T) {
 			request.Header.Get("Authorization") != "Bearer test-key" {
 			t.Errorf("unexpected lookup: %s %s", request.Method, request.URL)
 		}
-		_, _ = w.Write([]byte(`{"data":{"total_cost":0.01,"is_byok":false,` +
-			`"native_tokens_prompt":10,"native_tokens_completion":0}}`))
+		_, _ = w.Write([]byte(`{"data":{"total_cost":0.01,"is_byok":false,"cancelled":true,"cache_discount":null,` +
+			`"native_tokens_prompt":10,"native_tokens_cached":0,"native_tokens_completion":0}}`))
 	}))
 	t.Cleanup(server.Close)
 	resolver := Resolver{Models: store.Models(), Secrets: store.Secrets(), HTTPTransport: NewHTTPTransport(true, nil)}

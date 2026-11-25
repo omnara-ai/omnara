@@ -22,24 +22,75 @@ func TestOpenRouterGenerationUsageLookup(t *testing.T) {
 		wantKind      modelprotocol.ErrorKind
 	}{
 		{
-			name:   "canceled generation reports billed usage",
+			name:   "canceled generation without cache usage keeps its input split",
 			status: http.StatusOK,
-			body: `{"data":{"id":"gen-1","total_cost":0.012806,"is_byok":false,
+			body: `{"data":{"id":"gen-1","total_cost":0.012806,"is_byok":false,"cancelled":true,"cache_discount":null,
 				"model":"openai/gpt-4o-mini-2024-07-18","service_tier":"flex",
-				"native_tokens_prompt":5253,"native_tokens_cached":1000,
+				"native_tokens_prompt":5253,"native_tokens_cached":0,
 				"native_tokens_completion":257,"native_tokens_reasoning":111}}`,
 			want: model.GenerationUsage{
 				Usage: modelenvelope.Usage{
-					InputTokens: 5253, UncachedInputTokens: 4253, CacheReadTokens: 1000,
-					OutputTokens: 257, ReasoningTokens: 111,
+					InputTokens: 5253, UncachedInputTokens: 5253, OutputTokens: 257, ReasoningTokens: 111,
 				},
 				ProviderReportedCostUSD: "0.012806",
 			},
 		},
 		{
+			name:   "a generation that finished upstream leaves the input split unknown",
+			status: http.StatusOK,
+			body: `{"data":{"total_cost":0.0042,"is_byok":false,"cancelled":false,"cache_discount":null,
+				"native_tokens_prompt":58,"native_tokens_cached":0,"native_tokens_completion":10}}`,
+			want: model.GenerationUsage{
+				Usage:                   modelenvelope.Usage{OutputTokens: 10, Incomplete: true},
+				ProviderReportedCostUSD: "0.0042",
+			},
+		},
+		{
+			name:   "a cache discount, even zero, leaves the input split unknown",
+			status: http.StatusOK,
+			body: `{"data":{"total_cost":0.0155,"is_byok":false,"cancelled":true,"cache_discount":0,
+				"native_tokens_prompt":5000,"native_tokens_cached":0,"native_tokens_completion":100}}`,
+			want: model.GenerationUsage{
+				Usage:                   modelenvelope.Usage{OutputTokens: 100, Incomplete: true},
+				ProviderReportedCostUSD: "0.0155",
+			},
+		},
+		{
+			name:   "a missing cache discount leaves the input split unknown",
+			status: http.StatusOK,
+			body: `{"data":{"total_cost":0.0042,"is_byok":false,"cancelled":true,
+				"native_tokens_prompt":58,"native_tokens_cached":0,"native_tokens_completion":10}}`,
+			want: model.GenerationUsage{
+				Usage:                   modelenvelope.Usage{OutputTokens: 10, Incomplete: true},
+				ProviderReportedCostUSD: "0.0042",
+			},
+		},
+		{
+			name:   "reported cached tokens leave the input split unknown",
+			status: http.StatusOK,
+			body: `{"data":{"total_cost":0.012806,"is_byok":false,"cancelled":true,"cache_discount":null,
+				"native_tokens_prompt":5253,"native_tokens_cached":1000,
+				"native_tokens_completion":257,"native_tokens_reasoning":111}}`,
+			want: model.GenerationUsage{
+				Usage:                   modelenvelope.Usage{OutputTokens: 257, ReasoningTokens: 111, Incomplete: true},
+				ProviderReportedCostUSD: "0.012806",
+			},
+		},
+		{
+			name:   "a missing cached-token count leaves the input split unknown",
+			status: http.StatusOK,
+			body: `{"data":{"total_cost":0.0042,"is_byok":false,"cancelled":true,"cache_discount":null,
+				"native_tokens_prompt":58,"native_tokens_cached":null,"native_tokens_completion":10}}`,
+			want: model.GenerationUsage{
+				Usage:                   modelenvelope.Usage{OutputTokens: 10, Incomplete: true},
+				ProviderReportedCostUSD: "0.0042",
+			},
+		},
+		{
 			name:   "explicit zero cost is final",
 			status: http.StatusOK,
-			body: `{"data":{"total_cost":0,"is_byok":false,"service_tier":"default","native_tokens_prompt":58,
+			body: `{"data":{"total_cost":0,"is_byok":false,"cancelled":true,"cache_discount":null,"service_tier":"default",
+				"native_tokens_prompt":58,
 				"native_tokens_completion":0,"native_tokens_reasoning":0,"native_tokens_cached":0}}`,
 			want: model.GenerationUsage{
 				Usage:                   modelenvelope.Usage{InputTokens: 58, UncachedInputTokens: 58},
@@ -49,8 +100,8 @@ func TestOpenRouterGenerationUsageLookup(t *testing.T) {
 		{
 			name:   "BYOK generation adds the provider charge to the OpenRouter fee",
 			status: http.StatusOK,
-			body: `{"data":{"total_cost":0.0011,"is_byok":true,"upstream_inference_cost":0.02228638,
-				"native_tokens_prompt":58,"native_tokens_completion":10}}`,
+			body: `{"data":{"total_cost":0.0011,"is_byok":true,"upstream_inference_cost":0.02228638,"cancelled":true,
+				"cache_discount":null,"native_tokens_prompt":58,"native_tokens_cached":0,"native_tokens_completion":10}}`,
 			want: model.GenerationUsage{
 				Usage:                   modelenvelope.Usage{InputTokens: 58, UncachedInputTokens: 58, OutputTokens: 10},
 				ProviderReportedCostUSD: "0.02338638",
@@ -59,8 +110,8 @@ func TestOpenRouterGenerationUsageLookup(t *testing.T) {
 		{
 			name:   "BYOK generation with a waived fee costs the provider charge",
 			status: http.StatusOK,
-			body: `{"data":{"total_cost":0,"is_byok":true,"upstream_inference_cost":0.02228638,
-				"native_tokens_prompt":58,"native_tokens_completion":0}}`,
+			body: `{"data":{"total_cost":0,"is_byok":true,"upstream_inference_cost":0.02228638,"cancelled":true,
+				"cache_discount":null,"native_tokens_prompt":58,"native_tokens_cached":0,"native_tokens_completion":0}}`,
 			want: model.GenerationUsage{
 				Usage:                   modelenvelope.Usage{InputTokens: 58, UncachedInputTokens: 58},
 				ProviderReportedCostUSD: "0.02228638",
@@ -69,7 +120,8 @@ func TestOpenRouterGenerationUsageLookup(t *testing.T) {
 		{
 			name:   "a missing token total marks usage incomplete",
 			status: http.StatusOK,
-			body:   `{"data":{"total_cost":0.0042,"is_byok":false,"native_tokens_prompt":58,"native_tokens_completion":null}}`,
+			body: `{"data":{"total_cost":0.0042,"is_byok":false,"cancelled":true,"cache_discount":null,"native_tokens_prompt":58,
+				"native_tokens_cached":0,"native_tokens_completion":null}}`,
 			want: model.GenerationUsage{
 				Usage:                   modelenvelope.Usage{InputTokens: 58, UncachedInputTokens: 58, Incomplete: true},
 				ProviderReportedCostUSD: "0.0042",
