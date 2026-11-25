@@ -153,7 +153,10 @@ test('creates a personal assistant and keeps its conversation across organizatio
   // A short viewport puts the last action of a scrolling page or pane at its scroll end.
   await page.setViewportSize({ width: desktop.width, height: 360 })
   await page.goto(`/projects/${projectID}/agents/${created.agent_id}/events`)
-  const addSchedule = page.getByRole('button', { name: 'Add', exact: true })
+  const addSchedule = page
+    .locator('[data-slot="sidebar-group"]')
+    .filter({ has: page.getByText('Schedules', { exact: true }) })
+    .getByRole('button', { name: 'Add', exact: true })
   await expectClearOfAssistantLauncher(page, addSchedule, [768, desktop.width])
   await page.setViewportSize({ width: desktop.width, height: 200 })
   await page.goto('/user/api-tokens')
