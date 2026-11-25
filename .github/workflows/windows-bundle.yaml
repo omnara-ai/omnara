@@ -11,9 +11,6 @@ jobs:
     name: Windows Release Bundle
     runs-on: windows-2022
     timeout-minutes: 30
-    defaults:
-      run:
-        shell: powershell
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,11 +34,13 @@ jobs:
       - run: corepack enable
 
       - name: Build native executables and embedded dashboard
+        shell: powershell
         run: .\deploy\windows\Build-Windows.ps1 -OutputDirectory "$env:RUNNER_TEMP\omnara-windows-bundle\bin"
 
       - name: Package and verify download
+        # Current .NET writes portable ZIP paths; Windows PowerShell uses legacy backslashes.
+        shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
           $bundle = Join-Path $env:RUNNER_TEMP 'omnara-windows-bundle'
           $setup = Join-Path $bundle 'deploy\windows'
           New-Item -ItemType Directory -Path $setup | Out-Null
@@ -60,6 +59,10 @@ jobs:
           $archive = Join-Path $release 'omnara-windows-amd64.zip'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [IO.Compression.ZipFile]::CreateFromDirectory($bundle, $archive)
+          $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            if ($zip.Entries.FullName -match '\\') { throw 'ZIP paths must use forward slashes' }
+          } finally { $zip.Dispose() }
           $unpacked = Join-Path $env:RUNNER_TEMP 'omnara-windows-unpacked'
           [IO.Compression.ZipFile]::ExtractToDirectory($archive, $unpacked)
           foreach ($file in Get-ChildItem -LiteralPath $bundle -Recurse -File) {

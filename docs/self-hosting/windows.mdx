@@ -24,7 +24,7 @@ Set-Location C:\Omnara
 
 The bundle contains `bin` with all five executables, the embedded dashboard, migrations and MCP registry; `deploy/windows` with setup scripts; `WINDOWS-SETUP.mdx` with these instructions; and `SOURCE.txt` identifying the source commit. Go, Node, and a source checkout are not needed. These unsigned POC builds use the fresh-install steps below; the installers do not upgrade existing services.
 
-Before a tagged release, download the `omnara-windows-amd64-bundle` artifact from a successful [CI run](https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml). GitHub login is required and these artifacts expire after 14 days. Extract the artifact download to obtain the same ZIP and checksum pair, then follow the commands above. Release assets remain available independently of CI artifact retention.
+For builds ahead of a tagged release, download the `omnara-windows-amd64-bundle` artifact from a successful [push-to-main CI run](https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml?query=branch%3Amain+event%3Apush). GitHub login is required and these artifacts expire after 14 days. Extract the artifact download to obtain the same ZIP and checksum pair, then follow the commands above. Release assets remain available independently of CI artifact retention.
 
 These are the pinned x64 distributions used for the POC. Keep each program in its own directory: the installers replace that directory's ownership and permissions.
 
