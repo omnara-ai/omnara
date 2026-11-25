@@ -247,6 +247,7 @@ func usageCosts(reported, effective string) (
 }
 
 type AgentProfileStatsInput struct {
+	OrgID           uuid.UUID
 	ProjectIDs      []uuid.UUID
 	AgentProfileIDs []uuid.UUID
 	// Window.Since starts the usage window; nil tallies from the earliest call.
@@ -290,7 +291,8 @@ func (s *Store) AgentProfileStats(
 		stats[row.AgentProfileID] = entry
 	}
 	usage, err := s.q.SumModelCallUsageByAgentProfile(ctx, dbsqlc.SumModelCallUsageByAgentProfileParams{
-		ProjectIds: input.ProjectIDs, AgentProfileIds: input.AgentProfileIDs, Since: input.Window.Since,
+		OrgID: input.OrgID, ProjectIds: input.ProjectIDs, AgentProfileIds: input.AgentProfileIDs,
+		Since: input.Window.Since,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sum model usage by profile: %w", err)
@@ -321,6 +323,7 @@ func (s *Store) AgentProfileStats(
 }
 
 type AgentUsageTotalsInput struct {
+	OrgID      uuid.UUID
 	ProjectIDs []uuid.UUID
 	AgentIDs   []uuid.UUID
 }
@@ -344,7 +347,7 @@ func (s *Store) AgentUsageTotals(
 		return totals, nil
 	}
 	rows, err := s.q.SumModelCallUsageByAgentTree(ctx, dbsqlc.SumModelCallUsageByAgentTreeParams{
-		ProjectIds: input.ProjectIDs, AgentIds: input.AgentIDs,
+		OrgID: input.OrgID, ProjectIds: input.ProjectIDs, AgentIds: input.AgentIDs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sum model usage by agent: %w", err)

@@ -425,12 +425,14 @@ func (s strictOpenAPIServer) ListAgents(
 
 type resourceListScope struct {
 	key        string
+	orgID      uuid.UUID
 	projectIDs []uuid.UUID
 }
 
 func projectListScope(project identitystore.ProjectRecord) resourceListScope {
 	return resourceListScope{
 		key:        project.OrgID.String() + "/" + project.ID.String(),
+		orgID:      project.OrgID,
 		projectIDs: []uuid.UUID{project.ID},
 	}
 }
@@ -515,7 +517,7 @@ func (s strictOpenAPIServer) listAgents(
 		data = append(data, response)
 	}
 	if valueOrZero(params.IncludeUsage) {
-		if err := s.addAgentUsage(ctx, page.Agents, data); err != nil {
+		if err := s.addAgentUsage(ctx, scope.orgID, page.Agents, data); err != nil {
 			return openapi.ListAgentsResponse{}, err
 		}
 	}
@@ -532,6 +534,7 @@ func (s strictOpenAPIServer) listAgents(
 // a list doesn't need a request per agent.
 func (s strictOpenAPIServer) addAgentUsage(
 	ctx context.Context,
+	orgID uuid.UUID,
 	agents []executionstore.AgentRecord,
 	data []openapi.Agent,
 ) error {
@@ -544,7 +547,7 @@ func (s strictOpenAPIServer) addAgentUsage(
 		agentIDs = append(agentIDs, agent.ID)
 	}
 	totals, err := s.server.store.Execution().AgentUsageTotals(ctx, executionstore.AgentUsageTotalsInput{
-		ProjectIDs: projectIDs, AgentIDs: agentIDs,
+		OrgID: orgID, ProjectIDs: projectIDs, AgentIDs: agentIDs,
 	})
 	if err != nil {
 		return apierror.ProjectScoped(err)
@@ -608,7 +611,7 @@ func (s strictOpenAPIServer) listAgentProfiles(
 		data = append(data, response)
 	}
 	if valueOrZero(params.IncludeStats) {
-		if err := s.addAgentProfileStats(ctx, page.Profiles, params.StatsSince, data); err != nil {
+		if err := s.addAgentProfileStats(ctx, scope.orgID, page.Profiles, params.StatsSince, data); err != nil {
 			return openapi.ListAgentProfilesResponse{}, err
 		}
 	}
@@ -625,6 +628,7 @@ func (s strictOpenAPIServer) listAgentProfiles(
 // page so a list doesn't need a request per profile.
 func (s strictOpenAPIServer) addAgentProfileStats(
 	ctx context.Context,
+	orgID uuid.UUID,
 	profiles []executionstore.AgentProfileRecord,
 	since *time.Time,
 	data []openapi.AgentProfileSummary,
@@ -638,7 +642,7 @@ func (s strictOpenAPIServer) addAgentProfileStats(
 		profileIDs = append(profileIDs, profile.ID)
 	}
 	stats, err := s.server.store.Execution().AgentProfileStats(ctx, executionstore.AgentProfileStatsInput{
-		ProjectIDs: projectIDs, AgentProfileIDs: profileIDs,
+		OrgID: orgID, ProjectIDs: projectIDs, AgentProfileIDs: profileIDs,
 		Window: executionstore.UsageWindow{Since: since},
 	})
 	if err != nil {

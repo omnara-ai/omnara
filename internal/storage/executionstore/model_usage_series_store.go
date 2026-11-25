@@ -23,9 +23,9 @@ const (
 )
 
 type ModelUsageSeriesFilter struct {
-	OrgIDs     []uuid.UUID
+	OrgID      uuid.UUID
 	ProjectIDs []uuid.UUID
-	// AllProjects reads every project in OrgIDs, deleted ones included, in place
+	// AllProjects reads every project in OrgID, deleted ones included, in place
 	// of ProjectIDs.
 	AllProjects             bool
 	AgentProfileIDs         []uuid.UUID
@@ -122,11 +122,6 @@ func usageDayStart(year int, month time.Month, day int, location *time.Location)
 }
 
 func (filter ModelUsageSeriesFilter) validate() error {
-	// With no projects there is nothing to read, so a caller without any
-	// memberships gets an empty series rather than an error.
-	if len(filter.OrgIDs) == 0 && (len(filter.ProjectIDs) > 0 || filter.AllProjects) {
-		return errors.New("usage series orgs are required")
-	}
 	if filter.AllProjects && len(filter.ProjectIDs) > 0 {
 		return errors.New("usage series cannot combine all projects with project ids")
 	}
@@ -162,7 +157,7 @@ func (s *Store) FirstModelUsageAt(ctx context.Context, filter ModelUsageSeriesFi
 		return time.Time{}, false, nil
 	}
 	first, err := s.q.FirstModelCallUsageAt(ctx, dbsqlc.FirstModelCallUsageAtParams{
-		OrgIds:                  filter.OrgIDs,
+		OrgID:                   filter.OrgID,
 		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,
@@ -198,12 +193,16 @@ func (s *Store) SumModelUsageSeries(
 		series.Totals = totals
 		return series, err
 	}
+	useBuckets := !slices.ContainsFunc(bucketStarts, func(start time.Time) bool {
+		return !start.Truncate(24 * time.Hour).Equal(start)
+	})
 	rows, err := s.q.SumModelCallUsageByBucket(ctx, dbsqlc.SumModelCallUsageByBucketParams{
 		BucketStarts:            bucketStarts,
-		OrgIds:                  filter.OrgIDs,
+		OrgID:                   filter.OrgID,
 		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,
+		UseBuckets:              useBuckets,
 		AgentProfileIds:         filter.AgentProfileIDs,
 		IncludeProfileSubagents: filter.IncludeProfileSubagents,
 	})
@@ -252,7 +251,7 @@ func (s *Store) SumModelUsageSeries(
 		return ModelUsageSeries{}, err
 	}
 	series.ActiveAgents, err = s.q.CountAgentsWithModelCalls(ctx, dbsqlc.CountAgentsWithModelCallsParams{
-		OrgIds:                  filter.OrgIDs,
+		OrgID:                   filter.OrgID,
 		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,

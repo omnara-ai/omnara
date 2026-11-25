@@ -17,7 +17,7 @@ WITH RECURSIVE profile_agents AS (
   SELECT agent.id, 1 AS depth
   FROM agents agent
   WHERE $5::uuid[] IS NOT NULL
-    AND ($2::uuid[] IS NULL OR agent.project_id = ANY($2::uuid[]))
+    AND ($4::uuid[] IS NULL OR agent.project_id = ANY($4::uuid[]))
     AND agent.agent_profile_id = ANY($5::uuid[])
     AND agent.parent_agent_id IS NULL
   UNION ALL
@@ -25,44 +25,38 @@ WITH RECURSIVE profile_agents AS (
   FROM agents child
   JOIN profile_agents ON child.parent_agent_id = profile_agents.id
   WHERE $6::boolean
-    AND ($2::uuid[] IS NULL OR child.project_id = ANY($2::uuid[]))
+    AND ($4::uuid[] IS NULL OR child.project_id = ANY($4::uuid[]))
     AND profile_agents.depth < 64
 )
-SELECT count(DISTINCT context.agent_id)::bigint AS agent_count
-FROM model_call_contexts context
-JOIN agents agent ON agent.project_id = context.project_id
-  AND agent.id = context.agent_id
+SELECT count(DISTINCT usage.agent_id)::bigint AS agent_count
+FROM model_usage_rows(
+  $1::uuid, $2::timestamptz, $3::timestamptz, true
+) usage
+JOIN agents agent ON agent.project_id = usage.project_id
+  AND agent.id = usage.agent_id
 WHERE agent.parent_agent_id IS NULL
-  AND context.org_id = ANY($1::uuid[])
-  AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
-  AND ($3::timestamptz IS NULL OR context.created_at >= $3::timestamptz)
-  AND context.created_at < $4::timestamptz
+  AND ($4::uuid[] IS NULL OR usage.project_id = ANY($4::uuid[]))
   AND (
     $5::uuid[] IS NULL
-    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
-  )
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
+    OR usage.agent_id IN (SELECT profile_agents.id FROM profile_agents)
   )
 `
 
 type CountAgentsWithModelCallsParams struct {
-	OrgIds                  []uuid.UUID
-	ProjectIds              []uuid.UUID
+	OrgID                   uuid.UUID
 	Since                   *time.Time
 	Until                   time.Time
+	ProjectIds              []uuid.UUID
 	AgentProfileIds         []uuid.UUID
 	IncludeProfileSubagents bool
 }
 
 func (q *Queries) CountAgentsWithModelCalls(ctx context.Context, arg CountAgentsWithModelCallsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countAgentsWithModelCalls,
-		arg.OrgIds,
-		arg.ProjectIds,
+		arg.OrgID,
 		arg.Since,
 		arg.Until,
+		arg.ProjectIds,
 		arg.AgentProfileIds,
 		arg.IncludeProfileSubagents,
 	)
@@ -89,7 +83,7 @@ WITH RECURSIVE profile_agents AS (
 )
 SELECT context.created_at
 FROM model_call_contexts context
-WHERE context.org_id = ANY($1::uuid[])
+WHERE context.org_id = $1
   AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
   AND ($3::timestamptz IS NULL OR context.created_at >= $3::timestamptz)
   AND context.created_at < $4::timestamptz
@@ -107,7 +101,7 @@ LIMIT 1
 `
 
 type FirstModelCallUsageAtParams struct {
-	OrgIds                  []uuid.UUID
+	OrgID                   uuid.UUID
 	ProjectIds              []uuid.UUID
 	Since                   *time.Time
 	Until                   time.Time
@@ -117,7 +111,7 @@ type FirstModelCallUsageAtParams struct {
 
 func (q *Queries) FirstModelCallUsageAt(ctx context.Context, arg FirstModelCallUsageAtParams) (time.Time, error) {
 	row := q.db.QueryRow(ctx, firstModelCallUsageAt,
-		arg.OrgIds,
+		arg.OrgID,
 		arg.ProjectIds,
 		arg.Since,
 		arg.Until,
@@ -133,45 +127,38 @@ const sumModelCallUsageByAgentProfile = `-- name: SumModelCallUsageByAgentProfil
 WITH RECURSIVE profile_agents AS (
   SELECT agent.id, agent.agent_profile_id AS profile_id, 1 AS depth
   FROM agents agent
-  WHERE agent.project_id = ANY($1::uuid[])
-    AND agent.agent_profile_id = ANY($3::uuid[])
+  WHERE agent.project_id = ANY($3::uuid[])
+    AND agent.agent_profile_id = ANY($4::uuid[])
     AND agent.parent_agent_id IS NULL
   UNION ALL
   SELECT child.id, profile_agents.profile_id, profile_agents.depth + 1
   FROM agents child
   JOIN profile_agents ON child.parent_agent_id = profile_agents.id
-  WHERE child.project_id = ANY($1::uuid[])
+  WHERE child.project_id = ANY($3::uuid[])
     AND profile_agents.depth < 64
 )
 SELECT profile_agents.profile_id::uuid AS agent_profile_id,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       count(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd))::bigint
-         AS model_calls_with_effective_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd,
-       coalesce(sum(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd)), 0)::text
-         AS effective_cost_usd
-FROM model_call_contexts context
-JOIN profile_agents ON profile_agents.id = context.agent_id
-WHERE context.project_id = ANY($1::uuid[])
-  AND ($2::timestamptz IS NULL OR context.created_at >= $2::timestamptz)
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
+       sum(usage.model_calls)::bigint AS model_calls,
+       sum(usage.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       sum(usage.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
+       sum(usage.input_tokens_total)::bigint AS input_tokens_total,
+       sum(usage.uncached_input_tokens)::bigint AS uncached_input_tokens,
+       sum(usage.cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+       sum(usage.cache_write_input_tokens)::bigint AS cache_write_input_tokens,
+       sum(usage.output_tokens_total)::bigint AS output_tokens_total,
+       sum(usage.reasoning_output_tokens)::bigint AS reasoning_output_tokens,
+       sum(usage.provider_reported_cost_usd)::text AS provider_reported_cost_usd,
+       sum(usage.effective_cost_usd)::text AS effective_cost_usd
+FROM model_usage_rows($1::uuid, $2::timestamptz, NULL::timestamptz, true) usage
+JOIN profile_agents ON profile_agents.id = usage.agent_id
+WHERE usage.project_id = ANY($3::uuid[])
 GROUP BY profile_agents.profile_id
 `
 
 type SumModelCallUsageByAgentProfileParams struct {
-	ProjectIds      []uuid.UUID
+	OrgID           uuid.UUID
 	Since           *time.Time
+	ProjectIds      []uuid.UUID
 	AgentProfileIds []uuid.UUID
 }
 
@@ -192,7 +179,12 @@ type SumModelCallUsageByAgentProfileRow struct {
 
 // Each profile's usage by its top-level agents and their subagents, for a page of profiles at once.
 func (q *Queries) SumModelCallUsageByAgentProfile(ctx context.Context, arg SumModelCallUsageByAgentProfileParams) ([]SumModelCallUsageByAgentProfileRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentProfile, arg.ProjectIds, arg.Since, arg.AgentProfileIds)
+	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentProfile,
+		arg.OrgID,
+		arg.Since,
+		arg.ProjectIds,
+		arg.AgentProfileIds,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -228,41 +220,35 @@ const sumModelCallUsageByAgentTree = `-- name: SumModelCallUsageByAgentTree :man
 WITH RECURSIVE agent_trees AS (
   SELECT agent.id, agent.id AS root_agent_id, 1 AS depth
   FROM agents agent
-  WHERE agent.project_id = ANY($1::uuid[])
-    AND agent.id = ANY($2::uuid[])
+  WHERE agent.project_id = ANY($2::uuid[])
+    AND agent.id = ANY($3::uuid[])
   UNION ALL
   SELECT child.id, agent_trees.root_agent_id, agent_trees.depth + 1
   FROM agents child
   JOIN agent_trees ON child.parent_agent_id = agent_trees.id
-  WHERE child.project_id = ANY($1::uuid[])
+  WHERE child.project_id = ANY($2::uuid[])
     AND agent_trees.depth < 64
 )
 SELECT agent_trees.root_agent_id::uuid AS agent_id,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       count(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd))::bigint
-         AS model_calls_with_effective_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd,
-       coalesce(sum(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd)), 0)::text
-         AS effective_cost_usd
-FROM model_call_contexts context
-JOIN agent_trees ON agent_trees.id = context.agent_id
-WHERE context.project_id = ANY($1::uuid[])
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
+       sum(usage.model_calls)::bigint AS model_calls,
+       sum(usage.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       sum(usage.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
+       sum(usage.input_tokens_total)::bigint AS input_tokens_total,
+       sum(usage.uncached_input_tokens)::bigint AS uncached_input_tokens,
+       sum(usage.cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+       sum(usage.cache_write_input_tokens)::bigint AS cache_write_input_tokens,
+       sum(usage.output_tokens_total)::bigint AS output_tokens_total,
+       sum(usage.reasoning_output_tokens)::bigint AS reasoning_output_tokens,
+       sum(usage.provider_reported_cost_usd)::text AS provider_reported_cost_usd,
+       sum(usage.effective_cost_usd)::text AS effective_cost_usd
+FROM model_usage_rows($1::uuid, NULL::timestamptz, NULL::timestamptz, true) usage
+JOIN agent_trees ON agent_trees.id = usage.agent_id
+WHERE usage.project_id = ANY($2::uuid[])
 GROUP BY agent_trees.root_agent_id
 `
 
 type SumModelCallUsageByAgentTreeParams struct {
+	OrgID      uuid.UUID
 	ProjectIds []uuid.UUID
 	AgentIds   []uuid.UUID
 }
@@ -284,7 +270,7 @@ type SumModelCallUsageByAgentTreeRow struct {
 
 // Each agent's usage by itself and its subagents, for a page of agents at once.
 func (q *Queries) SumModelCallUsageByAgentTree(ctx context.Context, arg SumModelCallUsageByAgentTreeParams) ([]SumModelCallUsageByAgentTreeRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentTree, arg.ProjectIds, arg.AgentIds)
+	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentTree, arg.OrgID, arg.ProjectIds, arg.AgentIds)
 	if err != nil {
 		return nil, err
 	}
@@ -332,64 +318,57 @@ WITH RECURSIVE profile_agents AS (
     AND ($2::uuid[] IS NULL OR child.project_id = ANY($2::uuid[]))
     AND profile_agents.depth < 64
 ), usage_rollup AS MATERIALIZED (
-SELECT width_bucket(context.created_at, $4::timestamptz[])::integer AS bucket_number,
-       context.project_id,
-       context.agent_id,
-       context.configured_model_revision_id,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       count(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd))::bigint
-         AS model_calls_with_effective_cost,
-       sum(context.input_tokens_total) AS input_tokens_total,
-       sum(context.uncached_input_tokens) AS uncached_input_tokens,
-       sum(context.cache_read_input_tokens) AS cache_read_input_tokens,
-       sum(context.cache_write_input_tokens) AS cache_write_input_tokens,
-       sum(context.output_tokens_total) AS output_tokens_total,
-       sum(context.reasoning_output_tokens) AS reasoning_output_tokens,
-       sum(context.provider_reported_cost_usd) AS provider_reported_cost_usd,
-       sum(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd)) AS effective_cost_usd
-FROM model_call_contexts context
-WHERE context.org_id = ANY($5::uuid[])
-  AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
-  AND ($6::timestamptz IS NULL OR context.created_at >= $6::timestamptz)
-  AND context.created_at < $7::timestamptz
+SELECT width_bucket(usage.started_at, $4::timestamptz[])::integer AS bucket_number,
+       usage.project_id::uuid AS project_id,
+       usage.agent_id::uuid AS agent_id,
+       usage.configured_model_revision_id::uuid AS configured_model_revision_id,
+       sum(usage.model_calls)::bigint AS model_calls,
+       sum(usage.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       sum(usage.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
+       sum(usage.input_tokens_total)::bigint AS input_tokens_total,
+       sum(usage.uncached_input_tokens)::bigint AS uncached_input_tokens,
+       sum(usage.cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+       sum(usage.cache_write_input_tokens)::bigint AS cache_write_input_tokens,
+       sum(usage.output_tokens_total)::bigint AS output_tokens_total,
+       sum(usage.reasoning_output_tokens)::bigint AS reasoning_output_tokens,
+       sum(usage.provider_reported_cost_usd)::numeric AS provider_reported_cost_usd,
+       sum(usage.effective_cost_usd)::numeric AS effective_cost_usd
+FROM model_usage_rows(
+  $5::uuid, $6::timestamptz, $7::timestamptz, $8::boolean
+) usage
+WHERE ($2::uuid[] IS NULL OR usage.project_id = ANY($2::uuid[]))
   AND (
     $1::uuid[] IS NULL
-    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+    OR usage.agent_id IN (SELECT profile_agents.id FROM profile_agents)
   )
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
-GROUP BY bucket_number, context.project_id, context.agent_id, context.configured_model_revision_id
+GROUP BY 1, 2, 3, 4
 )
-SELECT context.bucket_number,
+SELECT usage.bucket_number,
        revision.configured_model_id,
        configured_model.name AS configured_model_name,
        provider_config.name AS model_provider_config_name,
        agent.agent_profile_id,
        coalesce(profile.name, '')::text AS agent_profile_name,
        project.name AS project_name,
-       sum(context.model_calls)::bigint AS model_calls,
-       sum(context.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
-       sum(context.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd,
-       coalesce(sum(context.effective_cost_usd), 0)::text AS effective_cost_usd
-FROM usage_rollup context
-JOIN configured_model_revisions revision ON revision.id = context.configured_model_revision_id
+       sum(usage.model_calls)::bigint AS model_calls,
+       sum(usage.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       sum(usage.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
+       sum(usage.input_tokens_total)::bigint AS input_tokens_total,
+       sum(usage.uncached_input_tokens)::bigint AS uncached_input_tokens,
+       sum(usage.cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+       sum(usage.cache_write_input_tokens)::bigint AS cache_write_input_tokens,
+       sum(usage.output_tokens_total)::bigint AS output_tokens_total,
+       sum(usage.reasoning_output_tokens)::bigint AS reasoning_output_tokens,
+       sum(usage.provider_reported_cost_usd)::text AS provider_reported_cost_usd,
+       sum(usage.effective_cost_usd)::text AS effective_cost_usd
+FROM usage_rollup usage
+JOIN configured_model_revisions revision ON revision.id = usage.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
 JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
   AND provider_config.id = configured_model.model_provider_config_id
-JOIN projects project ON project.id = context.project_id
-JOIN agents agent ON agent.id = context.agent_id
+JOIN projects project ON project.id = usage.project_id
+JOIN agents agent ON agent.id = usage.agent_id
 LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
   AND profile.id = agent.agent_profile_id
 GROUP BY bucket_number, revision.configured_model_id, configured_model.name, provider_config.name,
@@ -402,9 +381,10 @@ type SumModelCallUsageByBucketParams struct {
 	ProjectIds              []uuid.UUID
 	IncludeProfileSubagents bool
 	BucketStarts            []time.Time
-	OrgIds                  []uuid.UUID
+	OrgID                   uuid.UUID
 	Since                   *time.Time
 	Until                   time.Time
+	UseBuckets              bool
 }
 
 type SumModelCallUsageByBucketRow struct {
@@ -437,9 +417,10 @@ func (q *Queries) SumModelCallUsageByBucket(ctx context.Context, arg SumModelCal
 		arg.ProjectIds,
 		arg.IncludeProfileSubagents,
 		arg.BucketStarts,
-		arg.OrgIds,
+		arg.OrgID,
 		arg.Since,
 		arg.Until,
+		arg.UseBuckets,
 	)
 	if err != nil {
 		return nil, err
@@ -482,16 +463,16 @@ const sumModelCallUsageByModel = `-- name: SumModelCallUsageByModel :many
 WITH RECURSIVE profile_agents AS (
   SELECT agent.id, 1 AS depth
   FROM agents agent
-  WHERE $5::uuid IS NOT NULL
-    AND agent.project_id = $2::uuid
-    AND agent.agent_profile_id = $5::uuid
+  WHERE $7::uuid IS NOT NULL
+    AND agent.project_id = $4::uuid
+    AND agent.agent_profile_id = $7::uuid
     AND agent.parent_agent_id IS NULL
   UNION ALL
   SELECT child.id, profile_agents.depth + 1
   FROM agents child
   JOIN profile_agents ON child.parent_agent_id = profile_agents.id
   WHERE $9::boolean
-    AND child.project_id = $2::uuid
+    AND child.project_id = $4::uuid
     AND profile_agents.depth < 64
 )
 SELECT revision.configured_model_id,
@@ -499,48 +480,40 @@ SELECT revision.configured_model_id,
        revision.provider_model_slug,
        provider_config.id AS model_provider_config_id,
        provider_config.name AS model_provider_config_name,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       count(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd))::bigint
-         AS model_calls_with_effective_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd,
-       coalesce(sum(coalesce(context.effective_cost_usd, context.provider_reported_cost_usd)), 0)::text
-         AS effective_cost_usd
-FROM model_call_contexts context
-JOIN configured_model_revisions revision ON revision.org_id = context.org_id
-  AND revision.id = context.configured_model_revision_id
+       sum(usage.model_calls)::bigint AS model_calls,
+       sum(usage.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       sum(usage.model_calls_with_effective_cost)::bigint AS model_calls_with_effective_cost,
+       sum(usage.input_tokens_total)::bigint AS input_tokens_total,
+       sum(usage.uncached_input_tokens)::bigint AS uncached_input_tokens,
+       sum(usage.cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+       sum(usage.cache_write_input_tokens)::bigint AS cache_write_input_tokens,
+       sum(usage.output_tokens_total)::bigint AS output_tokens_total,
+       sum(usage.reasoning_output_tokens)::bigint AS reasoning_output_tokens,
+       sum(usage.provider_reported_cost_usd)::text AS provider_reported_cost_usd,
+       sum(usage.effective_cost_usd)::text AS effective_cost_usd
+FROM model_usage_rows(
+  $1::uuid, $2::timestamptz, $3::timestamptz, true
+) usage
+JOIN configured_model_revisions revision ON revision.org_id = $1::uuid
+  AND revision.id = usage.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
 JOIN model_provider_configs provider_config ON provider_config.org_id = revision.org_id
   AND provider_config.id = revision.model_provider_config_id
-WHERE context.org_id = $1
-  AND ($2::uuid IS NULL OR context.project_id = $2::uuid)
+WHERE ($4::uuid IS NULL OR usage.project_id = $4::uuid)
   AND (
-    $3::uuid[] IS NULL
-    OR context.project_id = ANY($3::uuid[])
+    $5::uuid[] IS NULL
+    OR usage.project_id = ANY($5::uuid[])
   )
   AND (
-    $4::uuid[] IS NULL
-    OR context.project_id <> ALL($4::uuid[])
+    $6::uuid[] IS NULL
+    OR usage.project_id <> ALL($6::uuid[])
   )
   AND (
-    $5::uuid IS NULL
-    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+    $7::uuid IS NULL
+    OR usage.agent_id IN (SELECT profile_agents.id FROM profile_agents)
   )
-  AND ($6::uuid[] IS NULL OR context.agent_id = ANY($6::uuid[]))
-  AND ($7::timestamptz IS NULL OR context.created_at >= $7::timestamptz)
-  AND ($8::timestamptz IS NULL OR context.created_at < $8::timestamptz)
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
+  AND ($8::uuid[] IS NULL OR usage.agent_id = ANY($8::uuid[]))
 GROUP BY revision.configured_model_id, configured_model.name, revision.provider_model_slug,
          provider_config.id, provider_config.name
 ORDER BY provider_config.name, configured_model.name, revision.provider_model_slug
@@ -548,13 +521,13 @@ ORDER BY provider_config.name, configured_model.name, revision.provider_model_sl
 
 type SumModelCallUsageByModelParams struct {
 	OrgID                   uuid.UUID
+	Since                   *time.Time
+	Until                   *time.Time
 	ProjectID               *uuid.UUID
 	IncludeProjectIds       []uuid.UUID
 	ExcludeProjectIds       []uuid.UUID
 	AgentProfileID          *uuid.UUID
 	AgentIds                []uuid.UUID
-	Since                   *time.Time
-	Until                   *time.Time
 	IncludeProfileSubagents bool
 }
 
@@ -582,13 +555,13 @@ type SumModelCallUsageByModelRow struct {
 func (q *Queries) SumModelCallUsageByModel(ctx context.Context, arg SumModelCallUsageByModelParams) ([]SumModelCallUsageByModelRow, error) {
 	rows, err := q.db.Query(ctx, sumModelCallUsageByModel,
 		arg.OrgID,
+		arg.Since,
+		arg.Until,
 		arg.ProjectID,
 		arg.IncludeProjectIds,
 		arg.ExcludeProjectIds,
 		arg.AgentProfileID,
 		arg.AgentIds,
-		arg.Since,
-		arg.Until,
 		arg.IncludeProfileSubagents,
 	)
 	if err != nil {

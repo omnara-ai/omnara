@@ -68,7 +68,7 @@ export function UsageTimeseriesPanel({
   }
   const query = useUsageTimeseries(orgId, {
     ...filters,
-    timezone: browserTimezone,
+    timezone: filters.interval === 'hour' ? browserTimezone : undefined,
     metric: usageMeasureMetrics[measure],
     groupBy: breakdown,
   })

@@ -1,6 +1,6 @@
 import type { UsageWindow } from '@omnara/react'
 import type { UsageTimeseriesInterval } from '@omnara/sdk'
-import { format, startOfDay, startOfHour, subDays, subHours } from 'date-fns'
+import { format, startOfHour, subDays, subHours } from 'date-fns'
 
 export interface UsageDateRange {
   from?: Date
@@ -22,19 +22,21 @@ export const usageRangePresetDays = [7, defaultUsageDays, 90] as const
 
 export const usageRangePresetHours = [24] as const
 
+function utcDayStart(date: Date, offset = 0) {
+  return new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + offset),
+  ).toISOString()
+}
+
+/** Whole UTC days from the calendar day of `from` through that of `to`. */
 export function usageDateRange(from?: Date, to?: Date): UsageDateRange {
-  const since = from ? startOfDay(from) : undefined
-  const until = to ? startOfDay(to) : undefined
-  until?.setDate(until.getDate() + 1)
-  return {
-    from: since,
-    to: to ? startOfDay(to) : undefined,
-    window: { since: since?.toISOString(), until: until?.toISOString() },
-  }
+  return { from, to, window: { since: from && utcDayStart(from), until: to && utcDayStart(to, 1) } }
 }
 
 export function lastDaysUsageRange(days: number): UsageDateRange {
-  return { ...usageDateRange(subDays(new Date(), days - 1)), days }
+  const now = new Date()
+  const today = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return { ...usageDateRange(subDays(today, days - 1)), days }
 }
 
 /** The last `hours` whole local hours, the current one included, in hourly buckets. */
