@@ -84,9 +84,10 @@ func TestPrepareBuildsImageAndDocumentBlocks(t *testing.T) {
 	}
 	content := payload.Messages[0].Content
 	if len(content) != 5 || content[0].Type != "text" || content[1].Type != "text" ||
-		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		content[1].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestImageID)+"\n\n" ||
 		content[2].Type != "image" || content[3].Type != "text" ||
-		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) || content[4].Type != "document" {
+		content[3].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestDocumentID)+"\n\n" ||
+		content[4].Type != "document" {
 		t.Fatalf("unexpected block layout: %s", prepared.Body)
 	}
 	if content[2].Source.Type != "base64" ||

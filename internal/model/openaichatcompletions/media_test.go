@@ -58,10 +58,10 @@ func TestPrepareBuildsImageAndFileParts(t *testing.T) {
 	content := payload.Messages[0].Content
 	if len(content) != 5 || content[0].Type != "text" ||
 		content[1].Type != "text" ||
-		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		content[1].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestImageID)+"\n\n" ||
 		content[2].Type != "image_url" ||
 		content[3].Type != "text" ||
-		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) ||
+		content[3].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestDocumentID)+"\n\n" ||
 		content[4].Type != "file" {
 		t.Fatalf("unexpected content layout: %s", prepared.Body)
 	}
@@ -82,6 +82,7 @@ func TestPrepareRendersUTF8DocumentsAsText(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
 		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[
+			{"type":"text","text":"Inspect /memory/notes.txt"},
 			{"type":"media_ref","artifact_id":"` + textID + `"}
 		]`)}},
 		ResolvedMedia: map[string]modelcontext.ResolvedMedia{textID: {
@@ -98,6 +99,26 @@ func TestPrepareRendersUTF8DocumentsAsText(t *testing.T) {
 	if !strings.Contains(string(prepared.Body), `File: \"notes.md\"\n\nhello`) ||
 		strings.Contains(string(prepared.Body), `"type":"file"`) {
 		t.Fatalf("UTF-8 document was not rendered as text: %s", prepared.Body)
+	}
+	var payload struct {
+		Messages []struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var text strings.Builder
+	for _, part := range payload.Messages[0].Content {
+		text.WriteString(part.Text)
+	}
+	// Providers may concatenate adjacent text blocks without a separator.
+	words := strings.Fields(text.String())
+	if len(words) < 4 || words[1] != "/memory/notes.txt" || words[2] != "artifact_id:" ||
+		words[3] != mediaTestPublicID(textID) {
+		t.Fatalf("artifact ID joined the attachment text: %q", text.String())
 	}
 }
 

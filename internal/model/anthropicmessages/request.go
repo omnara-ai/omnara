@@ -532,7 +532,7 @@ func renderAnthropicContent(
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := anthropicMediaBlock(resolved); ok {
 					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
-						blocks = append(blocks, textBlock{Type: "text", Text: "artifact_id: " + ref})
+						blocks = append(blocks, textBlock{Type: "text", Text: "\n\nartifact_id: " + ref + "\n\n"})
 					}
 					blocks = append(blocks, block)
 				}
