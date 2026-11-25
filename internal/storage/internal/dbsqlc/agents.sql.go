@@ -196,6 +196,38 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 	return i, err
 }
 
+const checkAgentConfigEditTargets = `-- name: CheckAgentConfigEditTargets :one
+SELECT
+    ARRAY(SELECT profile.id FROM agent_profiles profile
+     WHERE profile.project_id = $1
+       AND profile.deleted_at IS NULL
+       AND profile.id = ANY($2::uuid[]))::uuid[] AS profiles,
+    least(statement_timestamp(), (
+        SELECT min(version.created_at) FROM agent_profile_versions version
+        WHERE version.project_id = $1
+          AND version.profile_id = ANY($2::uuid[])
+          AND version.idempotency_key = ANY($3::text[])
+    ))::timestamptz AS cutoff
+`
+
+type CheckAgentConfigEditTargetsParams struct {
+	ProjectID   uuid.UUID
+	ProfileIds  []uuid.UUID
+	ProfileKeys []string
+}
+
+type CheckAgentConfigEditTargetsRow struct {
+	Profiles []uuid.UUID
+	Cutoff   time.Time
+}
+
+func (q *Queries) CheckAgentConfigEditTargets(ctx context.Context, arg CheckAgentConfigEditTargetsParams) (CheckAgentConfigEditTargetsRow, error) {
+	row := q.db.QueryRow(ctx, checkAgentConfigEditTargets, arg.ProjectID, arg.ProfileIds, arg.ProfileKeys)
+	var i CheckAgentConfigEditTargetsRow
+	err := row.Scan(&i.Profiles, &i.Cutoff)
+	return i, err
+}
+
 const countActiveAgentsByProfile = `-- name: CountActiveAgentsByProfile :many
 SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
 FROM agents agent
@@ -812,6 +844,50 @@ func (q *Queries) InsertAgentProfile(ctx context.Context, arg InsertAgentProfile
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAgentConfigEditProfileAgentIDs = `-- name: ListAgentConfigEditProfileAgentIDs :many
+SELECT agent.id
+FROM agents agent
+WHERE agent.project_id = $1
+  AND agent.agent_profile_id = $2
+  AND agent.state = 'active'
+  AND agent.parent_agent_id IS NULL
+  AND agent.created_at <= $3::timestamptz
+ORDER BY agent.created_at, agent.id
+LIMIT $4::bigint
+`
+
+type ListAgentConfigEditProfileAgentIDsParams struct {
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	CreatedBefore  time.Time
+	RowLimit       int64
+}
+
+func (q *Queries) ListAgentConfigEditProfileAgentIDs(ctx context.Context, arg ListAgentConfigEditProfileAgentIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAgentConfigEditProfileAgentIDs,
+		arg.ProjectID,
+		arg.AgentProfileID,
+		arg.CreatedBefore,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAgentProfilesForProjects = `-- name: ListAgentProfilesForProjects :many

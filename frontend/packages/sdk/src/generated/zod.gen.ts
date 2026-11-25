@@ -281,7 +281,8 @@ export const zErrorCode = z.enum([
     'validation_failed',
     'csrf_check_failed',
     'authentication_unavailable',
-    'machine_token_not_injected'
+    'machine_token_not_injected',
+    'edit_conflict'
 ]);
 
 /**
@@ -1161,6 +1162,119 @@ export const zResolveAgentConfigToolsRequest = z.object({
         zAgentConfigToolsDefinition
     ]),
     source_format: z.enum(['yaml', 'json'])
+});
+
+/**
+ * At least one of apply_to_profile and apply_to_instances must be true.
+ */
+export const zAgentConfigEditProfileTarget = z.object({
+    type: z.enum(['profile']),
+    agent_profile_id: zAgentProfileId,
+    apply_to_profile: z.boolean().optional().default(true),
+    apply_to_instances: z.boolean().optional().default(false)
+});
+
+export const zAgentConfigEditAgentTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId
+});
+
+export const zAgentConfigEditTarget = z.discriminatedUnion('type', [
+    zAgentConfigEditProfileTarget.extend({ type: z.literal('profile') }),
+    zAgentConfigEditAgentTarget.extend({ type: z.literal('agent') })
+]);
+
+/**
+ * JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null top-level sections count as empty.
+ */
+export const zAgentConfigEditPath = z.string().min(2).max(1024).regex(/^\//);
+
+/**
+ * Any JSON value, including null.
+ */
+export const zAgentConfigEditValue = z.unknown().nullable();
+
+export const zSetAgentConfigEdit = z.object({
+    type: z.enum(['set']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+export const zRemoveAgentConfigEdit = z.object({
+    type: z.enum(['remove']),
+    path: zAgentConfigEditPath
+});
+
+/**
+ * Appends value to the list at path unless an equal item is already there.
+ */
+export const zAddItemAgentConfigEdit = z.object({
+    type: z.enum(['add_item']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+/**
+ * Removes every item equal to value from the list at path.
+ */
+export const zRemoveItemAgentConfigEdit = z.object({
+    type: z.enum(['remove_item']),
+    path: zAgentConfigEditPath,
+    value: zAgentConfigEditValue
+});
+
+/**
+ * Replaces every occurrence of find in the text at path.
+ */
+export const zReplaceTextAgentConfigEdit = z.object({
+    type: z.enum(['replace_text']),
+    path: zAgentConfigEditPath,
+    find: z.string().min(1),
+    replace: z.string()
+});
+
+export const zAgentConfigEdit = z.discriminatedUnion('type', [
+    zSetAgentConfigEdit.extend({ type: z.literal('set') }),
+    zRemoveAgentConfigEdit.extend({ type: z.literal('remove') }),
+    zAddItemAgentConfigEdit.extend({ type: z.literal('add_item') }),
+    zRemoveItemAgentConfigEdit.extend({ type: z.literal('remove_item') }),
+    zReplaceTextAgentConfigEdit.extend({ type: z.literal('replace_text') })
+]);
+
+export const zEditAgentConfigsRequest = z.object({
+    targets: z.array(zAgentConfigEditTarget).min(1).max(500),
+    edits: z.array(zAgentConfigEdit).min(1).max(100),
+    on_failed_edit: z.enum([
+        'continue',
+        'ignore',
+        'stop'
+    ]).optional().default('continue')
+});
+
+export const zAgentConfigEditResult = z.object({
+    target: zAgentConfigEditTarget,
+    status: z.enum([
+        'updated',
+        'unchanged',
+        'failed',
+        'skipped'
+    ]),
+    previous_config_id: zAgentConfigId.optional(),
+    current_config_id: zAgentConfigId.optional(),
+    current_generation: z.int().optional(),
+    edits: z.array(z.enum([
+        'applied',
+        'unchanged',
+        'text_not_found',
+        'path_not_found',
+        'not_applied'
+    ])).optional(),
+    code: zErrorCode.optional(),
+    error: z.string().optional()
+});
+
+export const zEditAgentConfigsResponse = z.object({
+    data: z.array(zAgentConfigEditResult)
 });
 
 /**
@@ -5195,6 +5309,22 @@ export const zResolveAgentConfigToolsPath = z.object({
  * Resolved config tools.
  */
 export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
+
+export const zEditAgentConfigsBody = zEditAgentConfigsRequest;
+
+export const zEditAgentConfigsHeaders = z.object({
+    'Idempotency-Key': z.string().min(1).max(255).optional()
+});
+
+export const zEditAgentConfigsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * One result per target.
+ */
+export const zEditAgentConfigsResponse2 = zEditAgentConfigsResponse;
 
 export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 

@@ -505,7 +505,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'path_not_found' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable' | 'machine_token_not_injected';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'path_not_found' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable' | 'machine_token_not_injected' | 'edit_conflict';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -1889,6 +1889,127 @@ export type ResolveAgentConfigToolsRequest = {
      */
     source: string | AgentConfigToolsDefinition;
     source_format: 'yaml' | 'json';
+};
+
+export type EditAgentConfigsRequest = {
+    targets: Array<AgentConfigEditTarget>;
+    /**
+     * Applied in order.
+     */
+    edits: Array<AgentConfigEdit>;
+    /**
+     * continue keeps going after a failed target; ignore also saves a target's matching edits when others miss; stop skips the targets after the first failure.
+     */
+    on_failed_edit?: 'continue' | 'ignore' | 'stop';
+};
+
+export type AgentConfigEditTarget = ({
+    type: 'profile';
+} & AgentConfigEditProfileTarget) | ({
+    type: 'agent';
+} & AgentConfigEditAgentTarget);
+
+/**
+ * At least one of apply_to_profile and apply_to_instances must be true.
+ */
+export type AgentConfigEditProfileTarget = {
+    type: 'profile';
+    agent_profile_id: AgentProfileId;
+    /**
+     * Edit the profile's own config, which new agents launch with.
+     */
+    apply_to_profile?: boolean;
+    /**
+     * Edit the active top-level agents launched from the profile.
+     */
+    apply_to_instances?: boolean;
+};
+
+export type AgentConfigEditAgentTarget = {
+    type: 'agent';
+    agent_id: AgentId;
+};
+
+/**
+ * JSON Pointer into the config source, such as /instruction or /tools/web_search. Missing or null top-level sections count as empty.
+ */
+export type AgentConfigEditPath = string;
+
+/**
+ * Any JSON value, including null.
+ */
+export type AgentConfigEditValue = unknown | null;
+
+export type AgentConfigEdit = ({
+    type: 'set';
+} & SetAgentConfigEdit) | ({
+    type: 'remove';
+} & RemoveAgentConfigEdit) | ({
+    type: 'add_item';
+} & AddItemAgentConfigEdit) | ({
+    type: 'remove_item';
+} & RemoveItemAgentConfigEdit) | ({
+    type: 'replace_text';
+} & ReplaceTextAgentConfigEdit);
+
+export type SetAgentConfigEdit = {
+    type: 'set';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+export type RemoveAgentConfigEdit = {
+    type: 'remove';
+    path: AgentConfigEditPath;
+};
+
+/**
+ * Appends value to the list at path unless an equal item is already there.
+ */
+export type AddItemAgentConfigEdit = {
+    type: 'add_item';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+/**
+ * Removes every item equal to value from the list at path.
+ */
+export type RemoveItemAgentConfigEdit = {
+    type: 'remove_item';
+    path: AgentConfigEditPath;
+    value: AgentConfigEditValue;
+};
+
+/**
+ * Replaces every occurrence of find in the text at path.
+ */
+export type ReplaceTextAgentConfigEdit = {
+    type: 'replace_text';
+    path: AgentConfigEditPath;
+    find: string;
+    replace: string;
+};
+
+export type EditAgentConfigsResponse = {
+    data: Array<AgentConfigEditResult>;
+};
+
+export type AgentConfigEditResult = {
+    target: AgentConfigEditTarget;
+    /**
+     * unchanged also covers targets where no edit matched; skipped means stop skipped the target.
+     */
+    status: 'updated' | 'unchanged' | 'failed' | 'skipped';
+    previous_config_id?: AgentConfigId;
+    current_config_id?: AgentConfigId;
+    current_generation?: number;
+    /**
+     * One entry per request edit, in order. unchanged means the edit was already satisfied; not_applied means it would have changed a target that wasn't saved. Omitted for replayed results, for server errors (the target may have been saved, so retry with the same Idempotency-Key), and for targets that failed or were skipped before all edits ran.
+     */
+    edits?: Array<'applied' | 'unchanged' | 'text_not_found' | 'path_not_found' | 'not_applied'>;
+    code?: ErrorCode;
+    error?: string;
 };
 
 export type ResolvedAgentConfigTools = {
@@ -12926,6 +13047,82 @@ export type ResolveAgentConfigToolsResponses = {
 };
 
 export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
+
+export type EditAgentConfigsData = {
+    body: EditAgentConfigsRequest;
+    headers?: {
+        /**
+         * Idempotency key for replay-safe mutating requests.
+         */
+        'Idempotency-Key'?: string;
+    };
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/edit';
+};
+
+export type EditAgentConfigsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type EditAgentConfigsError = EditAgentConfigsErrors[keyof EditAgentConfigsErrors];
+
+export type EditAgentConfigsResponses = {
+    /**
+     * One result per target.
+     */
+    200: EditAgentConfigsResponse;
+};
+
+export type EditAgentConfigsResponse2 = EditAgentConfigsResponses[keyof EditAgentConfigsResponses];
 
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;
