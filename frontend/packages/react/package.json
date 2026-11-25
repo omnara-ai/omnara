@@ -18,11 +18,11 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.108.0",
     "react": "^19.0.0"
   },
   "devDependencies": {
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.108.0",
     "@types/react": "^19.0.0",
     "ai": "7.0.173",
     "react": "^19.3.1",
