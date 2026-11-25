@@ -7,28 +7,37 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
 )
 
-// VisitContents reads matching regular files through the store's confined root.
-// The visitor receives logical paths and bounded contents, so a search process
-// can use stdin without receiving access to the memory filesystem. The root is
-// borrowed from VisitSearchStores and must remain open throughout this call.
+// VisitContents borrows the confined root from VisitSearchStores without closing it.
+// Windows memory search passes these bounded file contents to the search process over stdin.
 func (s SearchStore) VisitContents(
 	ctx context.Context, pattern string, matcher *regexp.Regexp,
 	visit func(path string, content []byte) error,
 ) error {
-	remaining := memoryListingTraversalLimit
-	view := storeFS{
-		globFS: globFS{root: s.Root, checkCanceled: ctx.Err, remaining: &remaining},
-		stores: []dbsqlc.ListAttachedMemoryStoresRow{{Name: s.Name}},
-		opened: s.Name,
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	_, rest, _ := strings.Cut(memoryGlobPattern(pattern), "/")
+	storePattern, relativePattern, _ := strings.Cut(rest, "/")
+	matches, err := doublestar.Match(storePattern, s.Name)
+	if err != nil || !matches {
+		return err
+	}
+	if storePattern == "**" {
+		relativePattern = "**"
+	}
+	if relativePattern == "" {
+		return nil
+	}
+	remaining := memoryListingTraversalLimit
+	view := globFS{root: s.Root, checkCanceled: ctx.Err, remaining: &remaining}
 	literal := !strings.ContainsAny(pattern, "*?")
-	return globFiles(ctx, &view, memoryGlobPattern(pattern), func(name string, item fs.DirEntry) error {
-		full := "/" + name
+	return globFiles(ctx, view, relativePattern, func(name string, item fs.DirEntry) error {
+		full := Root + "/" + s.Name + "/" + name
 		if item.IsDir() || !matcher.MatchString(full) {
 			return nil
 		}
@@ -42,8 +51,7 @@ func (s SearchStore) VisitContents(
 		if info.Size() > daemonprotocol.MaxFileTransferBytes {
 			return nil
 		}
-		relative := strings.TrimPrefix(name, "memory/"+s.Name+"/")
-		content, err := memoryops.Read(s.Root, relative)
+		content, err := memoryops.Read(s.Root, name)
 		if errors.Is(err, fs.ErrNotExist) && !literal {
 			return nil
 		}

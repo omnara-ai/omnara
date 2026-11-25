@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -234,12 +234,12 @@ func joinReadyMachineIDs(outcomes []skills.BroadcastOutcome) (string, error) {
 	return strings.Join(ids, ", "), nil
 }
 
-// SkillInstallPath is the on-machine glob the daemon installs skills into.
+// SkillInstallPath is the glob where the Linux/macOS daemon installs skills.
 func SkillInstallPath(skillPublicID, revisionPublicID string) string {
 	if skillPublicID == "" || revisionPublicID == "" {
 		return ""
 	}
-	return filepath.Join(
+	return path.Join(
 		"$OMNARA_HOME",
 		localstore.InstallationsDirName,
 		"*",

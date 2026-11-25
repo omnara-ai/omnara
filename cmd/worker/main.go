@@ -9,7 +9,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
-	"runtime"
 	"runtime/debug"
 	"syscall"
 	"time"
@@ -159,14 +158,8 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
-	searchSupportErr := tools.CheckFileSearchSupport(ctx)
-	scriptSupportErr := tools.CheckScriptEditSupport(ctx)
-	if err := errors.Join(searchSupportErr, scriptSupportErr); err != nil {
+	if err := errors.Join(tools.CheckFileSearchSupport(ctx), tools.CheckScriptEditSupport(ctx)); err != nil {
 		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
-	}
-	if runtime.GOOS != "windows" {
-		// Linux retries sandbox setup per call.
-		scriptSupportErr = nil
 	}
 	store := storage.NewStore(db, storeOpts...)
 	if err := loadStoredModelPrices(ctx, log, modelPrices, store.Models().ChangedModelPriceCatalog); err != nil {
@@ -262,16 +255,15 @@ func main() {
 		SigV4CredentialCache: sigV4CredentialCache,
 		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{
-			Store:                  store,
-			ScriptEditSupportError: scriptSupportErr,
-			Skills:                 store.Skills(),
-			IntegrationHTTPClient:  integrationHTTPClient,
-			WebSearch:              searchProvider,
-			WebFetcher:             webFetcher,
-			MachinePoolManager:     machinePoolManager,
-			BackgroundRunner:       backgroundRunner,
-			SkillBroadcaster:       skillBroadcaster,
-			Log:                    log,
+			Store:                 store,
+			Skills:                store.Skills(),
+			IntegrationHTTPClient: integrationHTTPClient,
+			WebSearch:             searchProvider,
+			WebFetcher:            webFetcher,
+			MachinePoolManager:    machinePoolManager,
+			BackgroundRunner:      backgroundRunner,
+			SkillBroadcaster:      skillBroadcaster,
+			Log:                   log,
 		},
 		StreamPublisher: redisBus,
 		StreamLog:       log,

@@ -9,6 +9,18 @@ import (
 
 func Prepare(t testing.TB, dir string) {
 	t.Helper()
+	setCaseSensitive(t, dir, windows.FILE_CS_FLAG_CASE_SENSITIVE_DIR)
+}
+
+func CaseInsensitiveDir(t testing.TB) string {
+	t.Helper()
+	dir := t.TempDir()
+	setCaseSensitive(t, dir, 0)
+	return dir
+}
+
+func setCaseSensitive(t testing.TB, dir string, flags uint32) {
+	t.Helper()
 	name, err := windows.UTF16PtrFromString(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -20,9 +32,8 @@ func Prepare(t testing.TB, dir string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = windows.CloseHandle(handle) }()
-	flags := uint32(windows.FILE_CS_FLAG_CASE_SENSITIVE_DIR)
 	if err := windows.SetFileInformationByHandle(handle, windows.FileCaseSensitiveInfo,
 		(*byte)(unsafe.Pointer(&flags)), uint32(unsafe.Sizeof(flags))); err != nil {
-		t.Fatalf("enable NTFS case sensitivity: %v", err)
+		t.Fatalf("set NTFS case sensitivity: %v", err)
 	}
 }

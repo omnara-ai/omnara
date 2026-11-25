@@ -242,7 +242,7 @@ foreach ($service in $services) {
 }
 if (Get-ChildItem -LiteralPath (Join-Path $DataDirectory 'worker\logs') -Filter '*.log' |
     Select-String -SimpleMatch 'worker.file_tools_unavailable') {
-    Write-Warning 'One or more worker file tools failed startup checks; inspect the protected worker logs. An edit-probe failure disables scripted edits until omnara-worker restarts. Searches check availability on each call.'
+    Write-Warning 'One or more worker file tools failed startup checks; inspect the protected worker logs, fix the file tools, and retry the operation.'
 }
 Write-Host "Omnara services are running and ready. Configuration: $installedEnvironment"
 Write-Host "The dashboard and API listen on 127.0.0.1:$ApiPort. Configure IIS with -BackendPort $ApiPort."

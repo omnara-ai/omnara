@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -235,16 +236,25 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	require.Len(t, page.Data, 1)
 	require.Equal(t, "nested/c.txt", page.Data[0].Path)
 	require.Nil(t, page.Next)
-	longName := strings.Repeat("&", 255)
-	request(t, http.MethodPut, file(longName), []byte("content"), project.AdminToken, http.StatusOK)
-	first = request(t, http.MethodGet, base+"/files?limit=1", nil, project.AdminToken, http.StatusOK)
-	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &page))
-	require.Equal(t, longName, page.Data[0].Path)
-	require.NotNil(t, page.Next)
-	second = request(t, http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next), nil,
-		project.AdminToken, http.StatusOK)
-	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &page))
-	require.Equal(t, "a.txt", page.Data[0].Path)
+	characters := []string{"&"}
+	if runtime.GOOS != "windows" {
+		characters = append(characters, "<")
+	}
+	for _, character := range characters {
+		// HTML escaping expands each character sixfold and can make the cursor too large to read back.
+		longName := strings.Repeat(character, 255)
+		request(t, http.MethodPut, file(longName), []byte("content"), project.AdminToken, http.StatusOK)
+		first = request(t, http.MethodGet, base+"/files?limit=1", nil, project.AdminToken, http.StatusOK)
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &page))
+		require.Equal(t, longName, page.Data[0].Path)
+		require.NotNil(t, page.Next)
+		second = request(t, http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next), nil,
+			project.AdminToken, http.StatusOK)
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &page))
+		require.Equal(t, "a.txt", page.Data[0].Path)
+		deleteURL := file(longName) + "&expected_digest=" + url.QueryEscape(blobstore.ContentDigest([]byte("content")))
+		request(t, http.MethodDelete, deleteURL, nil, project.AdminToken, http.StatusNoContent)
+	}
 	missingFolder := request(t, http.MethodGet, base+"/files?path=missing", nil,
 		project.AdminToken, http.StatusNotFound)
 	require.JSONEq(t, pathNotFound, missingFolder.Body.String())

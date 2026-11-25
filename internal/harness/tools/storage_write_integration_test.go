@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -84,7 +85,11 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 			t.Fatalf("file = %q, %s, %v; want %q", content, digest, err, want)
 		}
 	}
-	call.Executor.ScriptEditSupportError = errors.New("file-tool startup validation failed")
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		setupSandbox(t)
+	}
+	toolPath := os.Getenv("PATH")
+	t.Setenv("PATH", t.TempDir())
 	first, err := write(map[string]any{"path": path, "content": "é😀", "append": true})
 	if err != nil || first != blobstore.ContentDigest([]byte("é😀")) {
 		t.Fatalf("create: %s, %v", first, err)
@@ -99,7 +104,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		t.Fatalf("disabled scripted edit: %v", err)
 	}
 	check("é😀 tail")
-	call.Executor.ScriptEditSupportError = nil
+	t.Setenv("PATH", toolPath)
 	for _, input := range []map[string]any{
 		{"path": path, "content": "unguarded"},
 		{"path": path, "content": "tail", "append": true},
@@ -135,7 +140,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	if err != nil || len(content) != len("é😀 tail")+wins || wins == 0 {
 		t.Fatalf("parallel append content: %q, %d wins, %v", content, wins, err)
 	}
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
 		if _, err := write(map[string]any{"path": path, "script": "s/tail[AB]+/done/", "force": true}); err != nil {
 			t.Fatal(err)
 		}

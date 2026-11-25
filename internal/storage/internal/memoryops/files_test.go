@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -749,9 +748,6 @@ func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
 }
 
 func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("requires filesystem permission enforcement")
-	}
 	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
@@ -768,14 +764,33 @@ func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
 	if _, err := files.Stage(ref, []byte("pending")); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.root.Chmod(ref.path, 0500); err != nil {
+	lock, err := files.Lock(t.Context(), ref)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = files.root.Chmod(ref.path, 0700) }()
-	if err := files.RemoveStore(ref); !errors.Is(err, fs.ErrPermission) {
-		t.Fatalf("expected content cleanup permission error, got %v", err)
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := files.root.Stat(ref.staging); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("staging cleanup skipped after content cleanup failed: %v", err)
+	release, wantError := blockStoreRemoval(t, files, ref)
+	defer release()
+	if err := files.RemoveStore(ref); !errors.Is(err, wantError) {
+		t.Fatalf("expected blocked content cleanup, got %v", err)
+	}
+	if content, err := files.root.ReadFile(ref.path + "/note.txt"); err != nil || string(content) != "published" {
+		t.Fatalf("blocked file changed: %q, %v", content, err)
+	}
+	for _, name := range []string{ref.staging, locksDir + "/" + ref.path} {
+		if _, err := files.root.Stat(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("cleanup skipped %s after content cleanup failed: %v", name, err)
+		}
+	}
+	release()
+	if err := files.RemoveStore(ref); err != nil {
+		t.Fatalf("retry blocked removal: %v", err)
+	}
+	for _, name := range []string{ref.path, ref.staging, locksDir + "/" + ref.path} {
+		if _, err := files.root.Stat(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("retry left %s: %v", name, err)
+		}
 	}
 }

@@ -32,23 +32,35 @@ func TestSearchContents(t *testing.T) {
 		}
 	}
 	store := memorystore.SearchStore{Name: "notes", Root: root}
-	for _, pattern := range []string{
-		"/memory/notes/*.md", "/memory/notes/?.md", "/memory/*/**/*.md",
-		"/memory/**/notes/*.md", "/memory/notes/[x]{y}.md", "/memory/notes/two words.md",
-		"/memory/notes/nested/*.md", "/memory/**", "/memory/other/**", "/memory/notes/missing*",
+	for _, test := range []struct {
+		pattern string
+		want    []string
+	}{
+		{"/memory", nil},
+		{"/memory/*", nil},
+		{"/memory/notes", nil},
+		{"/memory/notes/*.md", []string{"note.md", ".hidden.md", "[x]{y}.md", "two words.md", "é.md"}},
+		{"/memory/notes/?.md", []string{"é.md"}},
+		{"/memory/*/**/*.md", []string{"note.md", ".hidden.md", "[x]{y}.md", "two words.md", "é.md", "nested/note.md"}},
+		{"/memory/**/notes/*.md", []string{"note.md", ".hidden.md", "[x]{y}.md", "two words.md", "é.md"}},
+		{"/memory/notes/[x]{y}.md", []string{"[x]{y}.md"}},
+		{"/memory/notes/two words.md", []string{"two words.md"}},
+		{"/memory/notes/nested/*.md", []string{"nested/note.md"}},
+		{"/memory/no*/nested/**", []string{"nested/note.md", "nested/other.txt"}},
+		{"/memory/**", names},
+		{"/memory/other/**", nil},
+		{"/memory/notes/missing*", nil},
 	} {
-		t.Run(pattern, func(t *testing.T) {
-			matcher, err := storage.CompileFilePattern(pattern)
+		t.Run(test.pattern, func(t *testing.T) {
+			matcher, err := storage.CompileFilePattern(test.pattern)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var want, got []string
-			for _, name := range names {
-				if full := "/memory/notes/" + name; matcher.MatchString(full) {
-					want = append(want, full)
-				}
+			for _, name := range test.want {
+				want = append(want, "/memory/notes/"+name)
 			}
-			err = store.VisitContents(t.Context(), pattern, matcher, func(path string, content []byte) error {
+			err = store.VisitContents(t.Context(), test.pattern, matcher, func(path string, content []byte) error {
 				got = append(got, path)
 				if path != "/memory/notes/"+string(content) {
 					t.Fatalf("wrong file content: %q = %q", path, content)
@@ -63,6 +75,9 @@ func TestSearchContents(t *testing.T) {
 			if !slices.Equal(want, got) {
 				t.Fatalf("paths = %v, want %v", got, want)
 			}
+			if _, err := root.Stat("note.md"); err != nil {
+				t.Fatalf("borrowed root was closed: %v", err)
+			}
 		})
 	}
 	pattern := "/memory/notes/**"
@@ -72,11 +87,17 @@ func TestSearchContents(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := store.VisitContents(ctx, pattern, matcher, func(string, []byte) error {
-		t.Fatal("visited file after cancellation")
-		return nil
-	}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancellation: %v", err)
+	for _, pattern := range []string{pattern, "/memory/other/**", "/memory"} {
+		matcher, err := storage.CompileFilePattern(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.VisitContents(ctx, pattern, matcher, func(string, []byte) error {
+			t.Fatal("visited file after cancellation")
+			return nil
+		}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation for %s: %v", pattern, err)
+		}
 	}
 	stop := errors.New("stop after first file")
 	visits := 0
@@ -85,6 +106,9 @@ func TestSearchContents(t *testing.T) {
 		return stop
 	}); !errors.Is(err, stop) || visits != 1 {
 		t.Fatalf("visitor stop: visits=%d, err=%v", visits, err)
+	}
+	if _, err := root.Stat("note.md"); err != nil {
+		t.Fatalf("borrowed root was closed after visitor error: %v", err)
 	}
 	t.Run("symlinks", func(t *testing.T) {
 		outside := testfs.TempDir(t)
@@ -103,17 +127,23 @@ func TestSearchContents(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		pattern := "/memory/notes/escape/secret.md"
-		matcher, err := storage.CompileFilePattern(pattern)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = store.VisitContents(t.Context(), pattern, matcher, func(string, []byte) error {
-			t.Fatal("read through explicit symlink")
-			return nil
-		})
-		if !errors.Is(err, storeerr.ErrConflict) {
-			t.Fatalf("explicit symlink: %v", err)
+		for _, storeName := range []string{"notes", "other"} {
+			pattern := "/memory/" + storeName + "/escape/secret.md"
+			matcher, err := storage.CompileFilePattern(pattern)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = store.VisitContents(t.Context(), pattern, matcher, func(string, []byte) error {
+				t.Fatal("read through explicit symlink")
+				return nil
+			})
+			var want error
+			if storeName == "notes" {
+				want = storeerr.ErrConflict
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("explicit symlink for %s: %v, want %v", storeName, err, want)
+			}
 		}
 	})
 }

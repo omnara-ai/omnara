@@ -91,19 +91,12 @@ func checkNativeFileSearchSupport(ctx context.Context) error {
 func CheckScriptEditSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	text, err := editFileText(ctx, []byte("é😀\n"), "s/./x/g")
+	text, err := editFileText(ctx, []byte("é😀\na\r\n"), "1s/./x/g;2s/a/b/")
 	if err != nil {
 		return err
 	}
-	if string(text) != "xx\n" {
-		return errors.New("scripted editing requires a working C.UTF-8 locale")
-	}
-	text, err = editFileText(ctx, []byte("a\r\n"), "s/a/b/")
-	if err != nil {
-		return err
-	}
-	if string(text) != "b\r\n" {
-		return errors.New("scripted editing requires binary I/O")
+	if string(text) != "xx\nb\r\n" {
+		return errors.New("scripted editing requires a working C.UTF-8 locale and binary I/O")
 	}
 	return nil
 }

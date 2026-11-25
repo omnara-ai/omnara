@@ -153,7 +153,6 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	write(secondary.ID, "notes.md", "TARGET\nTARGET\n")
 	write(private.ID, "secret.md", "TARGET SECRET\n")
 	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
-	call.Executor.ScriptEditSupportError = errors.New("scripted-edit startup validation failed")
 	call.Turn.AgentID = agent.ID
 	search := func(path string, args []string, limit, offset int) (searchResult, error) {
 		t.Helper()

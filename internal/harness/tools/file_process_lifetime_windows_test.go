@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -140,7 +141,7 @@ func TestWindowsScriptLaunchFailureCleanup(t *testing.T) {
 			} else {
 				require.True(t, sandboxSetupFailed(err, output), "expected setup failure: %s (%v)", output, err)
 			}
-			require.Empty(t, fileToolJobMembers(t, command))
+			requireFileToolProcessesExited(t, command)
 			cleanup()
 			cleanup = nil
 			entries, err := os.ReadDir(dir)
@@ -259,7 +260,7 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 			output, err := command.Output()
 			require.NoError(t, err)
 			require.Equal(t, "b", string(output))
-			require.Empty(t, fileToolJobMembers(t, command), "completed launcher left a child running")
+			requireFileToolProcessesExited(t, command)
 		}
 		for range 4 {
 			run()
@@ -356,13 +357,43 @@ func fileToolJobMembers(t *testing.T, command *exec.Cmd) []uint32 {
 	err := windows.QueryInformationJobObject(job, windows.JobObjectBasicProcessIdList,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil)
 	require.NoError(t, err)
-	require.Equal(t, info.Assigned, info.Count)
+	require.LessOrEqual(t, info.Assigned, uint32(len(info.PIDs)))
 	require.LessOrEqual(t, info.Count, uint32(len(info.PIDs)))
 	pids := make([]uint32, info.Count)
 	for i := range pids {
 		pids[i] = uint32(info.PIDs[i])
 	}
 	return pids
+}
+
+func requireFileToolProcessesExited(t *testing.T, command *exec.Cmd) {
+	t.Helper()
+	job := windows.Handle(command.SysProcAttr.AdditionalInheritedHandles[0])
+	for _, pid := range fileToolJobMembers(t, command) {
+		handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			continue
+		}
+		require.NoError(t, err, "open file-tool process %d", pid)
+		status, waitErr := windows.WaitForSingleObject(handle, 0)
+		var inJob uint32
+		result, _, queryErr := windows.NewLazySystemDLL("kernel32.dll").NewProc("IsProcessInJob").Call(
+			uintptr(handle), uintptr(job), uintptr(unsafe.Pointer(&inJob)))
+		var name string
+		if inJob != 0 && status != windows.WAIT_OBJECT_0 {
+			buffer := make([]uint16, 1024)
+			size := uint32(len(buffer))
+			if err := windows.QueryFullProcessImageName(handle, 0, &buffer[0], &size); err == nil {
+				name = windows.UTF16ToString(buffer[:size])
+			}
+		}
+		require.NoError(t, windows.CloseHandle(handle))
+		require.NoError(t, waitErr)
+		require.NotZero(t, result, "IsProcessInJob: %v", queryErr)
+		if inJob != 0 {
+			require.EqualValues(t, windows.WAIT_OBJECT_0, status, "file-tool process %d (%s) is still running", pid, name)
+		}
+	}
 }
 
 func suspendedFileToolThread(t *testing.T, pid uint32) windows.Handle {

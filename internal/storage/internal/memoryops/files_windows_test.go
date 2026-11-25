@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -13,15 +14,16 @@ import (
 )
 
 func TestWindowsMemoryRequiresCaseSensitivity(t *testing.T) {
-	dir := t.TempDir()
-	file, err := os.Open(dir)
-	if err != nil {
+	dir := testfs.CaseInsensitiveDir(t)
+	probe := filepath.Join(dir, "case-probe")
+	if err := os.WriteFile(probe, []byte("content"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err = checkCaseSensitive(file)
-	_ = file.Close()
-	if err == nil {
-		t.Skip("the host's temporary directory already inherits case sensitivity")
+	if content, err := os.ReadFile(filepath.Join(dir, "CASE-PROBE")); err != nil || string(content) != "content" {
+		t.Fatalf("case-insensitive fixture: %q, %v", content, err)
+	}
+	if err := os.Remove(probe); err != nil {
+		t.Fatal(err)
 	}
 	if files, err := OpenFilesystem(dir); err == nil {
 		_ = files.Close()
@@ -147,4 +149,22 @@ func TestWindowsReplacedFileIsNotAnAlias(t *testing.T) {
 	if content, err := Read(root, "file.txt"); err != nil || string(content) != "new" {
 		t.Fatalf("read replacement: %q, %v", content, err)
 	}
+}
+
+func blockStoreRemoval(t *testing.T, files *Filesystem, ref StoreRef) (func(), error) {
+	t.Helper()
+	name, err := windows.UTF16PtrFromString(filepath.Join(files.root.Name(), ref.path, "note.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(name, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sync.OnceFunc(func() {
+		if err := windows.CloseHandle(handle); err != nil {
+			t.Error(err)
+		}
+	}), windows.ERROR_SHARING_VIOLATION
 }

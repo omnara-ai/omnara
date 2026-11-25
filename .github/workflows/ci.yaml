@@ -254,6 +254,9 @@ jobs:
       - name: Test Windows storage, file tools, configuration, and process helpers
         run: go test -count=1 -v ./internal/config ./internal/storage/internal/memoryops ./internal/storage/memorystore ./internal/harness/tools ./internal/sandbox ./internal/testutil/integrationdb ./internal/testutil/integrationlock
 
+      - name: Test Windows scripted edit limits
+        run: go test -count=1 -v '-tags=integration' -run '^TestEditFileTextLimits$' ./internal/harness/tools
+
       - name: Compile and vet Windows integration and service tests
         run: go vet '-tags=integration,servicee2e,webe2e' ./internal/e2e ./internal/harness/tools ./internal/httpapi ./internal/storage/... ./internal/blobstore ./internal/httpapi/auth ./internal/notifications ./internal/redistore
 

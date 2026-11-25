@@ -68,7 +68,6 @@ type Executor struct {
 	BackgroundRunner         BackgroundRunner
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
-	ScriptEditSupportError   error
 	Log                      *slog.Logger
 }
 

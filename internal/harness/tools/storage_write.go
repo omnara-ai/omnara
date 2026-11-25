@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -65,8 +66,13 @@ func runStorageWriteAsync(ctx context.Context, call asyncToolContext) (asyncPhas
 	if err != nil {
 		return nil, err
 	}
-	if err := call.Executor.ScriptEditSupportError; input.Script != nil && err != nil {
-		return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
+	if input.Script != nil && runtime.GOOS == "windows" {
+		if err := CheckScriptEditSupport(ctx); err != nil {
+			if errors.Is(err, errFileToolUnavailable) {
+				return nil, err
+			}
+			return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
+		}
 	}
 	ctx, cancel := context.WithTimeoutCause(ctx, 10*time.Second, errors.New("simplify the script and retry"))
 	defer cancel()
