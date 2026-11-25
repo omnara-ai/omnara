@@ -37,7 +37,7 @@ jobs:
         shell: powershell
         run: .\deploy\windows\Build-Windows.ps1 -OutputDirectory "$env:RUNNER_TEMP\omnara-windows-bundle\bin"
 
-      - name: Package and verify download
+      - name: Package download
         # Current .NET writes portable ZIP paths; Windows PowerShell uses legacy backslashes.
         shell: pwsh
         run: |
@@ -63,8 +63,16 @@ jobs:
           try {
             if ($zip.Entries.FullName -match '\\') { throw 'ZIP paths must use forward slashes' }
           } finally { $zip.Dispose() }
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$archive.sha256", "$hash  omnara-windows-amd64.zip`n", [Text.Encoding]::ASCII)
+
+      - name: Verify download with Windows PowerShell
+        shell: powershell
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'omnara-windows-bundle'
+          $archive = Join-Path $env:RUNNER_TEMP 'omnara-windows-release\omnara-windows-amd64.zip'
           $unpacked = Join-Path $env:RUNNER_TEMP 'omnara-windows-unpacked'
-          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $unpacked)
+          Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
           foreach ($file in Get-ChildItem -LiteralPath $bundle -Recurse -File) {
             $relative = $file.FullName.Substring($bundle.Length + 1)
             if ((Get-FileHash -LiteralPath $file.FullName).Hash -ne
@@ -72,6 +80,8 @@ jobs:
               throw "Archive round trip changed $relative"
             }
           }
+          $commit = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify release source' }
           foreach ($name in @('api', 'worker', 'maintenance', 'migrate', 'sandbox')) {
             $metadata = (& go version -m "$unpacked\bin\omnara-$name.exe") -join "`n"
             if ($LASTEXITCODE -ne 0 -or $metadata -notmatch 'GOOS=windows' -or
@@ -86,8 +96,6 @@ jobs:
           if (@(Get-ChildItem "$unpacked\bin\migrations\*.sql").Count -eq 0) { throw 'Missing migrations' }
           $snapshot = Get-Content -LiteralPath "$unpacked\bin\mcp-registry.json" -Raw | ConvertFrom-Json
           if (-not $snapshot.servers) { throw 'Missing MCP registry servers' }
-          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText("$archive.sha256", "$hash  omnara-windows-amd64.zip`n", [Text.Encoding]::ASCII)
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
