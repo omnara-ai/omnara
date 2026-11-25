@@ -20,7 +20,7 @@ import (
 
 func TestWindowsScriptParentDeath(t *testing.T) {
 	requireNativeFileTools(t)
-	for _, mode := range []string{"running", "before_assignment"} {
+	for _, mode := range []string{"running", "running_with_search", "before_assignment"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := privateFileToolTemp(t)
 			parent := windowsFileToolHelper(t, mode)
@@ -35,10 +35,24 @@ func TestWindowsScriptParentDeath(t *testing.T) {
 			var ready struct {
 				Launcher uint32
 				Members  []uint32
+				Search   uint32
 			}
 			require.NoError(t, json.NewDecoder(stdout).Decode(&ready))
+			var search windows.Handle
+			if ready.Search != 0 {
+				search, err = windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_TERMINATE, false, ready.Search)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					_ = windows.TerminateProcess(search, 1)
+					_ = windows.CloseHandle(search)
+				})
+			}
+			if mode == "running_with_search" {
+				require.NotZero(t, search)
+				require.NotContains(t, ready.Members, ready.Search)
+			}
 			require.NotZero(t, ready.Launcher)
-			if mode == "running" {
+			if mode != "before_assignment" {
 				require.Contains(t, ready.Members, ready.Launcher)
 				require.GreaterOrEqual(t, len(ready.Members), 2, "launcher and real sed must both be in the job")
 			} else {
@@ -73,6 +87,11 @@ func TestWindowsScriptParentDeath(t *testing.T) {
 				status, err := windows.WaitForSingleObject(handle, 5000)
 				require.NoError(t, err)
 				require.EqualValues(t, windows.WAIT_OBJECT_0, status, "file-tool process survived its parent")
+			}
+			if search != 0 {
+				status, err := windows.WaitForSingleObject(search, 0)
+				require.NoError(t, err)
+				require.EqualValues(t, windows.WAIT_TIMEOUT, status, "search exited before job-handle isolation was proven")
 			}
 			if mode == "before_assignment" {
 				require.NoFileExists(t, filepath.Join(dir, "tool-started"), "tool ran after its parent died before job assignment")
@@ -263,7 +282,7 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 		require.Empty(t, entries)
 		return
 	}
-	require.Contains(t, []string{"running", "before_assignment"}, mode)
+	require.Contains(t, []string{"running", "running_with_search", "before_assignment"}, mode)
 	command, cleanup, err := newScriptEditCommand(t.Context(), "p;:again;b again")
 	require.NoError(t, err)
 	defer cleanup()
@@ -284,16 +303,28 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 	}
 	require.NoError(t, command.Start())
 	defer func() { _ = command.Cancel(); _ = command.Wait() }()
-	if mode == "running" {
+	if mode != "before_assignment" {
 		// More than sed's stdout buffer proves the real tool is running, without
 		// depending on buffering flags or timing sleeps.
 		_, err := io.ReadFull(stdout, make([]byte, 64*1024))
 		require.NoError(t, err)
 	}
+	var searchPID uint32
+	if mode == "running_with_search" {
+		search, err := newFileSearchCommand(t.Context(), "rg", []string{"-e", "."}, nil, 0)
+		require.NoError(t, err)
+		// Keep a real search process alive after the parent dies. Otherwise stdin
+		// EOF could make rg exit and conceal an accidentally inherited job handle.
+		search.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+		require.NoError(t, search.Start())
+		defer func() { _ = search.Process.Kill(); _ = search.Wait() }()
+		searchPID = uint32(search.Process.Pid)
+	}
 	require.NoError(t, json.NewEncoder(os.Stdout).Encode(struct {
 		Launcher uint32
 		Members  []uint32
-	}{uint32(command.Process.Pid), fileToolJobMembers(t, command)}))
+		Search   uint32
+	}{uint32(command.Process.Pid), fileToolJobMembers(t, command), searchPID}))
 	// The controlling test kills this process. EOF also releases it if that test
 	// fails, so its normal defers can terminate the tool and close the job.
 	_, _ = io.Copy(io.Discard, os.Stdin)
