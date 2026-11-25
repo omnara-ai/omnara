@@ -5,7 +5,7 @@ import {
   type OmnaraClient,
 } from '@omnara/sdk'
 import { getAgentOptions } from '@omnara/sdk/tanstack'
-import { type QueryClient, type QueryStatus, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
@@ -17,7 +17,6 @@ import {
   isControlEvent,
   isTerminalEvent,
   type ModelOutputDelta,
-  type OmnaraUIMessage,
   parseStreamData,
   projectAgentChat,
   sequenceNumber,
@@ -35,12 +34,11 @@ import type {
   AgentChatOptions,
   AgentChatScope,
   AgentChatSessionOptions,
-  AgentChatStatus,
   AgentChatTransport,
   LocalAgentInput,
+  UseAgentChatResult,
 } from './agent-chat-types'
 import {
-  type AgentInputBacklogControls,
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
   invalidateBacklogOnEvent,
@@ -48,6 +46,7 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { TraceInvalidationCoalescer } from './agent-traces'
 import { invalidateBudgetQueries } from './budgets'
 import { agentUsageQueryPredicate } from './usage'
 
@@ -55,6 +54,7 @@ export type { OmnaraUIMessage } from './agent-chat-messages'
 export type {
   AgentChatAttachmentInput,
   AgentChatData,
+  AgentChatHistoryStatus,
   AgentChatMessageInput,
   AgentChatOptions,
   AgentChatScope,
@@ -63,27 +63,8 @@ export type {
   AgentChatStatus,
   AgentChatTransport,
   OmnaraMessageMetadata,
+  UseAgentChatResult,
 } from './agent-chat-types'
-
-export type AgentChatHistoryStatus = QueryStatus
-
-export interface UseAgentChatResult {
-  events: AgentEvent[]
-  messages: OmnaraUIMessage[]
-  status: AgentChatStatus
-  isWorking: boolean
-  error: Error | undefined
-  streamError: Error | undefined
-  historyStatus: AgentChatHistoryStatus
-  historyError: Error | null
-  retryHistory: () => void
-  reconnect: () => void
-  hasOlderMessages: boolean
-  isLoadingOlderMessages: boolean
-  loadOlderMessages: () => void
-  sendMessage: (message: AgentChatMessageInput) => Promise<void>
-  inputBacklog: AgentInputBacklogControls
-}
 
 const emptyBacklogInputs: AgentInput[] = []
 
@@ -93,6 +74,7 @@ export class AgentChatSession {
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
   private readonly inputReconciliationDelayMs: number
+  private readonly traceInvalidator: TraceInvalidationCoalescer
 
   private listeners: (() => void)[] = []
   private runController: AbortController | null = null
@@ -123,6 +105,7 @@ export class AgentChatSession {
     projectID,
     agentID,
     inputReconciliationDelayMs = 1000,
+    traceInvalidationDelayMs = 250,
     transport = sdkAgentChatTransport,
   }: AgentChatSessionOptions) {
     this.client = client
@@ -130,6 +113,11 @@ export class AgentChatSession {
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
     this.inputReconciliationDelayMs = inputReconciliationDelayMs
+    this.traceInvalidator = new TraceInvalidationCoalescer(
+      queryClient,
+      this.scope,
+      traceInvalidationDelayMs,
+    )
   }
 
   getData = (): AgentChatData => this.data
@@ -344,6 +332,7 @@ export class AgentChatSession {
     const hasEvent = this.hasLoadedEvent.bind(this)
     invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
     void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
+    this.traceInvalidator.onEvent(event.turn_id, event.is_opening_event)
     this.notify()
   }
 
@@ -380,12 +369,16 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) this.invalidateInteractions()
+    if (state.reconnected) {
+      this.invalidateInteractions()
+      this.traceInvalidator.onReconnect()
+    }
   }
 
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
+    this.traceInvalidator.cancel()
   }
 
   reconnect = (): void => {

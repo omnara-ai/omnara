@@ -17,6 +17,7 @@ import { errorMessage } from '@/lib/submit-status'
 
 export function CredentialSecretField({
   orgId,
+  projectId,
   enabled,
   value,
   onChange,
@@ -29,6 +30,8 @@ export function CredentialSecretField({
   status,
 }: {
   orgId: string
+  /** When set, offers project-available secrets and stores new ones in the project. */
+  projectId?: string
   enabled: boolean
   value: string
   onChange: (value: string) => void
@@ -47,6 +50,7 @@ export function CredentialSecretField({
     return (
       <SecretTypeaheadField
         orgId={orgId}
+        projectId={projectId}
         enabled={enabled}
         value={value}
         onChange={onChange}
@@ -65,6 +69,7 @@ export function CredentialSecretField({
   return (
     <InlineNewSecretFields
       orgId={orgId}
+      projectId={projectId}
       label={label}
       defaultName={defaultSecretName}
       valuePlaceholder={secretValuePlaceholder}
@@ -83,6 +88,7 @@ export function CredentialSecretField({
 
 function InlineNewSecretFields({
   orgId,
+  projectId,
   label,
   defaultName,
   valuePlaceholder,
@@ -91,6 +97,7 @@ function InlineNewSecretFields({
   onCreated,
 }: {
   orgId: string
+  projectId?: string
   label: string
   defaultName: string
   valuePlaceholder: string
@@ -116,7 +123,8 @@ function InlineNewSecretFields({
         kind === 'aws_credentials' ? awsMaterial : { kind: 'generic' as const, value: secretValue }
       if (material === undefined) return
       const secret = await createSecret.mutateAsync({
-        owner: { kind: 'org' },
+        owner:
+          projectId === undefined ? { kind: 'org' } : { kind: 'project', project_id: projectId },
         name,
         material,
       })
@@ -182,7 +190,9 @@ function InlineNewSecretFields({
         </div>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <div className="flex items-center justify-between gap-2">
-          <FieldDescription>Stored as an organization secret.</FieldDescription>
+          <FieldDescription>
+            Stored as {projectId === undefined ? 'an organization' : 'a project'} secret.
+          </FieldDescription>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
               Cancel

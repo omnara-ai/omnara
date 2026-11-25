@@ -28,6 +28,7 @@ import {
 } from '@/components/agents/AgentSidebar'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
+import { AgentTraces } from '@/components/agents/traces/AgentTraces'
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -43,19 +44,75 @@ import { cn } from '@/lib/utils'
 const agentDetailPollInterval = 5_000
 const agentSidebarStyle: CssVariables = { '--sidebar-width': agentPaneWidth }
 
-type AgentViewMode = 'events' | 'chat'
+type AgentViewMode = 'events' | 'chat' | 'traces'
 
 const viewTabs: { value: AgentViewMode; label: string }[] = [
   { value: 'events', label: 'Event log' },
   { value: 'chat', label: 'Chat' },
+  { value: 'traces', label: 'Traces' },
 ]
+const viewPaths = {
+  events: '/projects/$projectId/agents/$agentId/events',
+  chat: '/projects/$projectId/agents/$agentId/chat',
+  traces: '/projects/$projectId/agents/$agentId/traces',
+} as const
+
+function useAgentViewMode(): AgentViewMode {
+  const matchRoute = useMatchRoute()
+  if (matchRoute({ to: viewPaths.chat })) return 'chat'
+  if (matchRoute({ to: viewPaths.traces })) return 'traces'
+  return 'events'
+}
+
+/** The agent's event log, chat or traces, whichever view the route names. */
+function AgentViewBody({
+  view,
+  chat,
+  currentActorId,
+  orgId,
+  projectId,
+  agentId,
+  tracesToolbar,
+  initialTurnId,
+  initialSpanId,
+}: {
+  view: AgentViewMode
+  chat: ReturnType<typeof useAgentChat>
+  currentActorId: ReturnType<typeof useCurrentActorId>
+  orgId: string
+  projectId: string
+  agentId: string
+  tracesToolbar: HTMLElement | null
+  initialTurnId?: string
+  initialSpanId?: string
+}) {
+  if (view === 'events')
+    return <AgentEventLog chat={chat} orgId={orgId} projectId={projectId} agentId={agentId} />
+  if (view === 'traces')
+    return (
+      <AgentTraces
+        orgID={orgId}
+        projectID={projectId}
+        agentID={agentId}
+        toolbar={tracesToolbar}
+        initialTurnId={initialTurnId}
+        initialSpanId={initialSpanId}
+      />
+    )
+  return (
+    <AgentConversation
+      chat={chat}
+      currentActorId={currentActorId}
+      orgID={orgId}
+      projectID={projectId}
+      agentID={agentId}
+    />
+  )
+}
 
 export function AgentView() {
   const navigate = useNavigate()
-  const matchRoute = useMatchRoute()
-  const view: AgentViewMode = matchRoute({ to: '/projects/$projectId/agents/$agentId/chat' })
-    ? 'chat'
-    : 'events'
+  const view = useAgentViewMode()
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
   const params = useParams({ strict: false })
@@ -82,6 +139,8 @@ export function AgentView() {
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
   const search = useSearch({ strict: false })
+  // The traces view puts its turn picker here, in line with the view tabs.
+  const [tracesToolbar, setTracesToolbar] = useState<HTMLDivElement | null>(null)
   const [configOpen, setConfigOpen] = useState(
     () => search.config === true || hasPendingMcpBuilderOAuthOutcome(),
   )
@@ -96,10 +155,7 @@ export function AgentView() {
     setConfigOpen(false)
     if (search.config) {
       void navigate({
-        to:
-          view === 'chat'
-            ? '/projects/$projectId/agents/$agentId/chat'
-            : '/projects/$projectId/agents/$agentId/events',
+        to: viewPaths[view],
         params: { projectId, agentId },
         search: {},
         replace: true,
@@ -136,7 +192,11 @@ export function AgentView() {
     <SidebarProvider className="h-full min-h-0 overflow-hidden" style={agentSidebarStyle}>
       <MessageScrollerProvider key={agentId} autoScroll>
         <div
-          className="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-1 flex-col overflow-hidden"
+          className={cn(
+            'mx-auto flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden',
+            // A trace needs the room for its waterfall and attribute values.
+            view === 'traces' && !configOpen ? 'max-w-7xl px-4' : 'max-w-5xl',
+          )}
           style={{ contain: 'paint' }}
         >
           <header className="shrink-0 pb-4">
@@ -178,6 +238,8 @@ export function AgentView() {
                   },
                 ]}
               />
+              {/* Padded so the picker's focus ring is not clipped by the page column. */}
+              <div ref={setTracesToolbar} className="flex min-w-0 items-center gap-3 py-1" />
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 <AgentViewTabs
                   hidden={configOpen}
@@ -216,22 +278,17 @@ export function AgentView() {
             </main>
           ) : (
             <main className="min-h-0 flex-1">
-              {view === 'events' ? (
-                <AgentEventLog
-                  chat={chat}
-                  orgId={activeOrg.id}
-                  projectId={projectId}
-                  agentId={agentId}
-                />
-              ) : (
-                <AgentConversation
-                  chat={chat}
-                  currentActorId={currentActorId}
-                  orgID={activeOrg.id}
-                  projectID={projectId}
-                  agentID={agentId}
-                />
-              )}
+              <AgentViewBody
+                view={view}
+                chat={chat}
+                currentActorId={currentActorId}
+                orgId={activeOrg.id}
+                projectId={projectId}
+                agentId={agentId}
+                tracesToolbar={tracesToolbar}
+                initialTurnId={search.turn}
+                initialSpanId={search.span}
+              />
             </main>
           )}
 
@@ -286,10 +343,7 @@ function AgentViewTabs({
       tabs={viewTabs}
       onValueChange={(nextView) => {
         void navigate({
-          to:
-            nextView === 'chat'
-              ? '/projects/$projectId/agents/$agentId/chat'
-              : '/projects/$projectId/agents/$agentId/events',
+          to: viewPaths[nextView],
           params: { projectId, agentId },
         })
       }}

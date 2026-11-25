@@ -30,7 +30,7 @@ const (
 	deniedMachineReconcileInterval   = time.Hour
 	memoryCleanupInterval            = time.Hour
 	expiredDataCleanupInterval       = 5 * time.Minute
-	webhookDeliveryCleanupInterval   = time.Minute
+	deliveryCleanupInterval          = time.Minute
 	idleAgentArchiveInterval         = time.Minute
 )
 
@@ -58,8 +58,11 @@ func Run(ctx context.Context, options Options) {
 		{"reap_runtime_locks", interval, interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
 		{"expire_daemon_runtimes", interval, interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
 		{"expire_process_tools", interval, interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
-		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval, interval,
+		{"delete_expired_webhook_deliveries", deliveryCleanupInterval, interval,
 			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries, webhookRecorder)},
+		{"delete_expired_otel_export_deliveries", deliveryCleanupInterval, interval,
+			deleteExpiredOtelExportDeliveries(
+				log, execution.DeleteExpiredOtelExportDeliveries, metrics.NewOtelExportExpiryRecorder(options.Metrics))},
 		{"cleanup_auth_state", expiredDataCleanupInterval, interval,
 			cleanupAuthState(log, options.Store.Identity().CleanupInactiveAuthState)},
 		{"cleanup_integration_states", expiredDataCleanupInterval, interval,

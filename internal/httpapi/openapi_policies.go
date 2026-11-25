@@ -133,6 +133,13 @@ const (
 	operationUpdateEventWebhook            operationID = "UpdateEventWebhook"
 	operationDeleteCronTrigger             operationID = "DeleteCronTrigger"
 	operationDeleteEventWebhook            operationID = "DeleteEventWebhook"
+	operationCreateOtelExporter            operationID = "CreateOtelExporter"
+	operationListOtelExporters             operationID = "ListOtelExporters"
+	operationListOrgOtelExporters          operationID = "ListOrgOtelExporters"
+	operationGetOtelExporter               operationID = "GetOtelExporter"
+	operationUpdateOtelExporter            operationID = "UpdateOtelExporter"
+	operationDeleteOtelExporter            operationID = "DeleteOtelExporter"
+	operationGetTurnTrace                  operationID = "GetTurnTrace"
 	operationDeclineInvitation             operationID = "DeclineInvitation"
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
@@ -483,6 +490,13 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListEvents:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurns:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurnEvents:                accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetTurnTrace:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationCreateOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListOtelExporters:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListOrgOtelExporters:          accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOtelExporter:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteOtelExporter:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationStreamEvents:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListAgentInteractions:         accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationGetArtifact:                   accountPolicy(agentScope(identitystore.AgentActionRead)),

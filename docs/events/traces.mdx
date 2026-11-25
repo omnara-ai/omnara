@@ -1,0 +1,85 @@
+---
+title: "OpenTelemetry traces"
+description: "Export agent turns as OpenTelemetry traces to OTLP/HTTP endpoints"
+icon: "activity"
+---
+
+Omnara renders every agent turn as one OpenTelemetry trace following the GenAI semantic conventions. You can inspect traces in the agent's **Traces** tab, fetch a single turn on demand as OTLP/JSON, or configure exporters to push finished turns to an OTLP/HTTP collector or hosted tracing backend (Langfuse, Braintrust, or LangSmith).
+
+## Trace structure
+
+Each turn is one trace whose trace ID is the turn UUID:
+
+- **`invoke_agent <name>`** (root span): covers the entire turn, with all opening inputs on `gen_ai.input.messages` and the final answer on `gen_ai.output.messages`.
+- **`chat <model>`** (client span): one span per completed model call attempt, including retries and failed attempts, with token usage, finish reason, and provider-reported cost.
+- **`execute_tool <name>`** (internal span): one span per completed tool call, with arguments, result, and error status on failure.
+
+Cross-agent activity (subagent spawns, messages, and results) is connected with OTLP span links (`spawned_by`, `message_from`, `result_from`, `spawned`, `message_to`) and mirrored in the `omnara.links` attribute for backends that drop span links on ingestion.
+
+Very large turns are bounded before export so every request stays within collector limits. When calls or events are clipped or omitted, the root span sets `omnara.trace.truncated` or `omnara.trace.content_truncated` to `true`.
+
+## Fetch a turn trace
+
+Use `GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/trace` to fetch one turn as OTLP/JSON, ready to POST to any OTLP/HTTP endpoint that accepts JSON. Pass `variant=otel`, `langfuse`, `braintrust`, or `langsmith` to include vendor-specific attributes on top of the GenAI semantic conventions. A running turn returns the spans finished so far.
+
+## Configure exporters
+
+Open a project's **Traces** page to view its exporters, or the organization's **Traces** page to see the exporters of every project you can read. Project members can view exporters; adding, editing, and deleting them requires permission to manage the project.
+
+Exporters belong to a project and are managed under `/orgs/{orgID}/projects/{projectID}/otel-exporters`. Create one with `POST /orgs/{orgID}/projects/{projectID}/otel-exporters`:
+
+```json
+{
+  "endpoint": "https://cloud.langfuse.com/api/public/otel/v1/traces",
+  "variant": "langfuse",
+  "encoding": "protobuf",
+  "auth_kind": "basic",
+  "auth_options": {
+    "username": "pk-lf-..."
+  },
+  "credential_secret_id": "sec_5n6a2bfgik7mv4qtrwz3jehcyd",
+  "headers": {
+    "x-langfuse-ingestion-version": "4"
+  },
+  "sample_percent": 100
+}
+```
+
+### Projects
+
+Each exporter exports turns for every agent in its project, including subagents. The response carries the exporter's `project_id`, which is fixed at creation.
+
+A project's exporters are additive, so a turn is sent to each of them. A project can have up to **100 active exporters**, and only one active exporter per endpoint.
+
+`GET /orgs/{orgID}/projects/{projectID}/otel-exporters` lists the project's exporters ordered by `created_at` and `id`. `GET /orgs/{orgID}/otel-exporters` is a read-only list of the exporters in every project of the organization that you can read.
+
+### Sampling and encoding
+
+- **`sample_percent`** (`0`–`100`, default `100`): deterministic per-turn sampling decided once when a turn finishes, so a trace is exported whole or not at all.
+- **`encoding`** (`protobuf` or `json`, default `protobuf`): `protobuf` sends `application/x-protobuf` and is accepted by all variants. `json` sends `application/json` and is supported by `otel` and `langfuse` only (Braintrust and LangSmith require `protobuf`).
+
+### Authentication and headers
+
+Use typed credentials (`auth_kind`, `auth_options`, and a generic `credential_secret_id` available to the project) for endpoint authentication:
+
+| `auth_kind` | `auth_options` | Header sent |
+| --- | --- | --- |
+| `none` | `{}` | None |
+| `bearer_token` | `{}` | `Authorization: Bearer <secret>` |
+| `api_key_header` | `{"header_name": "..."}` | `<header_name>: <secret>` |
+| `basic` | `{"username": "..."}` | `Authorization: Basic <base64(username:secret)>` |
+
+Use `headers` (up to 20 plain headers) and `secret_headers` (up to 20 extra headers from generic secrets available to the project) for additional headers. A header managed by `auth_kind` cannot also appear in `headers` or `secret_headers`.
+
+A secret used as `credential_secret_id` cannot be deleted while an exporter references it. A secret used only in `secret_headers` can be: later exports leave that header out.
+
+### Vendor setup
+
+- **OpenTelemetry (`otel`)**: point `endpoint` at your collector's `/v1/traces` URL. Supports `protobuf` and `json`, with whichever `auth_kind` your collector requires.
+- **Langfuse (`langfuse`)**: endpoint `https://cloud.langfuse.com/api/public/otel/v1/traces` for the EU region, `https://us.cloud.langfuse.com/api/public/otel/v1/traces` for the US region, or your self-hosted URL, `auth_kind: "basic"`, `auth_options.username` set to your Langfuse Public Key (`pk-lf-...`), `credential_secret_id` storing your Langfuse Secret Key (`sk-lf-...`), and plain header `x-langfuse-ingestion-version: 4`.
+- **Braintrust (`braintrust`)**: endpoint `https://api.braintrust.dev/otel/v1/traces`, `encoding: "protobuf"`, `auth_kind: "bearer_token"`, `credential_secret_id` storing your Braintrust API key, and plain header `x-bt-parent: project_id:<your-project-id>` (or `project_name:<name>`).
+- **LangSmith (`langsmith`)**: endpoint `https://api.smith.langchain.com/otel/v1/traces`, `encoding: "protobuf"`, `auth_kind: "api_key_header"`, `auth_options.header_name: "x-api-key"`, and `credential_secret_id` storing your LangSmith API key.
+
+## Delivery and retries
+
+Each finished turn is queued once per matching, sampled exporter and sent as one OTLP/HTTP `POST` request (one turn per request). Transient network failures, `401`/`403`/`404`/`408`/`429`, and `5xx` responses retry with exponential backoff and jitter for up to **one hour**, after which undelivered traces expire. Other `4xx` rejections and OTLP partial-success acknowledgments are not retried. Deleting an exporter or its project drops queued turns immediately.

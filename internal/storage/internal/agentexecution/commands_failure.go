@@ -291,20 +291,26 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	}
 	sourceContext := attemptRecord(row).Context
 	sourceContext.State = ContextFailed
-	if err = applyAcceptedOutput(m,
+	sourceContext.Recovery = RecoveryNone
+	finished, err := applyAcceptedOutput(m,
 		snapshot,
 		sourceContext,
 		output.ID,
 		event,
 		false,
-		false); err != nil {
+		false)
+	if err != nil {
 		return false, err
+	}
+	if finished {
+		h.exportTurn(event.TurnID)
 	}
 	if err = h.parentEffect(ctx,
 		"failed",
 		text,
 		"model_output:"+output.ID.String(),
-		uuid.Nil); err != nil {
+		uuid.Nil,
+		output.ID); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -142,6 +143,10 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	}
 	if admission != nil {
 		content.PreparedArtifacts = admission.Artifacts
+	}
+	if launch.spawnSourceToolCallID != uuid.Nil {
+		content.sourceLinkKind = oteltrace.LinkSpawnedBy
+		content.sourceToolCallID = launch.spawnSourceToolCallID
 	}
 	created, err := admitAgentContentInputTx(ctx, unit, q, content, blocks)
 	if err != nil {

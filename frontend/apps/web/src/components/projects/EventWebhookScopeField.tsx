@@ -150,7 +150,7 @@ function ProfilePicker({
   )
 }
 
-function AgentPicker({
+export function AgentPicker({
   orgId,
   projectId,
   value,

@@ -6,6 +6,7 @@ import { PencilIcon, PlusIcon, Trash2 } from '@/components/icons'
 import { EventWebhookDialog } from '@/components/projects/EventWebhookDialog'
 import { EventWebhookScopeLabel } from '@/components/projects/EventWebhookScopeField'
 import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { errorMessage } from '@/lib/submit-status'
@@ -38,9 +39,12 @@ export function EventWebhooksSection({
         </Button>
       )}
       {webhooks.length > 0 && (
-        <ul className="flex flex-col divide-y">
+        <ul className="flex flex-col gap-2">
           {webhooks.map((webhook) => (
-            <li key={webhook.id} className="flex min-w-0 items-center justify-between gap-3 py-3">
+            <li
+              key={webhook.id}
+              className="bg-card flex min-w-0 items-center justify-between gap-3 rounded-xl border px-4 py-3"
+            >
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="truncate text-sm font-medium" title={webhook.url}>
                   {webhook.url}
@@ -108,7 +112,11 @@ export function EventWebhooksSection({
         </div>
       )}
       {!query.isPending && !query.isError && webhooks.length === 0 && (
-        <p className="text-muted-foreground text-sm">No webhooks.</p>
+        <Empty className="rounded-xl border">
+          <EmptyHeader>
+            <EmptyDescription>No webhooks.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {query.hasNextPage && (
         <Button

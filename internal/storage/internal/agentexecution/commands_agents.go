@@ -102,7 +102,9 @@ func (h *Handle) SetInteractionTarget(
 	return n > 0, err
 }
 
-func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, interactionID uuid.UUID) error {
+func (h *Handle) parentEffect(
+	ctx context.Context, kind, text, key string, interactionID, sourceModelOutputID uuid.UUID,
+) error {
 	if h.route.RootAgentID == h.route.AgentID {
 		return nil
 	}
@@ -201,16 +203,22 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 		name = "agent"
 	}
 	body := renderChildMessage(name, child.SubagentKey, principal, kind, text)
+	var sourceLinkKind string
+	if sourceModelOutputID != uuid.Nil {
+		sourceLinkKind = "result_from"
+	}
 	_, err = parent.ReceiveContent(
 		ctx,
 		ReceiveContentInput{
-			capacityExempt:   true,
-			ActorID:          actorID,
-			DeliveryMode:     "steering",
-			IdempotencyScope: "subagent_message",
-			IdempotencyKey:   key,
-			Metadata:         data,
-			Content:          []Content{{Kind: "text", Text: body}},
+			capacityExempt:      true,
+			ActorID:             actorID,
+			DeliveryMode:        "steering",
+			IdempotencyScope:    "subagent_message",
+			IdempotencyKey:      key,
+			Metadata:            data,
+			Content:             []Content{{Kind: "text", Text: body}},
+			SourceLinkKind:      sourceLinkKind,
+			SourceModelOutputID: sourceModelOutputID,
 		},
 	)
 	return err
@@ -223,6 +231,7 @@ func (h *Handle) questionEffect(ctx context.Context, i Interaction, form interac
 		interactionform.RenderQuestion(form),
 		"question:"+i.ID.String(),
 		i.ID,
+		uuid.Nil,
 	)
 }
 

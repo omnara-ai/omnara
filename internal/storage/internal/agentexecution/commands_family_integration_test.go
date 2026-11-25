@@ -161,8 +161,14 @@ func TestExecutionParentEffectsAtCapacity(t *testing.T) {
 					require.Equal(t, 51, inputs)
 					statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 					require.NoError(t, err)
-					require.Equal(t, 3, statements)
-					require.Equal(t, 2, roundTrips)
+					expectedStatements, expectedRoundTrips := 3, 2
+					if kind != "question" {
+						// An answer or a failure finishes the child's turn, which is
+						// queued for OpenTelemetry export in a statement of its own.
+						expectedStatements, expectedRoundTrips = 4, 3
+					}
+					require.Equal(t, expectedStatements, statements)
+					require.Equal(t, expectedRoundTrips, roundTrips)
 					_, parent := f.handle(t, pr.AgentID)
 					_, err = parent.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
 						DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "overflow"}},

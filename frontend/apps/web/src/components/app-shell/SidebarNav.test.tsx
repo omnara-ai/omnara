@@ -112,6 +112,7 @@ const adminLabels = [
   'Overview',
   'Agents',
   'Integrations',
+  'Traces',
   'Usage',
   'Credits',
   'Models',

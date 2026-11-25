@@ -63,7 +63,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 			require.NoError(t, err)
 			prepared = prepareCommand(t, h, lease)
 		})
-		measured("accept_end", 13, func(h *agentexecution.Handle) {
+		measured("accept_end", 14, func(h *agentexecution.Handle) {
 			_, err := h.AcceptOutput(t.Context(), agentexecution.AcceptOutputInput{
 				ContextID: prepared.Context.ID, RuntimeLockID: lease,
 				Response: commandResponse(modelenvelope.StopReasonEndTurn),

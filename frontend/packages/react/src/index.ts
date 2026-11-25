@@ -53,6 +53,7 @@ export {
   useRenameAgentProfile,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
+export { useAgentTurns, useTurnTrace } from './domains/agent-traces'
 export {
   type AgentListFilters,
   type AgentListOptions,
@@ -219,6 +220,13 @@ export {
   useOrgMembers,
   useOrgOverview,
 } from './domains/orgs'
+export {
+  useCreateOtelExporter,
+  useDeleteOtelExporter,
+  useOrgOtelExporters,
+  useOtelExporters,
+  useUpdateOtelExporter,
+} from './domains/otel-exporters'
 export { cursorPaginated } from './domains/pagination'
 export {
   useCreatePersonalAccessToken,

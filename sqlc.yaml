@@ -92,6 +92,8 @@ sql:
         output_db_file_name: "db_gen.go"
         output_models_file_name: "models_gen.go"
         overrides: &postgres_overrides
+          - column: "otel_exporters.sample_percent"
+            go_type: "float64"
           - column: "processes.execution_spec"
             go_type:
               import: "github.com/omnara-ai/omnara/internal/processcmd"

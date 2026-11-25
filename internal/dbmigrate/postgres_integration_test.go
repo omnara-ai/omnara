@@ -132,7 +132,8 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 		"event_webhooks," +
 		"integrations,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,mcp_server_catalogs," +
 		"model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
-		"org_memberships,org_resource_limit_overrides,pending_model_costs,process_actions,processes," +
+		"org_memberships,org_resource_limit_overrides,otel_export_deliveries,otel_exporters," +
+		"pending_model_costs,process_actions,processes," +
 		"project_machine_grants,project_machine_pool_grants,project_memberships," +
 		"project_model_grants,projects,secret_grants,secret_oauth_refresh_leases," +
 		"secret_versions,secrets,skill_grants,skills"
@@ -163,7 +164,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 		"agent_profiles,agents,budgets,cron_triggers,daily_model_costs,event_webhooks,integration_inbox," +
 		"integration_runtime," +
 		"integration_states,integration_subscriptions,integration_targets,integrations," +
-		"memory_stores,model_call_contexts,pending_model_costs,process_actions,processes," +
+		"memory_stores,model_call_contexts,otel_exporters,pending_model_costs,process_actions,processes," +
 		"project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,tool_calls"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `
