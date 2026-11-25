@@ -42,25 +42,21 @@ function lastPosition(): { x: number; y: number } | null {
 
 let fading: ReturnType<typeof setTimeout> | undefined
 
+// Room the label needs to the right of the cursor before it would leave the window.
+const labelRoom = 120
+
 function place(cursor: HTMLElement, x: number, y: number, ms: number) {
+  cursor.dataset.label = x > window.innerWidth - labelRoom ? 'before' : 'after'
   cursor.style.transitionDuration = `${String(ms)}ms`
   cursor.style.transform = `translate(${String(x)}px, ${String(y)}px)`
 }
 
 /**
- * Shows the assistant's cursor travelling to the element and clicking it. It starts from
- * where it last clicked, or from the conversation the first time. With reduced motion the
- * cursor appears on the element and clicks without travelling. The caller does what the
- * click stands for.
+ * Brings the cursor to a point on screen. It starts from where it last stopped, or from the
+ * conversation the first time. With reduced motion it appears there without travelling.
  */
-export async function clickWithCursor(target: Element): Promise<void> {
-  const cursor = document.getElementById(cursorID)
-  if (cursor == null) return
+async function travel(cursor: HTMLElement, x: number, y: number): Promise<void> {
   clearTimeout(fading)
-  if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
-  const to = target.getBoundingClientRect()
-  const x = to.left + Math.min(to.width / 2, 40)
-  const y = to.top + to.height / 2
   const travels = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (travels) {
     const composer = document.querySelector('[data-assistant-surface] textarea')
@@ -81,10 +77,28 @@ export async function clickWithCursor(target: Element): Promise<void> {
     await wait(glideMs)
   }
   writeLocal(positionKey, JSON.stringify({ x, y }))
+}
+
+/** Shows the cursor going to the element and clicking it. The caller does what the click stands for. */
+export async function clickWithCursor(target: Element): Promise<void> {
+  const cursor = document.getElementById(cursorID)
+  if (cursor == null) return
+  if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
+  const to = target.getBoundingClientRect()
+  await travel(cursor, to.left + Math.min(to.width / 2, 40), to.top + to.height / 2)
   await wait(restMs)
   cursor.dataset.state = 'pressing'
   await wait(pressMs)
   cursor.dataset.state = 'moving'
+}
+
+/** Shows the cursor going to the element's corner, where it does not cover what it points at. */
+export async function pointWithCursor(target: Element): Promise<void> {
+  const cursor = document.getElementById(cursorID)
+  if (cursor == null) return
+  if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
+  const to = target.getBoundingClientRect()
+  await travel(cursor, Math.min(to.right - 10, window.innerWidth - 40), to.bottom - 8)
 }
 
 /** Lets the cursor fade once it has rested a moment; another click keeps it on screen. */

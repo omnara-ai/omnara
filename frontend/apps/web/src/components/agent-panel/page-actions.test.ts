@@ -74,7 +74,13 @@ it('reads the page tool calls from the turns this person started, in order', () 
   ).toEqual([
     { id: 'one', tool: 'dashboard_click', target: 'Models', waiting: true },
     { id: 'two', tool: 'dashboard_click', target: 'Agents', waiting: false },
-    { id: 'three', tool: 'dashboard_point_at', target: 'New model', note: 'Start here' },
+    {
+      id: 'three',
+      tool: 'dashboard_point_at',
+      target: 'New model',
+      note: 'Start here',
+      waiting: true,
+    },
   ])
 })
 
@@ -102,8 +108,11 @@ function page(found: Record<string, Element>) {
       log.push(`find ${target}`)
       return Promise.resolve(found[target] ?? null)
     },
+    describe: (element) => `button "${element.textContent}"`,
     point: (next) => {
+      log.push('point')
       pointer = next
+      return Promise.resolve()
     },
     snapshot: () => '# Providers\nbutton "New provider"',
     answer: (id, outcome, text) => {
@@ -130,44 +139,60 @@ const click = (id: string, target: string, waiting = true): PageAction => ({
   waiting,
 })
 const history: PageAction[] = [click('old', 'Usage')]
-const point: PageAction = {
-  id: 'point',
+const point = (id: string, target: string, waiting = true): PageAction => ({
+  id,
   tool: 'dashboard_point_at',
-  target: 'New provider',
+  target,
   note: 'Start here',
-}
+  waiting,
+})
 
-it('clicks and answers with what the screen shows afterwards, and points without answering', async () => {
+it('clicks and points once each, in order, and answers with what came of it', async () => {
   const button = document.createElement('button')
+  button.textContent = 'New provider'
   const dashboard = page({ 'New provider': button })
-  const fresh = [click('link', 'Models'), click('menu', 'Omnara Owner'), point]
+  const fresh = [
+    click('link', 'Models'),
+    click('menu', 'Omnara Owner'),
+    point('point', 'New provider'),
+  ]
   dashboard.runner.take(history)
   dashboard.runner.take([...history, ...fresh])
   dashboard.runner.take([...history, ...fresh])
   await dashboard.runner.settled()
 
-  expect(dashboard.log).toEqual(['click Models', 'click Omnara Owner', 'find New provider'])
+  expect(dashboard.log).toEqual([
+    'click Models',
+    'click Omnara Owner',
+    'find New provider',
+    'point',
+  ])
   expect(dashboard.pointer()).toEqual({ element: button, note: 'Start here' })
   expect(dashboard.answers).toEqual([
     `link succeeded: Clicked link "Models". It opened /models.\n\n${outline}`,
     `menu succeeded: Clicked button "Omnara Owner" collapsed.\n\n${outline}`,
+    'point succeeded: Pointed at button "New provider". The user can see it marked.',
   ])
 })
 
-it('says why nothing was clicked, and leaves a call Omnara stopped waiting for', async () => {
-  const dashboard = page({})
+it('says why nothing happened, and leaves calls Omnara stopped waiting for', async () => {
+  const dashboard = page({ 'New provider': document.createElement('button') })
   dashboard.runner.take([])
   dashboard.runner.take([
     click('absent', 'Billing'),
     click('off', 'Save'),
+    point('nowhere', 'Launch rocket'),
     click('late', 'Models', false),
+    point('stale', 'New provider', false),
   ])
   await dashboard.runner.settled()
 
-  expect(dashboard.log).toEqual(['click Billing', 'click Save'])
+  expect(dashboard.log).toEqual(['click Billing', 'click Save', 'find Launch rocket'])
+  expect(dashboard.pointer()).toBeNull()
   expect(dashboard.answers).toEqual([
     `absent failed: Nothing to click matching "Billing" is on the user's screen.\n\n${outline}`,
     `off failed: button "Save" disabled is disabled, so nothing was clicked.\n\n${outline}`,
+    `nowhere failed: Nothing matching "Launch rocket" is on the user's screen.\n\n${outline}`,
   ])
 })
 
@@ -177,7 +202,7 @@ it('treats what arrived while the conversation was hidden or in another tab as h
   dashboard.runner.pause()
   dashboard.runner.take([click('hidden', 'Models')])
   dashboard.show(false)
-  dashboard.runner.take([click('hidden', 'Models'), point])
+  dashboard.runner.take([click('hidden', 'Models'), point('hidden-point', 'New provider')])
   await dashboard.runner.settled()
 
   expect(dashboard.log).toEqual([])

@@ -39,6 +39,7 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	var requests atomic.Int64
 	const projectName = "Created by assistant"
 	const openedPage = "It opened /models."
+	const pointed = "The user can see it marked."
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			http.NotFound(w, r)
@@ -94,8 +95,8 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 			}
 			name, callID, arguments = "dashboard_point_at", "point", map[string]any{"target": "New provider"}
 		case 7:
-			if !requestContainsToolResult(body, "point", "Sent. This tool does not wait for a result.") {
-				t.Error("pointing made the assistant wait for the dashboard")
+			if !requestContainsToolResult(body, "point", pointed) {
+				t.Error("the dashboard's answer to pointing did not reach the assistant")
 			}
 			name, callID, arguments = "dashboard_click", "unanswered", map[string]any{"target": "Usage"}
 		case 8:
@@ -130,19 +131,23 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	})
 	env.startMaintenance(t, ctx)
 	project.createInput(t, ctx, agentID, "Check my identity, create a project and show me where models are.")
-	var clickCall uuid.UUID
-	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		err := env.db.QueryRow(ctx, `SELECT id FROM tool_calls
-            WHERE agent_id=$1 AND name='dashboard_click' AND state='ready'`, agentUUID).Scan(&clickCall)
-		return err == nil, "assistant did not ask the dashboard to click: " + worker.logExcerpt()
-	})
-	clickCallID, err := publicid.Encode(publicid.KindToolCall, clickCall)
-	require.NoError(t, err)
-	env.requestBrowserJSON(t, ctx, "POST", project.projectPath+"/agents/"+agentID+"/tool-calls/"+clickCallID+"/result",
-		map[string]any{
-			"outcome":        "succeeded",
-			"content_blocks": []map[string]string{{"type": "text", "text": openedPage}},
-		}, "", project.adminSession, project.adminCSRF, 201)
+	// The dashboard answers the first click and the pointing; nothing answers the second click.
+	for _, answered := range [][2]string{{"dashboard_click", openedPage}, {"dashboard_point_at", pointed}} {
+		name, answer := answered[0], answered[1]
+		var call uuid.UUID
+		waitForServiceE2ECondition(t, ctx, func() (bool, string) {
+			err := env.db.QueryRow(ctx, `SELECT id FROM tool_calls
+                WHERE agent_id=$1 AND name=$2 AND state='ready'`, agentUUID, name).Scan(&call)
+			return err == nil, "assistant did not call " + name + ": " + worker.logExcerpt()
+		})
+		callID, err := publicid.Encode(publicid.KindToolCall, call)
+		require.NoError(t, err)
+		env.requestBrowserJSON(t, ctx, "POST", project.projectPath+"/agents/"+agentID+"/tool-calls/"+callID+"/result",
+			map[string]any{
+				"outcome":        "succeeded",
+				"content_blocks": []map[string]string{{"type": "text", "text": answer}},
+			}, "", project.adminSession, project.adminCSRF, 201)
+	}
 	var count int
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		err := env.db.QueryRow(ctx, `SELECT count(*) FROM projects WHERE name=$1`, projectName).Scan(&count)

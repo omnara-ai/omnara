@@ -26,13 +26,13 @@ func assistantGreetingInput() (json.RawMessage, error) {
 	}})
 }
 
-// A click is answered by the dashboard in the user's browser, and its timeout is what the
-// assistant waits when nobody has the dashboard open. Pointing is send-only.
+// Both page tools are answered by the dashboard in the user's browser. Their timeouts are what
+// the assistant waits when nobody has the dashboard open.
 const (
 	AssistantClickTool             = "dashboard_click"
 	AssistantPointAtTool           = "dashboard_point_at"
 	assistantClickTimeoutSeconds   = 5
-	assistantPointAtTimeoutSeconds = 0
+	assistantPointAtTimeoutSeconds = 3
 
 	assistantClickDescription = "Click something that is on the user's screen in the Omnara dashboard, the way " +
 		"they would: they see your cursor go to it and click. It works on links, buttons, tabs, menus and the " +
@@ -42,11 +42,11 @@ const (
 		"The result says what was clicked and gives an outline of the screen afterwards, including a menu or " +
 		"dialog that opened. It fails when nothing with that name is on screen, and the failure shows what is. " +
 		"It cannot type. It times out after a few seconds when the user does not have the dashboard open."
-	assistantPointAtDescription = "Mark a control, table row or heading on the page the user is looking at so they " +
-		"can see where it is. target is its name as a page outline shows it, for example New provider. note is an " +
-		"optional few words shown next to it, for example Add your provider here. The mark stays until the user " +
-		"clicks. It returns at once and reports nothing back: when nothing on the page has that name, nothing is " +
-		"marked."
+	assistantPointAtDescription = "Point at a control, table row or heading on the page the user is looking at: " +
+		"they see your cursor go to it, and it stays marked until they click. target is its name as a page outline " +
+		"shows it, for example New provider. note is an optional few words shown next to it, for example Add your " +
+		"provider here. It changes nothing on the page. It fails when nothing on screen has that name, and the " +
+		"failure shows what is. It times out after a few seconds when the user does not have the dashboard open."
 
 	assistantClickSchema = `{"type":"object","properties":{"target":{"type":"string"}},` +
 		`"required":["target"],"additionalProperties":false}`

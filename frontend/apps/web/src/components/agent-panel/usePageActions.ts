@@ -6,7 +6,7 @@ import { useContext, useEffect, useState } from 'react'
 import { isDashboardPage, type PageRouter } from '@/lib/dashboard-page'
 
 import { AssistantContext } from './assistant-context'
-import { clickWithCursor, press, releaseCursor } from './assistant-cursor'
+import { clickWithCursor, pointWithCursor, press, releaseCursor } from './assistant-cursor'
 import { answerWhenReady, createPageActionRunner, pageActionsIn } from './page-actions'
 import { describeOnPage, findClickableOnPage, findOnPage, pageSnapshot } from './page-snapshot'
 
@@ -15,7 +15,11 @@ const pollMs = 150
 // most of that; after it, the answer goes out with whatever is on screen.
 const settleMs = 3500
 const reactMs = 250
-const answerMs = 1200
+// How long a target gets to appear before the answer says it is not there.
+const findMs = 1000
+// A call cannot take its answer until Omnara has marked it ready, which is also when its
+// timeout starts, so waiting for that costs nothing.
+const answerMs = 4000
 
 async function until<T>(read: () => T | null, timeoutMs: number): Promise<T | null> {
   const deadline = Date.now() + timeoutMs
@@ -36,8 +40,9 @@ function pageSettled(router: PageRouter, pathname: string | null): boolean {
 }
 
 /**
- * Carries out the assistant's page tool calls as they arrive in the conversation: clicking
- * something and reporting what the screen shows afterwards, or pointing at something.
+ * Carries out the assistant's page tool calls as they arrive in the conversation, with its
+ * cursor: clicking something and reporting what the screen shows afterwards, or pointing at
+ * something and reporting whether it was there.
  */
 export function usePageActions(
   scope: { orgID: string; projectID: string; agentID: string },
@@ -54,7 +59,7 @@ export function usePageActions(
     createPageActionRunner({
       visible: () => document.visibilityState === 'visible',
       click: async (target) => {
-        const element = await until(() => findClickableOnPage(target), 1000)
+        const element = await until(() => findClickableOnPage(target), findMs)
         if (router == null || element == null) return { outcome: 'missing' }
         const what = describeOnPage(element)
         if (element.matches(':disabled,[aria-disabled="true"]')) {
@@ -86,8 +91,13 @@ export function usePageActions(
         if (link == null && now !== from) follow()
         return { outcome: 'clicked', what, opened: now === from ? null : now }
       },
-      find: (target) => until(() => findOnPage(target), 4000),
-      point,
+      find: (target) => until(() => findOnPage(target), findMs),
+      describe: describeOnPage,
+      point: async (pointer) => {
+        await pointWithCursor(pointer.element)
+        point(pointer)
+        releaseCursor()
+      },
       snapshot: pageSnapshot,
       answer: (toolCallID, outcome, text) =>
         answerWhenReady(

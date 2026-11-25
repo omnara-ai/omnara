@@ -86,7 +86,7 @@ func TestAssistantPresetUsesOnlyReferencedCredentialAndModel(t *testing.T) {
 		require.Equal(t, toolpermission.ModeAlwaysAllow, tool.Permission.Mode, name)
 	}
 	require.True(t, server.DefersAnyTool())
-	for name, timeoutSeconds := range map[string]int{AssistantClickTool: 5, AssistantPointAtTool: 0} {
+	for name, timeoutSeconds := range map[string]int{AssistantClickTool: 5, AssistantPointAtTool: 3} {
 		index := slices.IndexFunc(contract.Tools, func(tool agentconfig.RuntimeTool) bool { return tool.Name == name })
 		require.NotEqual(t, -1, index, name)
 		pageTool := contract.Tools[index]

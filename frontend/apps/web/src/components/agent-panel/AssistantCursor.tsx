@@ -23,7 +23,7 @@ export function AssistantCursor() {
           strokeLinejoin="round"
         />
       </svg>
-      <span className="bg-primary text-primary-foreground absolute top-6 left-5 rounded-md px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shadow-sm">
+      <span className="bg-primary text-primary-foreground absolute top-6 left-5 rounded-md px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shadow-sm group-data-[label=before]/cursor:right-full group-data-[label=before]/cursor:left-auto">
         Assistant
       </span>
     </div>

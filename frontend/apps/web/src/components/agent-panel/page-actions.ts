@@ -1,11 +1,11 @@
 import type { OmnaraUIMessage } from '@omnara/react'
 import * as z from 'zod'
 
-// The assistant's two page tools. Clicking is how it acts on the user's screen and the only
-// way it moves them: its cursor clicks something that is on screen, and the dashboard answers
-// with what the screen shows afterwards. Omnara stops waiting after a few seconds when no
-// dashboard answers. Pointing is send-only: Omnara completes the call at once and the panel
-// just acts on it.
+// The assistant's two page tools, both carried out with its own cursor and both answered
+// from the user's browser. Clicking is how it acts on the screen and the only way it moves
+// the user; the answer is what the screen shows afterwards. Pointing marks something; the
+// answer says whether it was found. Omnara stops waiting after a few seconds when no
+// dashboard answers.
 export const clickTool = 'dashboard_click'
 export const pointAtTool = 'dashboard_point_at'
 
@@ -14,7 +14,13 @@ const pointInput = z.object({ target: z.string().min(1), note: z.string().option
 
 export type PageAction =
   | { id: string; tool: typeof clickTool; target: string; waiting: boolean }
-  | { id: string; tool: typeof pointAtTool; target: string; note: string | undefined }
+  | {
+      id: string
+      tool: typeof pointAtTool
+      target: string
+      note: string | undefined
+      waiting: boolean
+    }
 
 /** What a click came to. `what` words the element the way the page outline does. */
 export type PageClick =
@@ -46,10 +52,10 @@ export function pageActionsIn(
     for (const part of message.parts) {
       if (part.type !== 'dynamic-tool' || part.toolType !== 'custom') continue
       if (part.state === 'input-streaming') continue
+      const waiting = part.state === 'input-available'
       if (part.toolName === clickTool) {
         const input = clickInput.safeParse(part.input)
         if (input.success) {
-          const waiting = part.state === 'input-available'
           actions.push({ id: part.toolCallId, tool: clickTool, target: input.data.target, waiting })
         }
       }
@@ -57,7 +63,7 @@ export function pageActionsIn(
         const input = pointInput.safeParse(part.input)
         if (input.success) {
           const { target, note } = input.data
-          actions.push({ id: part.toolCallId, tool: pointAtTool, target, note })
+          actions.push({ id: part.toolCallId, tool: pointAtTool, target, note, waiting })
         }
       }
     }
@@ -84,7 +90,10 @@ export interface PageActionHost {
   visible: () => boolean
   click: (target: string) => Promise<PageClick>
   find: (target: string) => Promise<Element | null>
-  point: (pointer: PagePointer) => void
+  /** The element as the page outline words it. */
+  describe: (element: Element) => string
+  /** Takes the cursor to the element and marks it. */
+  point: (pointer: PagePointer) => Promise<void>
   /** The page as the assistant reads it. */
   snapshot: () => string
   answer: (id: string, outcome: 'succeeded' | 'failed', text: string) => Promise<void>
@@ -96,25 +105,35 @@ export function createPageActionRunner(host: PageActionHost) {
   let queue = Promise.resolve()
 
   async function run(action: PageAction) {
+    // Omnara has already stopped waiting for this one, so nothing happens late.
+    if (!action.waiting) return
+    const seen = () => `What the user sees now:\n${host.snapshot()}`
     if (action.tool === pointAtTool) {
       const element = await host.find(action.target)
-      if (element != null) host.point({ element, note: action.note })
+      if (element == null) {
+        const why = `Nothing matching ${JSON.stringify(action.target)} is on the user's screen.`
+        await host.answer(action.id, 'failed', `${why}\n\n${seen()}`)
+        return
+      }
+      // Answered while the cursor travels, so neither the assistant nor the user waits.
+      const what = host.describe(element)
+      await Promise.all([
+        host.answer(action.id, 'succeeded', `Pointed at ${what}. The user can see it marked.`),
+        host.point({ element, note: action.note }),
+      ])
       return
     }
-    // Omnara has already stopped waiting for this one, so nothing is clicked late.
-    if (!action.waiting) return
     const click = await host.click(action.target)
-    const seen = `What the user sees now:\n${host.snapshot()}`
     if (click.outcome === 'clicked') {
       const opened = click.opened == null ? '' : ` It opened ${click.opened}.`
-      await host.answer(action.id, 'succeeded', `Clicked ${click.what}.${opened}\n\n${seen}`)
+      await host.answer(action.id, 'succeeded', `Clicked ${click.what}.${opened}\n\n${seen()}`)
       return
     }
     const why =
       click.outcome === 'refused'
         ? click.why
         : `Nothing to click matching ${JSON.stringify(action.target)} is on the user's screen.`
-    await host.answer(action.id, 'failed', `${why}\n\n${seen}`)
+    await host.answer(action.id, 'failed', `${why}\n\n${seen()}`)
   }
 
   return {
