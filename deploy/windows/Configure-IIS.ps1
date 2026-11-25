@@ -10,9 +10,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($Port -eq $BackendPort) { throw 'Port and BackendPort must be different.' }
+if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
+    throw "IIS port $Port is already in use. Choose a free -Port distinct from the Omnara service ports."
+}
 $listener = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
 if ($listener.Count -ne 1 -or (Get-Process -Id $listener[0].OwningProcess).ProcessName -ne 'omnara-api') {
     throw "omnara-api must be listening on 127.0.0.1:$BackendPort. Set -BackendPort to the -ApiPort used by Install-Services.ps1."
+}
+try {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$BackendPort/" -Headers @{ Host = "localhost:$Port" } -TimeoutSec 3
+    $backendReady = $response.StatusCode -eq 200 -and $response.Headers['Content-Type'] -like 'text/html*'
+} catch { $backendReady = $false }
+if (-not $backendReady) {
+    throw "omnara-api must serve its embedded dashboard on 127.0.0.1:$BackendPort. Check that -BackendPort matches -ApiPort and the API is ready."
 }
 $siteName = 'Omnara'
 $farmName = 'OmnaraControlPlane'

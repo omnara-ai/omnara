@@ -242,6 +242,8 @@ jobs:
             $case = $parameters.Clone()
             $case.WorkerMetricsPort = $port
             Assert-Rejected $installer $case "Required Omnara ports are already in use:*$port*"
+            Assert-Rejected $iis @{ Port = $port } "IIS port $port is already in use.*"
+            Assert-Rejected $iis @{ BackendPort = $port } 'omnara-api must be listening on*'
           } finally {
             $listener.Stop()
           }

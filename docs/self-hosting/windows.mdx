@@ -107,6 +107,8 @@ Keep `OMNARA_PUBLIC_URL=http://localhost:8088` when using the SSH forward below.
 
 The installer uses loopback ports 8080-8083 by default. To choose different ports, pass `-ApiPort`, `-ApiMetricsPort`, `-WorkerMetricsPort`, and `-MaintenanceMetricsPort` to `Install-Services.ps1`; all four must be distinct and free. These parameters set the installed service listeners, overriding addresses in the environment file.
 
+For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command below, then run `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090`. IIS `-BackendPort` must match the installer's `-ApiPort`. IIS `-Port` defaults to 8088 and must be free and differ from all four service ports; changing backend ports does not change `OMNARA_PUBLIC_URL`.
+
 ```powershell
 .\deploy\windows\Install-Services.ps1 `
   -BinaryDirectory C:\Omnara\bin `
@@ -122,8 +124,6 @@ Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), 
 ```powershell
 .\deploy\windows\Configure-IIS.ps1
 ```
-
-For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command, then run `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090`. IIS `-BackendPort` must match the installer's `-ApiPort`. IIS `-Port` defaults to 8088 and must differ from all four service ports; changing backend ports does not change `OMNARA_PUBLIC_URL`.
 
 The installer updates the database, creates a separate Windows account for each service, prepares permissions and storage, and starts the services. They start automatically after a reboot; allow a few minutes. IIS listens on `127.0.0.1:8088` by default, and Omnara accepts connections only from this machine. No firewall rules are opened.
 
