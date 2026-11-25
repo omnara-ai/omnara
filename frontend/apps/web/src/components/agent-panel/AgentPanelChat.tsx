@@ -49,7 +49,10 @@ export function AgentPanelChat({
   const currentActorId = useCurrentActorId(orgID, projectID, me.user.id)
   const archived = panelArchived || agentQuery.data?.agent.state === 'archived'
   const canOperate = selection.can_operate && !archived && agentQuery.isSuccess
-  usePageActions(scope, chat.messages, canOperate)
+  usePageActions(scope, chat.messages, {
+    ready: chat.historyStatus === 'success',
+    actorId: currentActorId,
+  })
   const canSendNow =
     canOperate &&
     interactions.data != null &&

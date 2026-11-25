@@ -26,34 +26,38 @@ func assistantGreetingInput() (json.RawMessage, error) {
 	}})
 }
 
-// The assistant's page tools are answered by the dashboard in the user's browser. The timeout
-// is what the assistant waits when nobody has the dashboard open.
+// A click is answered by the dashboard in the user's browser, and its timeout is what the
+// assistant waits when nobody has the dashboard open. Pointing is send-only.
 const (
-	AssistantOpenPageTool           = "dashboard_open_page"
-	AssistantPointAtTool            = "dashboard_point_at"
-	assistantPageToolTimeoutSeconds = 15
+	AssistantClickTool             = "dashboard_click"
+	AssistantPointAtTool           = "dashboard_point_at"
+	assistantClickTimeoutSeconds   = 5
+	assistantPointAtTimeoutSeconds = 0
 
-	assistantOpenPageSchema = `{"type":"object","properties":{"path":{"type":"string"}},` +
-		`"required":["path"],"additionalProperties":false}`
-	assistantPointAtSchema = `{"type":"object","properties":{"target":{"type":"string"},"note":{"type":"string"}},` +
-		`"required":["target"],"additionalProperties":false}`
-
-	assistantOpenPageDescription = "Open a page of the Omnara dashboard in the user's browser. Use it when the user " +
-		"asks to be taken somewhere, or before pointing at something that is on another page. path is a dashboard " +
-		"path such as /models or /projects/{project_id}/agents, taken from the list of dashboard pages or from a " +
-		"link in a page outline. The result is an outline of the page once it has opened. It fails when the path " +
-		"is not a dashboard page, and times out when the user does not have the dashboard open."
+	assistantClickDescription = "Click something that is on the user's screen in the Omnara dashboard, the way " +
+		"they would: they see your cursor go to it and click. It works on links, buttons, tabs, menus and the " +
+		"items in an open menu, and it is the only way to take the user to another page. target is the control's " +
+		"name as a page outline shows it, for example Models or button \"New provider\"; a link can also be given " +
+		"by its path. The click is real: it does whatever that control does for the user, and cannot be undone. " +
+		"The result says what was clicked and gives an outline of the screen afterwards, including a menu or " +
+		"dialog that opened. It fails when nothing with that name is on screen, and the failure shows what is. " +
+		"It cannot type. It times out after a few seconds when the user does not have the dashboard open."
 	assistantPointAtDescription = "Mark a control, table row or heading on the page the user is looking at so they " +
 		"can see where it is. target is its name as a page outline shows it, for example New provider. note is an " +
 		"optional few words shown next to it, for example Add your provider here. The mark stays until the user " +
-		"clicks. It fails when nothing on the page has that name, and returns the page's outline so you can pick a " +
-		"name that is there. It times out when the user does not have the dashboard open."
+		"clicks. It returns at once and reports nothing back: when nothing on the page has that name, nothing is " +
+		"marked."
+
+	assistantClickSchema = `{"type":"object","properties":{"target":{"type":"string"}},` +
+		`"required":["target"],"additionalProperties":false}`
+	assistantPointAtSchema = `{"type":"object","properties":{"target":{"type":"string"},"note":{"type":"string"}},` +
+		`"required":["target"],"additionalProperties":false}`
 )
 
-func assistantPageTool(description, inputSchema string) agentconfig.AgentConfigToolSource {
-	timeout := assistantPageToolTimeoutSeconds
+func assistantPageTool(description, inputSchema string, timeoutSeconds int) agentconfig.AgentConfigToolSource {
 	return agentconfig.AgentConfigToolSource{
-		Type: "custom", Description: description, InputSchema: json.RawMessage(inputSchema), TimeoutSeconds: &timeout,
+		Type: "custom", Description: description, InputSchema: json.RawMessage(inputSchema),
+		TimeoutSeconds: &timeoutSeconds,
 	}
 }
 
@@ -71,9 +75,11 @@ func compileAssistantPreset(
 		Instruction: assistantInstruction,
 		Model:       agentconfig.AgentConfigModelSource{ProviderConfig: model.ProviderConfigName, Name: model.Name},
 		Tools: map[string]agentconfig.AgentConfigToolSource{
-			"web_fetch":           {Permission: &allow},
-			AssistantOpenPageTool: assistantPageTool(assistantOpenPageDescription, assistantOpenPageSchema),
-			AssistantPointAtTool:  assistantPageTool(assistantPointAtDescription, assistantPointAtSchema),
+			"web_fetch": {Permission: &allow},
+			AssistantClickTool: assistantPageTool(
+				assistantClickDescription, assistantClickSchema, assistantClickTimeoutSeconds),
+			AssistantPointAtTool: assistantPageTool(
+				assistantPointAtDescription, assistantPointAtSchema, assistantPointAtTimeoutSeconds),
 		},
 		MCP: map[string]agentconfig.AgentConfigMCPSource{
 			"omnara": {

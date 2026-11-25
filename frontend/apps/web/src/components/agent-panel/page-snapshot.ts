@@ -248,11 +248,43 @@ function topDialog(): Element | null {
   return dialogs.at(-1) ?? null
 }
 
+function isShown(element: Element): boolean {
+  return element.closest(`${notPage},[aria-hidden="true"],[inert]`) == null && isVisible(element)
+}
+
+/**
+ * What the assistant may click for a name, the outline's own wording such as
+ * `button "New provider"`, or a link's path such as `/models`. Anything the user could click
+ * themselves counts; a heading does not, and neither does the assistant's own surface.
+ */
+export function findClickableOnPage(target: string): Element | null {
+  const wanted = target.trim()
+  if (!wanted.startsWith('/')) return findOnPage(wanted, (element) => !element.matches(heading))
+  const pathname = wanted.split(/[?#]/, 1)[0]
+  return (
+    [...(topDialog() ?? document.body).querySelectorAll('a[href]')].find(
+      (link) =>
+        link instanceof HTMLAnchorElement &&
+        link.origin === window.location.origin &&
+        link.pathname === pathname &&
+        isShown(link),
+    ) ?? null
+  )
+}
+
+/** The element as the outline words it, for example `button "New provider" primary`. */
+export function describeOnPage(element: Element): string {
+  return describe(element)
+}
+
 /**
  * The element a name from the outline refers to: a control, a table row or a heading.
  * Takes the bare name or the outline's own wording, such as `button "New model"`.
  */
-export function findOnPage(target: string): Element | null {
+export function findOnPage(
+  target: string,
+  only: (element: Element) => boolean = () => true,
+): Element | null {
   const outline = /^(?:([a-z]+) )?"([^"]+)"/i.exec(target.trim())
   const role = outline?.[1]?.toLowerCase()
   const wanted = clean(outline?.[2] ?? target, 400).toLowerCase()
@@ -260,10 +292,7 @@ export function findOnPage(target: string): Element | null {
   const root = topDialog() ?? document.body
   const named = (selector: string, kind: string | null, name: (element: Element) => string) =>
     [...root.querySelectorAll(selector)]
-      .filter(
-        (element) =>
-          element.closest(`${notPage},[aria-hidden="true"],[inert]`) == null && isVisible(element),
-      )
+      .filter((element) => isShown(element) && only(element))
       .map((element) => ({
         element,
         role: kind ?? roleOf(element),
@@ -276,11 +305,31 @@ export function findOnPage(target: string): Element | null {
   ]
   const ofRole = all.filter((candidate) => candidate.role === role)
   const pool = ofRole.length > 0 ? ofRole : all
+  const words = nameWords(wanted)
   const match =
     pool.find((candidate) => candidate.name === wanted) ??
     pool.find((candidate) => candidate.name.startsWith(wanted)) ??
-    pool.find((candidate) => candidate.name.includes(wanted))
+    pool.find((candidate) => candidate.name.includes(wanted)) ??
+    // A name given from memory: the same words in another order or with another verb.
+    pool.find((candidate) => {
+      const named = nameWords(candidate.name)
+      return words.size > 0 && [...words].every((word) => named.has(word))
+    })
   return match?.element ?? null
+}
+
+const fillerWords = new Set(['a', 'an', 'the', 'your', 'my', 'to', 'of', 'button', 'link', 'page'])
+const sameVerb = new Map([
+  ['add', 'new'],
+  ['create', 'new'],
+])
+
+/** The words that identify a control, so that "Add a provider" and "New provider" agree. */
+function nameWords(name: string): Set<string> {
+  const words = name.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  return new Set(
+    words.filter((word) => !fillerWords.has(word)).map((word) => sameVerb.get(word) ?? word),
+  )
 }
 
 export function pageSnapshot(): string {

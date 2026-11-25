@@ -48,6 +48,9 @@ const quoted = (value: string | undefined, fallback: string) =>
 const pathOr = (value: string | undefined, fallback: string) =>
   str(value) ? short(str(value)) : fallback
 
+/** The assistant may name something the way the page outline does: button "New model". */
+const outlineName = (value: string | undefined) => /"([^"]+)"/.exec(str(value))?.[1] ?? value
+
 const files: [string, string] = ['file', 'files']
 
 const toolDefs = {
@@ -141,15 +144,13 @@ const toolDefs = {
   tool_search: { verbs: search, target: (i) => `tools for ${quoted(i.pattern, 'a pattern')}` },
 
   // The dashboard assistant's page actions
-  dashboard_open_page: {
-    verbs: ['open', 'Opening', 'Opened'],
-    target: (i) => pathOr(i.path, 'a page'),
+  dashboard_click: {
+    verbs: ['click', 'Clicking', 'Clicked'],
+    target: (i) => quoted(outlineName(i.target), 'something on the page'),
   },
   dashboard_point_at: {
     verbs: ['point at', 'Pointing at', 'Pointed at'],
-    // The assistant may name its target the way the page outline does: button "New model".
-    target: (i) =>
-      quoted(/"([^"]+)"/.exec(str(i.target))?.[1] ?? i.target, 'something on the page'),
+    target: (i) => quoted(outlineName(i.target), 'something on the page'),
   },
 } satisfies Record<string, ToolDef>
 const tools = new Map<string, ToolDef>(Object.entries(toolDefs))

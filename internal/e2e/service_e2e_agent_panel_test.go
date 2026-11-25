@@ -38,7 +38,7 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var requests atomic.Int64
 	const projectName = "Created by assistant"
-	const openedPage = "Opened /models."
+	const openedPage = "It opened /models."
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			http.NotFound(w, r)
@@ -87,15 +87,20 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 			if !requestContainsToolResult(body, "create", projectName) {
 				t.Error("MCP write did not return created project")
 			}
-			name, callID, arguments = "dashboard_open_page", "open", map[string]any{"path": "/models"}
+			name, callID, arguments = "dashboard_click", "click", map[string]any{"target": "Models"}
 		case 6:
-			if !requestContainsToolResult(body, "open", openedPage) {
+			if !requestContainsToolResult(body, "click", openedPage) {
 				t.Error("the dashboard's answer did not reach the assistant")
 			}
 			name, callID, arguments = "dashboard_point_at", "point", map[string]any{"target": "New provider"}
 		case 7:
-			if !requestContainsToolResult(body, "point", "No result was submitted within 15 seconds.") {
-				t.Error("a page tool nobody answered did not time out")
+			if !requestContainsToolResult(body, "point", "Sent. This tool does not wait for a result.") {
+				t.Error("pointing made the assistant wait for the dashboard")
+			}
+			name, callID, arguments = "dashboard_click", "unanswered", map[string]any{"target": "Usage"}
+		case 8:
+			if !requestContainsToolResult(body, "unanswered", "No result was submitted within 5 seconds.") {
+				t.Error("a click with no dashboard to answer did not time out")
 			}
 			_, _ = w.Write([]byte(`{"id":"done","status":"completed","output":[{"id":"message",` +
 				`"type":"message","content":[{"type":"output_text","text":"Project created."}]}],` +
@@ -125,15 +130,15 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	})
 	env.startMaintenance(t, ctx)
 	project.createInput(t, ctx, agentID, "Check my identity, create a project and show me where models are.")
-	var openCall uuid.UUID
+	var clickCall uuid.UUID
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		err := env.db.QueryRow(ctx, `SELECT id FROM tool_calls
-            WHERE agent_id=$1 AND name='dashboard_open_page' AND state='ready'`, agentUUID).Scan(&openCall)
-		return err == nil, "assistant did not ask the dashboard to open a page: " + worker.logExcerpt()
+            WHERE agent_id=$1 AND name='dashboard_click' AND state='ready'`, agentUUID).Scan(&clickCall)
+		return err == nil, "assistant did not ask the dashboard to click: " + worker.logExcerpt()
 	})
-	openCallID, err := publicid.Encode(publicid.KindToolCall, openCall)
+	clickCallID, err := publicid.Encode(publicid.KindToolCall, clickCall)
 	require.NoError(t, err)
-	env.requestBrowserJSON(t, ctx, "POST", project.projectPath+"/agents/"+agentID+"/tool-calls/"+openCallID+"/result",
+	env.requestBrowserJSON(t, ctx, "POST", project.projectPath+"/agents/"+agentID+"/tool-calls/"+clickCallID+"/result",
 		map[string]any{
 			"outcome":        "succeeded",
 			"content_blocks": []map[string]string{{"type": "text", "text": openedPage}},
@@ -141,7 +146,7 @@ func TestServiceE2EAssistantUsesOwnMCPWithoutApprovals(t *testing.T) {
 	var count int
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		err := env.db.QueryRow(ctx, `SELECT count(*) FROM projects WHERE name=$1`, projectName).Scan(&count)
-		return err == nil && count == 1 && requests.Load() == 7,
+		return err == nil && count == 1 && requests.Load() == 8,
 			fmt.Sprintf("journey incomplete: projects=%d requests=%d: %s", count, requests.Load(), worker.logExcerpt())
 	})
 	interactions := env.requestJSON(t, ctx, "GET", project.projectPath+"/agents/"+agentID+"/interactions",

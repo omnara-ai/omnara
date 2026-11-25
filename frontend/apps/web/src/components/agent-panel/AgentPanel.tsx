@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { AgentPanelBootstrap } from './AgentPanelBootstrap'
 import { AgentPanelHeader } from './AgentPanelHeader'
 import { AssistantContext, createAskQueue, useAutomaticAssistant } from './assistant-context'
+import { AssistantCursor } from './AssistantCursor'
 import type { PagePointer as Pointer } from './page-actions'
 import { dashboardPageContext } from './page-context'
 import { pageSnapshot } from './page-snapshot'
@@ -91,6 +92,7 @@ export function AgentPanel({ children }: { children: ReactNode }) {
         requests={{ open: openRequests, follow: followRequests, aside: asideRequests }}
         dock={consentPage ? null : dock}
       />
+      <AssistantCursor />
       <PagePointer
         pointer={pointer}
         onDismiss={() => {

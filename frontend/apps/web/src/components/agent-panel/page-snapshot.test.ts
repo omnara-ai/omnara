@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { findOnPage, pageSnapshot } from './page-snapshot'
+import { describeOnPage, findClickableOnPage, findOnPage, pageSnapshot } from './page-snapshot'
 
 // happy-dom has no layout: give every element a box and treat only [hidden] as not rendered.
 beforeEach(() => {
@@ -114,5 +114,35 @@ it('finds what a name from the outline refers to, preferring an exact control ov
   expect(findOnPage('heading "Models"')?.id).toBe('title')
   expect(findOnPage('new model prov')?.id).toBe('provider')
   expect(findOnPage('gpt-6.1-terra')?.id).toBe('row')
+  expect(findOnPage('Add a provider')?.id).toBe('provider')
+  expect(findOnPage('Create model')?.id).toBe('new')
+  expect(findOnPage('Delete model')).toBeNull()
   expect(findOnPage('Delete everything')).toBeNull()
+})
+
+it('finds what the user could click themselves, by name or by a link path', () => {
+  document.body.innerHTML = `
+    <nav>
+      <button id="org" aria-haspopup="menu" aria-expanded="false">Omnara Owner</button>
+      <a id="models" href="/models">Models</a>
+      <a id="hidden" href="/secrets" hidden>Secrets</a>
+    </nav>
+    <main>
+      <h1 id="title">Members</h1>
+      <button id="invite" class="bg-primary">Invite user</button>
+      <button id="tab" role="tab" aria-selected="false">Organization</button>
+      <a id="agent" href="/projects/p1/agents/a1/chat?tab=events">Reviewer</a>
+    </main>
+    <div data-assistant-surface><button id="own">Stop</button><a href="/usage">Usage</a></div>`
+  expect(findClickableOnPage('Omnara Owner')?.id).toBe('org')
+  expect(findClickableOnPage('button "Invite user" primary')?.id).toBe('invite')
+  expect(findClickableOnPage('tab "Organization"')?.id).toBe('tab')
+  expect(findClickableOnPage('the Models page')?.id).toBe('models')
+  expect(findClickableOnPage('/models')?.id).toBe('models')
+  expect(findClickableOnPage('/projects/p1/agents/a1/chat')?.id).toBe('agent')
+  for (const absent of ['Members', 'Secrets', '/secrets', 'Stop', 'Usage', '/usage']) {
+    expect(findClickableOnPage(absent), absent).toBeNull()
+  }
+  const org = document.getElementById('org')
+  expect(org == null ? '' : describeOnPage(org)).toBe('button "Omnara Owner" collapsed')
 })

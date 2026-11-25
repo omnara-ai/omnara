@@ -4,17 +4,37 @@ import type { OmnaraUIMessage } from '@omnara/react'
 import { expect, it } from 'vitest'
 
 import {
+  answerWhenReady,
   createPageActionRunner,
   type PageAction,
+  pageActionsIn,
+  type PageClick,
   type PagePointer,
-  pendingPageActions,
 } from './page-actions'
+
+function said(id: string, actorId: string | undefined): OmnaraUIMessage {
+  return {
+    id,
+    role: 'user',
+    metadata: {
+      eventId: id,
+      eventKind: 'agent_input',
+      inputKind: 'content',
+      actorId,
+      sequence: 1,
+      turnId: id,
+      turnSequence: 1,
+      createdAt: '2026-11-23T00:00:00Z',
+    },
+    parts: [{ type: 'text', id: `${id}-text`, text: 'Where are models?' }],
+  }
+}
 
 function call(
   id: string,
   toolName: string,
   input: Record<string, string>,
-  options: { answered?: boolean; custom?: boolean } = {},
+  options: { completed?: boolean; custom?: boolean } = {},
 ): OmnaraUIMessage {
   return {
     id: `message-${id}`,
@@ -27,7 +47,7 @@ function call(
         toolName,
         toolType: options.custom === false ? 'mcp' : 'custom',
         input,
-        ...(options.answered === true
+        ...(options.completed === true
           ? { state: 'output-available', output: { contentBlocks: [] } }
           : { state: 'input-available' }),
       },
@@ -35,21 +55,37 @@ function call(
   }
 }
 
-it('reads the page tool calls still waiting for an answer, in order', () => {
+it('reads the page tool calls from the turns this person started, in order', () => {
   expect(
-    pendingPageActions([
-      call('done', 'dashboard_open_page', { path: '/usage' }, { answered: true }),
-      call('one', 'dashboard_open_page', { path: '/models' }),
-      call('two', 'dashboard_point_at', { target: 'New model', note: 'Start here' }),
-      call('empty', 'dashboard_point_at', { target: '' }),
-      call('mcp', 'dashboard_open_page', { path: '/usage' }, { custom: false }),
-      call('other', 'create_ticket', { path: '/models' }),
-    ]),
+    pageActionsIn(
+      [
+        said('theirs', 'act_other'),
+        call('not-mine', 'dashboard_click', { target: 'Usage' }),
+        said('mine', 'act_me'),
+        call('one', 'dashboard_click', { target: 'Models' }),
+        call('two', 'dashboard_click', { target: 'Agents' }, { completed: true }),
+        call('three', 'dashboard_point_at', { target: 'New model', note: 'Start here' }),
+        call('empty', 'dashboard_point_at', { target: '' }),
+        call('mcp', 'dashboard_click', { target: 'Usage' }, { custom: false }),
+        call('other', 'create_ticket', { target: 'Models' }),
+      ],
+      'act_me',
+    ),
   ).toEqual([
-    { id: 'one', tool: 'dashboard_open_page', path: '/models' },
-    { id: 'two', tool: 'dashboard_point_at', target: 'New model', note: 'Start here' },
+    { id: 'one', tool: 'dashboard_click', target: 'Models', waiting: true },
+    { id: 'two', tool: 'dashboard_click', target: 'Agents', waiting: false },
+    { id: 'three', tool: 'dashboard_point_at', target: 'New model', note: 'Start here' },
   ])
 })
+
+const clicks = new Map<string, PageClick>([
+  ['Models', { outcome: 'clicked', what: 'link "Models"', opened: '/models' }],
+  ['Omnara Owner', { outcome: 'clicked', what: 'button "Omnara Owner" collapsed', opened: null }],
+  [
+    'Save',
+    { outcome: 'refused', why: 'button "Save" disabled is disabled, so nothing was clicked.' },
+  ],
+])
 
 function page(found: Record<string, Element>) {
   const log: string[] = []
@@ -58,9 +94,9 @@ function page(found: Record<string, Element>) {
   let visible = true
   const runner = createPageActionRunner({
     visible: () => visible,
-    open: (path) => {
-      log.push(`open ${path}`)
-      return Promise.resolve(path.startsWith('/models'))
+    click: (target) => {
+      log.push(`click ${target}`)
+      return Promise.resolve(clicks.get(target) ?? { outcome: 'missing' })
     },
     find: (target) => {
       log.push(`find ${target}`)
@@ -69,7 +105,7 @@ function page(found: Record<string, Element>) {
     point: (next) => {
       pointer = next
     },
-    snapshot: () => '# Models\nbutton "New provider"',
+    snapshot: () => '# Providers\nbutton "New provider"',
     answer: (id, outcome, text) => {
       answers.push(`${id} ${outcome}: ${text}`)
       return Promise.resolve()
@@ -86,7 +122,14 @@ function page(found: Record<string, Element>) {
   }
 }
 
-const open: PageAction = { id: 'open', tool: 'dashboard_open_page', path: '/models' }
+const outline = 'What the user sees now:\n# Providers\nbutton "New provider"'
+const click = (id: string, target: string, waiting = true): PageAction => ({
+  id,
+  tool: 'dashboard_click',
+  target,
+  waiting,
+})
+const history: PageAction[] = [click('old', 'Usage')]
 const point: PageAction = {
   id: 'point',
   tool: 'dashboard_point_at',
@@ -94,42 +137,66 @@ const point: PageAction = {
   note: 'Start here',
 }
 
-it('answers each waiting call once, in order, with what the user now sees', async () => {
+it('clicks and answers with what the screen shows afterwards, and points without answering', async () => {
   const button = document.createElement('button')
   const dashboard = page({ 'New provider': button })
-  dashboard.runner.take([open, point])
-  dashboard.runner.take([open, point])
+  const fresh = [click('link', 'Models'), click('menu', 'Omnara Owner'), point]
+  dashboard.runner.take(history)
+  dashboard.runner.take([...history, ...fresh])
+  dashboard.runner.take([...history, ...fresh])
   await dashboard.runner.settled()
 
-  expect(dashboard.log).toEqual(['open /models', 'find New provider'])
+  expect(dashboard.log).toEqual(['click Models', 'click Omnara Owner', 'find New provider'])
   expect(dashboard.pointer()).toEqual({ element: button, note: 'Start here' })
   expect(dashboard.answers).toEqual([
-    'open succeeded: Opened /models.\n\nWhat the user sees now:\n# Models\nbutton "New provider"',
-    'point succeeded: The user can see it marked on the page.',
+    `link succeeded: Clicked link "Models". It opened /models.\n\n${outline}`,
+    `menu succeeded: Clicked button "Omnara Owner" collapsed.\n\n${outline}`,
   ])
 })
 
-it('tells the assistant when a page or a target is not there', async () => {
+it('says why nothing was clicked, and leaves a call Omnara stopped waiting for', async () => {
   const dashboard = page({})
-  dashboard.runner.take([{ id: 'api', tool: 'dashboard_open_page', path: '/api/v1/me' }, point])
+  dashboard.runner.take([])
+  dashboard.runner.take([
+    click('absent', 'Billing'),
+    click('off', 'Save'),
+    click('late', 'Models', false),
+  ])
   await dashboard.runner.settled()
 
-  expect(dashboard.pointer()).toBeNull()
+  expect(dashboard.log).toEqual(['click Billing', 'click Save'])
   expect(dashboard.answers).toEqual([
-    'api failed: /api/v1/me is not a dashboard page.',
-    'point failed: Nothing on the page is named "New provider".\n\nWhat the user sees now:\n# Models\nbutton "New provider"',
+    `absent failed: Nothing to click matching "Billing" is on the user's screen.\n\n${outline}`,
+    `off failed: button "Save" disabled is disabled, so nothing was clicked.\n\n${outline}`,
   ])
 })
 
-it('leaves calls for a tab the user is looking at, and takes them once this one is', async () => {
-  const dashboard = page({})
+it('treats what arrived while the conversation was hidden or in another tab as history', async () => {
+  const dashboard = page({ 'New provider': document.createElement('button') })
+  dashboard.runner.take([])
+  dashboard.runner.pause()
+  dashboard.runner.take([click('hidden', 'Models')])
   dashboard.show(false)
-  dashboard.runner.take([open])
+  dashboard.runner.take([click('hidden', 'Models'), point])
   await dashboard.runner.settled()
-  expect(dashboard.answers).toEqual([])
 
-  dashboard.show(true)
-  dashboard.runner.take([open])
-  await dashboard.runner.settled()
-  expect(dashboard.answers).toHaveLength(1)
+  expect(dashboard.log).toEqual([])
+  expect(dashboard.answers).toEqual([])
+})
+
+it('keeps offering its answer until the call is ready for one, and stops on any other refusal', async () => {
+  let sends = 0
+  await answerWhenReady(
+    () => {
+      sends++
+      return Promise.resolve(sends < 3 ? 'not_ready' : 'sent')
+    },
+    { timeoutMs: 1000, pollMs: 0 },
+  )
+  expect(sends).toBe(3)
+
+  const completed = new Error('already completed')
+  await expect(
+    answerWhenReady(() => Promise.reject(completed), { timeoutMs: 1000, pollMs: 0 }),
+  ).rejects.toBe(completed)
 })

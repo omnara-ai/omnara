@@ -23,9 +23,9 @@ describe('describeTool', () => {
   })
 
   it("describes the dashboard assistant's page actions", () => {
-    expect(describeTool('dashboard_open_page', { path: '/models' }, 'done')).toEqual({
-      verb: 'Opened',
-      target: '/models',
+    expect(describeTool('dashboard_click', { target: 'link "Models"' }, 'done')).toEqual({
+      verb: 'Clicked',
+      target: '"Models"',
     })
     expect(describeTool('dashboard_point_at', { target: 'New model' }, 'done')).toEqual({
       verb: 'Pointed at',

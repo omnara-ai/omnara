@@ -1,52 +1,88 @@
 import type { OmnaraUIMessage } from '@omnara/react'
 import * as z from 'zod'
 
-// The assistant's page tools are custom tools with a short timeout. The panel answers each
-// call from the user's browser; with no dashboard open Omnara answers "timed out" instead,
-// so the assistant never waits on a page nobody is looking at.
-export const openPageTool = 'dashboard_open_page'
+// The assistant's two page tools. Clicking is how it acts on the user's screen and the only
+// way it moves them: its cursor clicks something that is on screen, and the dashboard answers
+// with what the screen shows afterwards. Omnara stops waiting after a few seconds when no
+// dashboard answers. Pointing is send-only: Omnara completes the call at once and the panel
+// just acts on it.
+export const clickTool = 'dashboard_click'
 export const pointAtTool = 'dashboard_point_at'
 
-const openInput = z.object({ path: z.string().min(1) })
+const clickInput = z.object({ target: z.string().min(1) })
 const pointInput = z.object({ target: z.string().min(1), note: z.string().optional() })
 
 export type PageAction =
-  | { id: string; tool: typeof openPageTool; path: string }
+  | { id: string; tool: typeof clickTool; target: string; waiting: boolean }
   | { id: string; tool: typeof pointAtTool; target: string; note: string | undefined }
+
+/** What a click came to. `what` words the element the way the page outline does. */
+export type PageClick =
+  | { outcome: 'clicked'; what: string; opened: string | null }
+  | { outcome: 'refused'; why: string }
+  | { outcome: 'missing' }
 
 export interface PagePointer {
   element: Element
   note: string | undefined
 }
 
-/** The page tool calls in a conversation that are still waiting for an answer, oldest first. */
-export function pendingPageActions(messages: OmnaraUIMessage[]): PageAction[] {
+/**
+ * The page tool calls in a conversation, oldest first, from the turns this person started.
+ * A turn someone or something else started never moves this person's screen.
+ */
+export function pageActionsIn(
+  messages: OmnaraUIMessage[],
+  actorId: string | undefined,
+): PageAction[] {
   const actions: PageAction[] = []
-  for (const part of messages.flatMap((message) => message.parts)) {
-    if (part.type !== 'dynamic-tool' || part.toolType !== 'custom') continue
-    if (part.state !== 'input-available') continue
-    if (part.toolName === openPageTool) {
-      const input = openInput.safeParse(part.input)
-      if (input.success) {
-        actions.push({ id: part.toolCallId, tool: openPageTool, path: input.data.path })
-      }
+  let mine = false
+  for (const message of messages) {
+    if (message.role === 'user') {
+      mine = actorId != null && message.metadata?.actorId === actorId
+      continue
     }
-    if (part.toolName === pointAtTool) {
-      const input = pointInput.safeParse(part.input)
-      if (input.success) {
-        const { target, note } = input.data
-        actions.push({ id: part.toolCallId, tool: pointAtTool, target, note })
+    if (!mine) continue
+    for (const part of message.parts) {
+      if (part.type !== 'dynamic-tool' || part.toolType !== 'custom') continue
+      if (part.state === 'input-streaming') continue
+      if (part.toolName === clickTool) {
+        const input = clickInput.safeParse(part.input)
+        if (input.success) {
+          const waiting = part.state === 'input-available'
+          actions.push({ id: part.toolCallId, tool: clickTool, target: input.data.target, waiting })
+        }
+      }
+      if (part.toolName === pointAtTool) {
+        const input = pointInput.safeParse(part.input)
+        if (input.success) {
+          const { target, note } = input.data
+          actions.push({ id: part.toolCallId, tool: pointAtTool, target, note })
+        }
       }
     }
   }
   return actions
 }
 
+/**
+ * Sends an answer, trying again while the call cannot take one yet: a call shows up in the
+ * conversation a moment before Omnara is ready for its result.
+ */
+export async function answerWhenReady(
+  send: () => Promise<'sent' | 'not_ready'>,
+  options: { timeoutMs: number; pollMs: number },
+): Promise<void> {
+  const deadline = Date.now() + options.timeoutMs
+  while ((await send()) === 'not_ready' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, options.pollMs))
+  }
+}
+
 export interface PageActionHost {
   /** Whether the user is looking at this tab. */
   visible: () => boolean
-  /** Opens the page; false when the path is not a dashboard page. */
-  open: (path: string) => Promise<boolean>
+  click: (target: string) => Promise<PageClick>
   find: (target: string) => Promise<Element | null>
   point: (pointer: PagePointer) => void
   /** The page as the assistant reads it. */
@@ -55,41 +91,52 @@ export interface PageActionHost {
 }
 
 export function createPageActionRunner(host: PageActionHost) {
-  const taken = new Set<string>()
+  const seen = new Set<string>()
+  let watching = false
   let queue = Promise.resolve()
 
-  const seen = () => `What the user sees now:\n${host.snapshot()}`
-
   async function run(action: PageAction) {
-    if (action.tool === openPageTool) {
-      const opened = await host.open(action.path)
-      await (opened
-        ? host.answer(action.id, 'succeeded', `Opened ${action.path}.\n\n${seen()}`)
-        : host.answer(action.id, 'failed', `${action.path} is not a dashboard page.`))
+    if (action.tool === pointAtTool) {
+      const element = await host.find(action.target)
+      if (element != null) host.point({ element, note: action.note })
       return
     }
-    const element = await host.find(action.target)
-    if (element == null) {
-      await host.answer(
-        action.id,
-        'failed',
-        `Nothing on the page is named "${action.target}".\n\n${seen()}`,
-      )
+    // Omnara has already stopped waiting for this one, so nothing is clicked late.
+    if (!action.waiting) return
+    const click = await host.click(action.target)
+    const seen = `What the user sees now:\n${host.snapshot()}`
+    if (click.outcome === 'clicked') {
+      const opened = click.opened == null ? '' : ` It opened ${click.opened}.`
+      await host.answer(action.id, 'succeeded', `Clicked ${click.what}.${opened}\n\n${seen}`)
       return
     }
-    host.point({ element, note: action.note })
-    await host.answer(action.id, 'succeeded', 'The user can see it marked on the page.')
+    const why =
+      click.outcome === 'refused'
+        ? click.why
+        : `Nothing to click matching ${JSON.stringify(action.target)} is on the user's screen.`
+    await host.answer(action.id, 'failed', `${why}\n\n${seen}`)
   }
 
   return {
-    /** Answers each waiting call once, in order. A tab nobody is looking at leaves them be. */
+    /**
+     * Takes the conversation as it is now. What is already there when watching starts is
+     * history; only calls that arrive afterwards run, once each, in order.
+     */
     take: (actions: PageAction[]) => {
+      const fresh = actions.filter((action) => !seen.has(action.id))
+      for (const action of fresh) seen.add(action.id)
+      if (!watching) {
+        watching = true
+        return
+      }
       if (!host.visible()) return
-      for (const action of actions) {
-        if (taken.has(action.id)) continue
-        taken.add(action.id)
+      for (const action of fresh) {
         queue = queue.then(() => run(action)).catch(() => undefined)
       }
+    },
+    /** Stops watching, so a call that arrives while the conversation is hidden never runs late. */
+    pause: () => {
+      watching = false
     },
     settled: () => queue,
   }
