@@ -339,3 +339,45 @@ func TestBuildIncludesAllOpeningInputs(t *testing.T) {
 		t.Fatalf("langsmith root input = %q", got)
 	}
 }
+
+func TestBuildJoinsTheCallersTrace(t *testing.T) {
+	turn := testTurn()
+	parent, ok := ParseRemoteParent(testTraceParent, testTraceState)
+	if !ok {
+		t.Fatal("test traceparent parses")
+	}
+	turn.Parent = parent
+	linkedTurn := uuid.MustParse("00000000-0000-7000-8000-0000000000c2")
+	turn.Links = []Link{{Kind: LinkMessageFrom, AgentID: "agt_other", TurnID: linkedTurn, TraceID: parent.TraceID}}
+	spans := buildSpans(turn, VariantOTel)
+	root := spans[0]
+	if root.ParentSpanID() != parent.SpanID {
+		t.Fatalf("the root is a child of the calling span, got parent %s", root.ParentSpanID())
+	}
+	// W3C sampled flag, has-is-remote, and on the root alone is-remote.
+	if root.Flags() != 0x301 {
+		t.Fatalf("unexpected root flags: %#x", root.Flags())
+	}
+	for _, span := range spans {
+		if span.TraceID() != parent.TraceID {
+			t.Fatalf("span %q is outside the caller's trace: %s", span.Name(), span.TraceID())
+		}
+		if span.TraceState().AsRaw() != testTraceState {
+			t.Fatalf("span %q lost the tracestate: %q", span.Name(), span.TraceState().AsRaw())
+		}
+		if span.SpanID() != root.SpanID() && (span.ParentSpanID() != root.SpanID() || span.Flags() != 0x101) {
+			t.Fatalf("span %q is not a local child of the root", span.Name())
+		}
+	}
+	// A link to a turn that joined a caller's trace points into that trace.
+	if link := root.Links().At(0); link.TraceID() != parent.TraceID || link.SpanID() != spanID("turn", linkedTurn) {
+		t.Fatalf("unexpected link target: %s %s", link.TraceID(), link.SpanID())
+	}
+
+	// Without a caller's trace the turn is its own, as before.
+	own := buildSpans(testTurn(), VariantOTel)[0]
+	if own.TraceID() != TraceID(testTurn().TurnID) || !own.ParentSpanID().IsEmpty() || own.Flags() != 0 ||
+		own.TraceState().AsRaw() != "" {
+		t.Fatalf("a turn without a remote parent must be its own trace root")
+	}
+}

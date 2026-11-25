@@ -40,8 +40,12 @@ type LaunchAgentInput struct {
 	InitialInput            *LaunchInitialInput
 	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
 	Budgets                 []identitystore.BudgetAttachment
-	admission               *launchAdmission
-	spawnSourceToolCallID   uuid.UUID
+	// TraceParent and TraceState are the W3C trace context of the launching
+	// request. The turn the initial input opens joins that trace.
+	TraceParent           string
+	TraceState            string
+	admission             *launchAdmission
+	spawnSourceToolCallID uuid.UUID
 }
 
 type LaunchAgentResult struct {

@@ -4008,6 +4008,16 @@ export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 export const zIdempotencyKey = z.string().min(1).max(255);
 
 /**
+ * W3C Trace Context `traceparent` of the calling span. The turn this request's input opens is exported as part of that trace, with its `invoke_agent` span a child of the calling span. A malformed value is ignored.
+ */
+export const zTraceParent = z.string();
+
+/**
+ * W3C Trace Context `tracestate` sent with `traceparent`, carried on the turn's exported spans. Ignored without a valid `traceparent` or when longer than 512 bytes.
+ */
+export const zTraceState = z.string();
+
+/**
  * Maximum number of items to return in one page.
  */
 export const zPageLimit = z.int().gte(1).lte(100).default(50);
@@ -5516,7 +5526,9 @@ export const zListAgentsResponse2 = zListAgentsResponse;
 export const zCreateAgentBody = zCreateAgentRequest;
 
 export const zCreateAgentHeaders = z.object({
-    'Idempotency-Key': z.string().min(1).max(255).optional()
+    'Idempotency-Key': z.string().min(1).max(255).optional(),
+    traceparent: z.string().optional(),
+    tracestate: z.string().optional()
 });
 
 export const zCreateAgentPath = z.object({
@@ -5588,7 +5600,9 @@ export const zUpdateAgentConfigResponse2 = zUpdateAgentConfigResponse;
 export const zCreateAgentInputBody = zCreateAgentInputRequest;
 
 export const zCreateAgentInputHeaders = z.object({
-    'Idempotency-Key': z.string().min(1).max(255).optional()
+    'Idempotency-Key': z.string().min(1).max(255).optional(),
+    traceparent: z.string().optional(),
+    tracestate: z.string().optional()
 });
 
 export const zCreateAgentInputPath = z.object({

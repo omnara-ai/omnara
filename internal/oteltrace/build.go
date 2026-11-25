@@ -24,6 +24,9 @@ type Turn struct {
 	Events     []Event
 	// Links point from the turn at what another agent did to send it input.
 	Links []Link
+	// Parent is the trace context of the request that opened the turn. When
+	// set, the turn's spans join that trace under the caller's span.
+	Parent RemoteParent
 	// Truncated is set when the turn has more events or calls than were
 	// loaded, so the trace holds only the most recent ones.
 	Truncated bool
@@ -86,8 +89,10 @@ type Link struct {
 	Kind string
 	// AgentID is the public ID of the agent the linked span belongs to.
 	AgentID string
-	// TurnID is the linked turn, whose ID is also its trace ID.
+	// TurnID is the linked turn, whose ID is also its trace ID unless TraceID is set.
 	TurnID uuid.UUID
+	// TraceID is the caller's trace the linked turn joined, when it joined one.
+	TraceID pcommon.TraceID
 	// PublicTurnID is the public trn_... ID of the linked turn.
 	PublicTurnID string
 	// ToolCallID is set when the link points at a tool call's span; otherwise
@@ -97,6 +102,13 @@ type Link struct {
 
 // putLinks adds the links both as OTLP span links and as one JSON attribute,
 // because some backends, Langfuse among them, drop span links on ingestion.
+func (link Link) traceID() pcommon.TraceID {
+	if !link.TraceID.IsEmpty() {
+		return link.TraceID
+	}
+	return TraceID(link.TurnID)
+}
+
 func putLinks(span ptrace.Span, links []Link) {
 	if len(links) == 0 {
 		return
@@ -115,7 +127,7 @@ func putLinks(span ptrace.Span, links []Link) {
 			target = spanID("tool_call", link.ToolCallID)
 		}
 		spanLink := span.Links().AppendEmpty()
-		spanLink.SetTraceID(TraceID(link.TurnID))
+		spanLink.SetTraceID(link.traceID())
 		spanLink.SetSpanID(target)
 		spanLink.Attributes().PutStr("omnara.link.kind", link.Kind)
 		spanLink.Attributes().PutStr("omnara.link.agent.id", link.AgentID)
@@ -124,7 +136,7 @@ func putLinks(span ptrace.Span, links []Link) {
 		}
 		summary = append(summary, linkAttribute{
 			Kind: link.Kind, AgentID: link.AgentID, TurnID: link.PublicTurnID,
-			TraceID: TraceID(link.TurnID).String(), SpanID: target.String(),
+			TraceID: link.traceID().String(), SpanID: target.String(),
 		})
 	}
 	if encoded, err := json.Marshal(summary); err == nil {
@@ -151,6 +163,17 @@ func TraceID(turnID uuid.UUID) pcommon.TraceID {
 	return pcommon.TraceID(turnID)
 }
 
+// spanFlags carries the caller's W3C trace flags in the low byte, and above
+// it whether the span's parent is in another process: only the root's is.
+func spanFlags(parent RemoteParent, root bool) uint32 {
+	const hasIsRemote, isRemote = 0x100, 0x200
+	flags := uint32(parent.Flags) | hasIsRemote
+	if root {
+		flags |= isRemote
+	}
+	return flags
+}
+
 func spanID(kind string, id uuid.UUID) pcommon.SpanID {
 	sum := sha256.Sum256(append([]byte(kind+":"), id[:]...))
 	return pcommon.SpanID(sum[:8])
@@ -167,6 +190,9 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 	spans := scope.Spans()
 
 	traceID := TraceID(turn.TurnID)
+	if !turn.Parent.IsZero() {
+		traceID = turn.Parent.TraceID
+	}
 	rootID := spanID("turn", turn.TurnID)
 	outputs := make(map[uuid.UUID]Event)
 	results := make(map[uuid.UUID]Event)
@@ -224,8 +250,15 @@ func Build(turn Turn, variant Variant) ptrace.Traces {
 		span := spans.AppendEmpty()
 		span.SetTraceID(traceID)
 		span.SetSpanID(id)
-		if id != rootID {
+		switch {
+		case id != rootID:
 			span.SetParentSpanID(rootID)
+		case !turn.Parent.IsZero():
+			span.SetParentSpanID(turn.Parent.SpanID)
+		}
+		if !turn.Parent.IsZero() {
+			span.TraceState().FromRaw(turn.Parent.State)
+			span.SetFlags(spanFlags(turn.Parent, id == rootID))
 		}
 		span.SetName(strings.TrimSpace(name))
 		span.SetKind(kind)

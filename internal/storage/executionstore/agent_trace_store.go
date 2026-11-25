@@ -126,7 +126,11 @@ func (s *Store) loadTurnTrace(
 		})
 	}
 
-	if err := s.loadTurnTraceLinks(ctx, &turn, projectID, agentID, turnID); err != nil {
+	linkedAgentIDs, err := s.loadTurnTraceLinks(ctx, &turn, projectID, agentID, turnID)
+	if err != nil {
+		return oteltrace.Turn{}, err
+	}
+	if err := s.loadTurnTraceParents(ctx, &turn, append(linkedAgentIDs, agentID)); err != nil {
 		return oteltrace.Turn{}, err
 	}
 
@@ -170,14 +174,15 @@ func tokenCount(count *int32) *int64 {
 // input with: on the turn for input it received, on its tool calls for input
 // they sent. Links come only from explicit source provenance columns recorded
 // by the sending operation. A source or recipient that no longer exists is left unlinked.
+// It returns the agents the linked turns belong to.
 func (s *Store) loadTurnTraceLinks(
 	ctx context.Context, turn *oteltrace.Turn, projectID, agentID, turnID uuid.UUID,
-) error {
+) (linkedAgentIDs []uuid.UUID, err error) {
 	sources, err := s.q.ListTurnTraceInputSources(ctx, dbsqlc.ListTurnTraceInputSourcesParams{
 		AgentID: agentID, TurnID: turnID, RowLimit: maxTurnTraceInputLinks,
 	})
 	if err != nil {
-		return fmt.Errorf("list turn trace input sources: %w", err)
+		return nil, fmt.Errorf("list turn trace input sources: %w", err)
 	}
 	for _, source := range sources {
 		kind := storeutil.TextOrEmpty(source.SourceLinkKind)
@@ -203,15 +208,16 @@ func (s *Store) loadTurnTraceLinks(
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("load turn trace link source: %w", err)
+			return nil, fmt.Errorf("load turn trace link source: %w", err)
 		}
 		if link.AgentID, err = publicid.Encode(publicid.KindAgent, sourceAgentID); err != nil {
-			return err
+			return nil, err
 		}
 		if link.PublicTurnID, err = publicid.Encode(publicid.KindAgentTurn, link.TurnID); err != nil {
-			return err
+			return nil, err
 		}
 		turn.Links = append(turn.Links, link)
+		linkedAgentIDs = append(linkedAgentIDs, sourceAgentID)
 	}
 
 	var sendingToolCallIDs []uuid.UUID
@@ -221,13 +227,13 @@ func (s *Store) loadTurnTraceLinks(
 		}
 	}
 	if len(sendingToolCallIDs) == 0 {
-		return nil
+		return linkedAgentIDs, nil
 	}
 	sent, err := s.q.ListTurnTraceSentInputs(ctx, dbsqlc.ListTurnTraceSentInputsParams{
 		AgentID: &agentID, ToolCallIds: sendingToolCallIDs, RowLimit: maxTurnTraceSentLinks,
 	})
 	if err != nil {
-		return fmt.Errorf("list turn trace sent inputs: %w", err)
+		return nil, fmt.Errorf("list turn trace sent inputs: %w", err)
 	}
 	for _, row := range sent {
 		if row.ToolCallID == nil {
@@ -238,14 +244,52 @@ func (s *Store) loadTurnTraceLinks(
 			link.Kind = oteltrace.LinkSpawned
 		}
 		if link.AgentID, err = publicid.Encode(publicid.KindAgent, row.AgentID); err != nil {
-			return err
+			return nil, err
 		}
 		if link.PublicTurnID, err = publicid.Encode(publicid.KindAgentTurn, row.TurnID); err != nil {
-			return err
+			return nil, err
 		}
+		linkedAgentIDs = append(linkedAgentIDs, row.AgentID)
 		for i := range turn.ToolCalls {
 			if turn.ToolCalls[i].ID == *row.ToolCallID {
 				turn.ToolCalls[i].Links = append(turn.ToolCalls[i].Links, link)
+			}
+		}
+	}
+	return linkedAgentIDs, nil
+}
+
+// loadTurnTraceParents gives the turn, and each link to a turn, the caller's
+// trace it joined, so the turn's spans and the links to them agree on a trace ID.
+func (s *Store) loadTurnTraceParents(ctx context.Context, turn *oteltrace.Turn, agentIDs []uuid.UUID) error {
+	turnIDs := []uuid.UUID{turn.TurnID}
+	links := make([]*oteltrace.Link, 0, len(turn.Links))
+	for i := range turn.Links {
+		links = append(links, &turn.Links[i])
+	}
+	for i := range turn.ToolCalls {
+		for j := range turn.ToolCalls[i].Links {
+			links = append(links, &turn.ToolCalls[i].Links[j])
+		}
+	}
+	for _, link := range links {
+		turnIDs = append(turnIDs, link.TurnID)
+	}
+	rows, err := s.q.ListTurnTraceParents(ctx, dbsqlc.ListTurnTraceParentsParams{AgentIds: agentIDs, TurnIds: turnIDs})
+	if err != nil {
+		return fmt.Errorf("list turn trace parents: %w", err)
+	}
+	for _, row := range rows {
+		parent, ok := oteltrace.ParseRemoteParent(row.TraceParent, row.TraceState)
+		if !ok {
+			continue
+		}
+		if row.TurnID == turn.TurnID {
+			turn.Parent = parent
+		}
+		for _, link := range links {
+			if link.TurnID == row.TurnID {
+				link.TraceID = parent.TraceID
 			}
 		}
 	}

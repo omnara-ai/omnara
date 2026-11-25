@@ -6082,6 +6082,16 @@ export type UsageExcludeProjectIds = Array<ProjectId>;
 export type IdempotencyKey = string;
 
 /**
+ * W3C Trace Context `traceparent` of the calling span. The turn this request's input opens is exported as part of that trace, with its `invoke_agent` span a child of the calling span. A malformed value is ignored.
+ */
+export type TraceParent = string;
+
+/**
+ * W3C Trace Context `tracestate` sent with `traceparent`, carried on the turn's exported spans. Ignored without a valid `traceparent` or when longer than 512 bytes.
+ */
+export type TraceState = string;
+
+/**
  * Maximum number of items to return in one page.
  */
 export type PageLimit = number;
@@ -14789,6 +14799,14 @@ export type CreateAgentData = {
          * Idempotency key for replay-safe mutating requests.
          */
         'Idempotency-Key'?: string;
+        /**
+         * W3C Trace Context `traceparent` of the calling span. The turn this request's input opens is exported as part of that trace, with its `invoke_agent` span a child of the calling span. A malformed value is ignored.
+         */
+        traceparent?: string;
+        /**
+         * W3C Trace Context `tracestate` sent with `traceparent`, carried on the turn's exported spans. Ignored without a valid `traceparent` or when longer than 512 bytes.
+         */
+        tracestate?: string;
     };
     path: {
         /**
@@ -15192,6 +15210,14 @@ export type CreateAgentInputData = {
          * Idempotency key for replay-safe mutating requests.
          */
         'Idempotency-Key'?: string;
+        /**
+         * W3C Trace Context `traceparent` of the calling span. The turn this request's input opens is exported as part of that trace, with its `invoke_agent` span a child of the calling span. A malformed value is ignored.
+         */
+        traceparent?: string;
+        /**
+         * W3C Trace Context `tracestate` sent with `traceparent`, carried on the turn's exported spans. Ignored without a valid `traceparent` or when longer than 512 bytes.
+         */
+        tracestate?: string;
     };
     path: {
         /**

@@ -5083,6 +5083,8 @@ paths:
           csrfHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/TraceState'
       requestBody:
         required: true
         content:
@@ -5460,6 +5462,8 @@ paths:
           csrfHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/TraceState'
       requestBody:
         required: true
         content:
@@ -5949,7 +5953,7 @@ paths:
       operationId: getTurnTrace
       tags: [Events]
       summary: Get a turn as an OpenTelemetry trace
-      description: Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
+      description: Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID, unless the request that opened the turn sent a W3C traceparent header, in which case the trace has that trace ID and its root span is a child of the calling span. A turn that is still running returns the spans completed so far.
       parameters:
         - name: variant
           in: query
@@ -9988,6 +9992,25 @@ components:
         minLength: 1
         maxLength: 255
       description: Idempotency key for replay-safe mutating requests.
+    TraceParent:
+      name: traceparent
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >-
+        W3C Trace Context `traceparent` of the calling span. The turn this request's input opens
+        is exported as part of that trace, with its `invoke_agent` span a child of the calling
+        span. A malformed value is ignored.
+    TraceState:
+      name: tracestate
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >-
+        W3C Trace Context `tracestate` sent with `traceparent`, carried on the turn's exported
+        spans. Ignored without a valid `traceparent` or when longer than 512 bytes.
     PageLimit:
       name: limit
       in: query

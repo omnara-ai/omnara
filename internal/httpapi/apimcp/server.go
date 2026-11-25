@@ -247,6 +247,10 @@ func compileOperation(
 				compiled.idempotency = true
 				continue
 			}
+			// Trace context belongs to the calling transport, not to a tool's arguments.
+			if parameter.Name == "traceparent" || parameter.Name == "tracestate" {
+				continue
+			}
 			return nil, nil, fmt.Errorf(unsupportedParameter, parameter.Name, tool.OperationID, parameter.In)
 		default:
 			return nil, nil, fmt.Errorf(unsupportedParameter, parameter.Name, tool.OperationID, parameter.In)

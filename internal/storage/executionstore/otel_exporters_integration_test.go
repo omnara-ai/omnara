@@ -408,6 +408,49 @@ func TestTurnTraceIgnoresCallerSpoofedIdempotencyKey(t *testing.T) {
 	require.False(t, turn.ContentTruncated)
 }
 
+// A turn opened by a request that carried a W3C trace context joins that
+// trace; a malformed context is ignored rather than rejected.
+func TestTurnTraceJoinsTheCallersTrace(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "otel_trace_context")
+	store := fixture.Store.Execution()
+	const traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+	openTurn := func(key, traceParent, traceState string) uuid.UUID {
+		_, _, _, err := store.CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			IdempotencyKey: key, DeliveryMode: executionstore.DeliveryModeSteering,
+			TraceParent: traceParent, TraceState: traceState,
+		})
+		require.NoError(t, err)
+		_, found := admitNextAgentInputAndOpenTurnForTest(
+			t, ctx, fixture.Store, testProjectID, fixture.AgentID, fixture.Lock.ID)
+		require.True(t, found)
+		var turnID uuid.UUID
+		require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+			SELECT id FROM agent_turns WHERE agent_id = $1 ORDER BY turn_sequence DESC LIMIT 1`,
+			fixture.AgentID).Scan(&turnID))
+		return turnID
+	}
+
+	turnID := openTurn("otel-trace-context", traceParent, "vendor=value")
+	turn, err := store.LoadTurnTrace(ctx, testProjectID, fixture.AgentID, turnID)
+	require.NoError(t, err)
+	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", turn.Parent.TraceID.String())
+	require.Equal(t, "00f067aa0ba902b7", turn.Parent.SpanID.String())
+	require.Equal(t, byte(1), turn.Parent.Flags)
+	require.Equal(t, "vendor=value", turn.Parent.State)
+	root := oteltrace.Build(turn, oteltrace.VariantOTel).ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+	require.Equal(t, turn.Parent.TraceID, root.TraceID())
+	require.Equal(t, turn.Parent.SpanID, root.ParentSpanID())
+
+	turnID = openTurn("otel-trace-context-malformed", "not-a-traceparent", "vendor=value")
+	turn, err = store.LoadTurnTrace(ctx, testProjectID, fixture.AgentID, turnID)
+	require.NoError(t, err)
+	require.True(t, turn.Parent.IsZero())
+}
+
 func TestTurnTraceBoundsLoadedEventBytes(t *testing.T) {
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "otel_event_budget")

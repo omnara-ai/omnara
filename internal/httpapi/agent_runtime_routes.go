@@ -406,6 +406,8 @@ func (s strictOpenAPIServer) createAgentInput(
 			CancelOpenInteractions: cancelOpenInteractions,
 			SourceScheduledFor:     scheduledFor,
 			MaxScheduledDelay:      maxScheduledInputDelay,
+			TraceParent:            valueOrEmpty(request.Params.Traceparent),
+			TraceState:             valueOrEmpty(request.Params.Tracestate),
 		},
 	)
 	if err != nil || !created {
