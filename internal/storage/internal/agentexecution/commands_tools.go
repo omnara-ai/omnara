@@ -32,6 +32,8 @@ type CompletedTool struct {
 	ResultID uuid.UUID
 	Event    ExecutionEvent
 	Changed  bool
+	// The call's deadline had passed, so it took its timeout result instead of the one offered.
+	TimedOut bool
 }
 
 func (h *Handle) tool(ctx context.Context, id uuid.UUID) (executiondb.ReadExecutionToolRow, error) {
@@ -255,6 +257,11 @@ func (h *Handle) CompleteCustomTool(
 		if row.Type != "custom" || row.State != "ready" || (outcome != "succeeded" && outcome != "failed") {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
+		if customToolTimedOut(row) {
+			completed, err := h.timeOutCustomTool(ctx, m, row)
+			completed.TimedOut = true
+			return completed, err
+		}
 		return h.completeTool(ctx, m, row, outcome, content, uuid.Nil, nil)
 	})
 }
@@ -265,13 +272,25 @@ func (h *Handle) ExpireCustomTool(ctx context.Context, id uuid.UUID) (bool, erro
 		if err != nil {
 			return false, err
 		}
-		if row.Type != "custom" || row.State != "ready" || !row.Expired || row.TimeoutSeconds == nil {
+		if row.Type != "custom" || row.State != "ready" || !customToolTimedOut(row) {
 			return false, nil
 		}
-		_, err = h.completeTool(ctx, m, row, "failed",
-			[]Content{{Kind: "text", Text: customToolTimedOutResult(*row.TimeoutSeconds)}}, uuid.Nil, nil)
+		_, err = h.timeOutCustomTool(ctx, m, row)
 		return err == nil, err
 	})
+}
+
+func customToolTimedOut(row executiondb.ReadExecutionToolRow) bool {
+	return row.Expired && row.TimeoutSeconds != nil
+}
+
+func (h *Handle) timeOutCustomTool(
+	ctx context.Context,
+	m *executionMutation,
+	row executiondb.ReadExecutionToolRow,
+) (CompletedTool, error) {
+	return h.completeTool(ctx, m, row, "failed",
+		[]Content{{Kind: "text", Text: customToolTimedOutResult(*row.TimeoutSeconds)}}, uuid.Nil, nil)
 }
 
 func (h *Handle) completeTool(

@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -303,41 +304,46 @@ func (s *Store) CompleteCustomToolCall(
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 
-			result, err := completeCustomToolCallTx(ctx, unit, input)
+			result, timedOut, err := completeCustomToolCallTx(ctx, unit, input)
 			if err != nil {
 				return CompleteCustomToolCallResult{}, err
 			}
 			if err := unit.Commit(ctx, "complete custom tool call"); err != nil {
 				return CompleteCustomToolCallResult{}, err
 			}
+			if timedOut {
+				return CompleteCustomToolCallResult{}, storeerr.ErrToolCallCompleted
+			}
 			return result, nil
 		})
 }
 
+// The second result reports a call whose deadline had passed: it is completed as timed out,
+// which the caller commits before refusing the submission.
 func completeCustomToolCallTx(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	input CompleteCustomToolCallInput,
-) (CompleteCustomToolCallResult, error) {
+) (CompleteCustomToolCallResult, bool, error) {
 	h, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
 	if err != nil {
-		return CompleteCustomToolCallResult{}, err
+		return CompleteCustomToolCallResult{}, false, err
 	}
 	blocks, err := parseToolResultContentBlocks(input.ContentBlocks)
 	if err != nil {
-		return CompleteCustomToolCallResult{}, err
+		return CompleteCustomToolCallResult{}, false, err
 	}
 	parts, err := executionContent(blocks)
 	if err != nil {
-		return CompleteCustomToolCallResult{}, err
+		return CompleteCustomToolCallResult{}, false, err
 	}
 	completed, err := h.CompleteCustomTool(ctx, input.ID, string(input.Outcome), parts)
-	if err != nil {
-		return CompleteCustomToolCallResult{}, err
+	if err != nil || completed.TimedOut {
+		return CompleteCustomToolCallResult{}, completed.TimedOut, err
 	}
 	record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
 	if err != nil {
-		return CompleteCustomToolCallResult{}, err
+		return CompleteCustomToolCallResult{}, false, err
 	}
 	return CompleteCustomToolCallResult{ToolCall: record, Event: TypedAgentEventRecord{
 		Event: executionEvent(
@@ -345,7 +351,7 @@ func completeCustomToolCallTx(
 			completed.Event,
 			events.KindToolResult,
 		), TurnID: completed.Event.TurnID,
-		ToolCallResultID: completed.ResultID}, ContentBlocks: record.ResultContentParts}, nil
+		ToolCallResultID: completed.ResultID}, ContentBlocks: record.ResultContentParts}, false, nil
 }
 
 func (s *Store) CompleteRuntimeToolCall(
