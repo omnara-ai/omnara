@@ -10,6 +10,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($Port -eq $BackendPort) { throw 'Port and BackendPort must be different.' }
+$siteName = 'Omnara'
+$farmName = 'OmnaraControlPlane'
+$binding = "127.0.0.1:${Port}:"
+. (Join-Path $PSScriptRoot 'Common.ps1')
+$SiteDirectory = Resolve-LocalPath $SiteDirectory
+if ((Test-Path -LiteralPath $SiteDirectory) -and
+    @(Get-ChildItem -LiteralPath $SiteDirectory -Force).Count -gt 0) {
+    throw 'SiteDirectory must be empty; existing site content will not be overwritten.'
+}
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
     throw "IIS port $Port is already in use. Choose a free -Port distinct from the Omnara service ports."
 }
@@ -23,15 +32,6 @@ try {
 } catch { $backendReady = $false }
 if (-not $backendReady) {
     throw "omnara-api must serve its embedded dashboard on 127.0.0.1:$BackendPort. Check that -BackendPort matches -ApiPort and the API is ready."
-}
-$siteName = 'Omnara'
-$farmName = 'OmnaraControlPlane'
-$binding = "127.0.0.1:${Port}:"
-. (Join-Path $PSScriptRoot 'Common.ps1')
-$SiteDirectory = Resolve-LocalPath $SiteDirectory
-if ((Test-Path -LiteralPath $SiteDirectory) -and
-    @(Get-ChildItem -LiteralPath $SiteDirectory -Force).Count -gt 0) {
-    throw 'SiteDirectory must be empty; existing site content will not be overwritten.'
 }
 $template = Join-Path $PSScriptRoot 'web.config'
 if (-not (Test-Path -LiteralPath $template -PathType Leaf)) { throw 'Place web.config beside this script.' }
