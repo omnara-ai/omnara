@@ -100,7 +100,7 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 		if !targets[i].changed {
 			continue
 		}
-		changes = append(changes, fmt.Sprintf("org %s: update machine pool %q", current.OrgID, name))
+		changes = append(changes, fmt.Sprintf("update machine pool %q", name))
 		if apply && current.RuntimeProtectionEnabled != desired.RuntimeProtectionEnabled {
 			machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
 				ctx,
