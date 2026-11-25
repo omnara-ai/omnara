@@ -88,6 +88,11 @@ export async function answerWhenReady(
 export interface PageActionHost {
   /** Whether the user is looking at this tab. */
   visible: () => boolean
+  /**
+   * Carries out a call unless another window of this browser already has it: with the
+   * dashboard open in two windows, a click must still happen once.
+   */
+  claim: (id: string, act: () => Promise<void>) => Promise<void>
   click: (target: string) => Promise<PageClick>
   find: (target: string) => Promise<Element | null>
   /** The element as the page outline words it. */
@@ -150,7 +155,7 @@ export function createPageActionRunner(host: PageActionHost) {
       }
       if (!host.visible()) return
       for (const action of fresh) {
-        queue = queue.then(() => run(action)).catch(() => undefined)
+        queue = queue.then(() => host.claim(action.id, () => run(action))).catch(() => undefined)
       }
     },
     /** Stops watching, so a call that arrives while the conversation is hidden never runs late. */

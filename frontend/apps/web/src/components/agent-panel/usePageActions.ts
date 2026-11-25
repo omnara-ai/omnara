@@ -58,6 +58,13 @@ export function usePageActions(
   const [runner] = useState(() =>
     createPageActionRunner({
       visible: () => document.visibilityState === 'visible',
+      claim: async (id, act) => {
+        await navigator.locks.request(
+          `omnara-assistant-call-${id}`,
+          { ifAvailable: true },
+          (lock) => (lock == null ? undefined : act()),
+        )
+      },
       click: async (target) => {
         const element = await until(() => findClickableOnPage(target), findMs)
         if (router == null || element == null) return { outcome: 'missing' }

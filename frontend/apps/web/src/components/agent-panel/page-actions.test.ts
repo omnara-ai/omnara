@@ -100,6 +100,7 @@ function page(found: Record<string, Element>) {
   let visible = true
   const runner = createPageActionRunner({
     visible: () => visible,
+    claim: (id, act) => (id === 'elsewhere' ? Promise.resolve() : act()),
     click: (target) => {
       log.push(`click ${target}`)
       return Promise.resolve(clicks.get(target) ?? { outcome: 'missing' })
@@ -194,6 +195,16 @@ it('says why nothing happened, and leaves calls Omnara stopped waiting for', asy
     `off failed: button "Save" disabled is disabled, so nothing was clicked.\n\n${outline}`,
     `nowhere failed: Nothing matching "Launch rocket" is on the user's screen.\n\n${outline}`,
   ])
+})
+
+it('leaves a call that another window has already taken', async () => {
+  const dashboard = page({})
+  dashboard.runner.take([])
+  dashboard.runner.take([click('elsewhere', 'Models'), click('here', 'Models')])
+  await dashboard.runner.settled()
+
+  expect(dashboard.log).toEqual(['click Models'])
+  expect(dashboard.answers).toHaveLength(1)
 })
 
 it('treats what arrived while the conversation was hidden or in another tab as history', async () => {

@@ -43,10 +43,12 @@ const (
 		"dialog that opened. It fails when nothing with that name is on screen, and the failure shows what is. " +
 		"It cannot type. It times out after a few seconds when the user does not have the dashboard open."
 	assistantPointAtDescription = "Point at a control, table row or heading on the page the user is looking at: " +
-		"they see your cursor go to it, and it stays marked until they click. target is its name as a page outline " +
-		"shows it, for example New provider. note is an optional few words shown next to it, for example Add your " +
-		"provider here. It changes nothing on the page. It fails when nothing on screen has that name, and the " +
-		"failure shows what is. It times out after a few seconds when the user does not have the dashboard open."
+		"they see your cursor go to it, and it stays marked until they click. There is only one mark, so pointing " +
+		"again moves it and the user sees only the last thing you pointed at. target is its name as a page outline " +
+		"shows it, for example New provider. note is a few words shown next to the mark, which is what the user " +
+		"reads while looking at the page, for example Add your provider here. It changes nothing on the page. It " +
+		"fails when nothing on screen has that name, and the failure shows what is. It times out after a few " +
+		"seconds when the user does not have the dashboard open."
 
 	assistantClickSchema = `{"type":"object","properties":{"target":{"type":"string"}},` +
 		`"required":["target"],"additionalProperties":false}`
