@@ -1,8 +1,18 @@
 /** @vitest-environment happy-dom */
 
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { describeOnPage, findClickableOnPage, findOnPage, pageSnapshot } from './page-snapshot'
+import { SecretText } from '@/components/ui/secret-text'
+
+import {
+  describeOnPage,
+  matchClickableOnPage,
+  matchOnPage,
+  type PageMatch,
+  pageSnapshot,
+} from './page-snapshot'
 
 // happy-dom has no layout: give every element a box and treat only [hidden] as not rendered.
 beforeEach(() => {
@@ -22,6 +32,11 @@ function show(html: string) {
   for (const field of fields) field.value = field.dataset.typed ?? ''
   return pageSnapshot()
 }
+
+const withoutRefs = (text: string) => text.replaceAll(/ \[e\d+\]/g, '')
+
+/** The id of the one element a target came to, or how it failed to come to one. */
+const found = (match: PageMatch) => (match.kind === 'one' ? match.element.id : match.kind)
 
 it('lists what is on the page in reading order, without the assistant itself', () => {
   const snapshot = show(`
@@ -48,7 +63,7 @@ it('lists what is on the page in reading order, without the assistant itself', (
       <dialog open aria-label="Assistant"><p>Earlier answer</p></dialog>
       <button>Assistant</button>
     </div>`)
-  expect(snapshot.split('\n').slice(2)).toEqual([
+  expect(withoutRefs(snapshot).split('\n').slice(2)).toEqual([
     '-- sidebar',
     'link "Agents" current href=/agents',
     '-- end sidebar',
@@ -98,6 +113,33 @@ it('reads only the open modal dialog, since the page behind it is blocked', () =
   expect(snapshot).not.toContain('Members')
 })
 
+it('leaves out a credential the page shows, wherever its text would be picked up', () => {
+  const token = renderToStaticMarkup(createElement(SecretText, null, 'omn_machine_secret'))
+  const snapshot = show(`
+    <div role="dialog" aria-modal="true" aria-labelledby="title">
+      <h2 id="title">Connect machine ${token}</h2>
+      <div aria-labelledby="label">
+        <div id="label">Machine token</div>
+        ${token}
+        <p>Shown once.</p>
+      </div>
+      <div>Keep ${token} somewhere safe.</div>
+      <table><tbody><tr><td>prod</td><td>${token}</td></tr></tbody></table>
+      <button>Copy token ${token}</button>
+    </div>`)
+  for (const kept of [
+    'Connect machine',
+    'Machine token',
+    'Shown once.',
+    'somewhere safe.',
+    'prod',
+  ]) {
+    expect(snapshot).toContain(kept)
+  }
+  expect(snapshot).toContain('button "Copy token"')
+  expect(snapshot).not.toContain('omn_machine_secret')
+})
+
 it('finds what a name from the outline refers to, preferring an exact control over a heading', () => {
   document.body.innerHTML = `
     <main>
@@ -108,16 +150,16 @@ it('finds what a name from the outline refers to, preferring an exact control ov
       <table><tbody><tr id="row"><td>gpt-6.1-terra</td><td>prod-openai</td></tr></tbody></table>
     </main>
     <div data-assistant-surface><button id="own">New model</button></div>`
-  expect(findOnPage('New model')?.id).toBe('new')
-  expect(findOnPage('button "New model" primary')?.id).toBe('new')
-  expect(findOnPage('models')?.id).toBe('link')
-  expect(findOnPage('heading "Models"')?.id).toBe('title')
-  expect(findOnPage('new model prov')?.id).toBe('provider')
-  expect(findOnPage('gpt-6.1-terra')?.id).toBe('row')
-  expect(findOnPage('Add a provider')?.id).toBe('provider')
-  expect(findOnPage('Create model')?.id).toBe('new')
-  expect(findOnPage('Delete model')).toBeNull()
-  expect(findOnPage('Delete everything')).toBeNull()
+  expect(found(matchOnPage('New model'))).toBe('new')
+  expect(found(matchOnPage('button "New model" primary'))).toBe('new')
+  expect(found(matchOnPage('models'))).toBe('link')
+  expect(found(matchOnPage('heading "Models"'))).toBe('title')
+  expect(found(matchOnPage('new model prov'))).toBe('provider')
+  expect(found(matchOnPage('gpt-6.1-terra'))).toBe('row')
+  expect(found(matchOnPage('Add a provider'))).toBe('provider')
+  expect(found(matchOnPage('Create model'))).toBe('new')
+  expect(found(matchOnPage('Delete model'))).toBe('none')
+  expect(found(matchOnPage('Delete everything'))).toBe('none')
 })
 
 it('finds what the user could click themselves, by name or by a link path', () => {
@@ -134,15 +176,42 @@ it('finds what the user could click themselves, by name or by a link path', () =
       <a id="agent" href="/projects/p1/agents/a1/chat?tab=events">Reviewer</a>
     </main>
     <div data-assistant-surface><button id="own">Stop</button><a href="/usage">Usage</a></div>`
-  expect(findClickableOnPage('Omnara Owner')?.id).toBe('org')
-  expect(findClickableOnPage('button "Invite user" primary')?.id).toBe('invite')
-  expect(findClickableOnPage('tab "Organization"')?.id).toBe('tab')
-  expect(findClickableOnPage('the Models page')?.id).toBe('models')
-  expect(findClickableOnPage('/models')?.id).toBe('models')
-  expect(findClickableOnPage('/projects/p1/agents/a1/chat')?.id).toBe('agent')
+  expect(found(matchClickableOnPage('Omnara Owner'))).toBe('org')
+  expect(found(matchClickableOnPage('button "Invite user" primary'))).toBe('invite')
+  expect(found(matchClickableOnPage('tab "Organization"'))).toBe('tab')
+  expect(found(matchClickableOnPage('the Models page'))).toBe('models')
+  expect(found(matchClickableOnPage('/models'))).toBe('models')
+  expect(found(matchClickableOnPage('/projects/p1/agents/a1/chat'))).toBe('agent')
   for (const absent of ['Members', 'Secrets', '/secrets', 'Stop', 'Usage', '/usage']) {
-    expect(findClickableOnPage(absent), absent).toBeNull()
+    expect(found(matchClickableOnPage(absent)), absent).toBe('none')
   }
   const org = document.getElementById('org')
-  expect(org == null ? '' : describeOnPage(org)).toBe('button "Omnara Owner" collapsed')
+  expect(org == null ? '' : withoutRefs(describeOnPage(org))).toBe(
+    'button "Omnara Owner" collapsed',
+  )
+})
+
+it('refuses a name that several different controls share and takes the ref of one instead', () => {
+  const snapshot = show(`
+    <nav><a id="side" href="/models">Models</a></nav>
+    <main>
+      <a id="crumb" href="/models">Models</a>
+      <table><tbody>
+        <tr><td>Alpha</td><td><button id="alpha">Remove</button></td></tr>
+        <tr id="beta-row"><td>Beta</td><td><button id="beta">Remove</button></td></tr>
+      </tbody></table>
+    </main>`)
+  const lines = snapshot.split('\n')
+  const ref = /\[(e\d+)\]$/.exec(lines[lines.findIndex((line) => line.includes('Beta')) + 1] ?? '')
+  const beta = ref?.[1] ?? ''
+  const several = matchClickableOnPage('Remove')
+  expect(several.kind === 'several' ? several.refs : []).toHaveLength(2)
+  expect(several.kind === 'several' ? several.refs : []).toContain(beta)
+  expect(found(matchClickableOnPage(beta))).toBe('beta')
+  expect(found(matchClickableOnPage(`button "Remove" [${beta}]`))).toBe('beta')
+  // Two links to the same page are one destination.
+  expect(found(matchClickableOnPage('Models'))).toBe('side')
+  document.getElementById('beta-row')?.remove()
+  expect(found(matchClickableOnPage(beta))).toBe('gone')
+  expect(found(matchClickableOnPage('Remove'))).toBe('alpha')
 })

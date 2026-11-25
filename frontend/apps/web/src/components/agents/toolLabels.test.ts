@@ -27,6 +27,14 @@ describe('describeTool', () => {
       verb: 'Clicked',
       target: '"Models"',
     })
+    expect(describeTool('dashboard_click', { target: 'button "Remove" [e41]' }, 'done')).toEqual({
+      verb: 'Clicked',
+      target: '"Remove"',
+    })
+    expect(describeTool('dashboard_click', { target: 'e41' }, 'done')).toEqual({
+      verb: 'Clicked',
+      target: 'something on the page',
+    })
     expect(describeTool('dashboard_point_at', { target: 'New model' }, 'done')).toEqual({
       verb: 'Pointed at',
       target: '"New model"',

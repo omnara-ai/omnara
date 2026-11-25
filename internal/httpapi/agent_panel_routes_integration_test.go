@@ -526,11 +526,13 @@ func TestAgentPanelUnnamedArchivedAndUsedAssistant(t *testing.T) {
 	require.Equal(t, "archived", panel["state"])
 }
 
-func TestAgentPanelJoinConnectAndAccessRevocation(t *testing.T) {
-	t.Parallel()
-	pool, handler, project := assistantFixture(t)
-	ordinary := launchPublicHTTPAgent(t, handler, project, "ordinary", project.AdminToken, 201)
-	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, ordinary["agent"])["id"])
+// A second person in the assistant fixture's project, signed in to the dashboard as a viewer.
+func assistantProjectViewer(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	project publicHTTPProject,
+) (identitystore.UserRecord, map[string]string) {
+	t.Helper()
 	user, _ := createOrgRouteUser(t, pool, project.Store, "panel-member")
 	_, err := project.Store.Identity().AddOrgMembership(t.Context(), identitystore.AddOrgMembershipInput{
 		OrgID: project.OrgUUID, UserID: user.ID, Role: "member",
@@ -546,7 +548,35 @@ func TestAgentPanelJoinConnectAndAccessRevocation(t *testing.T) {
 		UserID: user.ID, Token: member.AdminSession, CSRFToken: member.AdminCSRF, TTL: time.Hour,
 	})
 	require.NoError(t, err)
-	headers := member.adminBrowserAuthHeaders()
+	return user, member.adminBrowserAuthHeaders()
+}
+
+// Only the person who created an assistant is told it is theirs, which is what lets it see
+// and act on their dashboard; someone else who connects to it gets a conversation only.
+func TestAgentPanelAssistantBelongsToItsCreator(t *testing.T) {
+	t.Parallel()
+	pool, handler, project := assistantFixture(t)
+	creator := project.adminBrowserAuthHeaders()
+	created := requestJSONWithHeaders(t, handler, "POST", "/api/v1/orgs/"+project.OrgID+"/assistant-agents",
+		assistantBody(t, project, uuid.New(), 0, false), "", 200, creator)
+	agentID := testutil.RequireType[string](t, created["agent_id"])
+	own := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, created["panel"])["selection"])
+	require.Equal(t, true, own["own_assistant"])
+
+	_, viewer := assistantProjectViewer(t, pool, project)
+	connected := requestJSONWithHeaders(t, handler, "PATCH", "/api/v1/me/agent-panel",
+		fmt.Sprintf(`{"agent_id":%q}`, agentID), "", 200, viewer)
+	shared := testutil.RequireType[map[string]any](t, connected["selection"])
+	require.Equal(t, agentID, shared["agent_id"])
+	require.Equal(t, false, shared["own_assistant"])
+}
+
+func TestAgentPanelJoinConnectAndAccessRevocation(t *testing.T) {
+	t.Parallel()
+	pool, handler, project := assistantFixture(t)
+	ordinary := launchPublicHTTPAgent(t, handler, project, "ordinary", project.AdminToken, 201)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, ordinary["agent"])["id"])
+	user, headers := assistantProjectViewer(t, pool, project)
 	panel := requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
 	require.Equal(t, "empty", panel["state"])
 	require.NotContains(t, panel, "setup", "joining must never provision an assistant")
@@ -562,13 +592,14 @@ func TestAgentPanelJoinConnectAndAccessRevocation(t *testing.T) {
 	)
 	selection := testutil.RequireType[map[string]any](t, panel["selection"])
 	require.Equal(t, false, selection["can_operate"])
+	require.Equal(t, false, selection["own_assistant"])
 	require.Equal(t, agentID, selection["agent_id"])
 	// Creating the member's first org must preserve their explicit choice.
 	requestJSONWithHeaders(t, handler, "POST", "/api/v1/orgs", `{"name":"member-owned"}`, "", 201, headers)
 	panel = requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)
 	require.NotContains(t, panel, "setup")
 	require.Equal(t, selection, panel["selection"])
-	_, err = pool.Exec(t.Context(), `DELETE FROM project_memberships WHERE org_membership_id IN
+	_, err := pool.Exec(t.Context(), `DELETE FROM project_memberships WHERE org_membership_id IN
         (SELECT id FROM org_memberships WHERE user_id=$1) AND project_id=$2`, user.ID, project.ProjectUUID)
 	require.NoError(t, err)
 	panel = requestJSONWithHeaders(t, handler, "GET", "/api/v1/me/agent-panel", "", "", 200, headers)

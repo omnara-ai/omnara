@@ -14,7 +14,23 @@ const pressMs = 260
 const lingerMs = 1500
 const fadeMs = 300
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+/** How long the cursor takes to reach something and press it. */
+export const cursorClickMs = glideMs + restMs + pressMs
+
+/** Lets the time pass, and stops with the signal's reason if it aborts first. */
+async function wait(ms: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms)
+    function done() {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    signal.addEventListener('abort', done, { once: true })
+    if (signal.aborted) done()
+  })
+  signal.throwIfAborted()
+}
 
 function inViewport(element: Element): boolean {
   const rect = element.getBoundingClientRect()
@@ -55,7 +71,13 @@ function place(cursor: HTMLElement, x: number, y: number, ms: number) {
  * Brings the cursor to a point on screen. It starts from where it last stopped, or from the
  * conversation the first time. With reduced motion it appears there without travelling.
  */
-async function travel(cursor: HTMLElement, x: number, y: number): Promise<void> {
+async function travel(
+  cursor: HTMLElement,
+  x: number,
+  y: number,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted()
   clearTimeout(fading)
   const travels = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (travels) {
@@ -74,31 +96,52 @@ async function travel(cursor: HTMLElement, x: number, y: number): Promise<void> 
     // Reading layout applies the starting position before the glide begins.
     cursor.getBoundingClientRect()
     place(cursor, x, y, glideMs)
-    await wait(glideMs)
+    await wait(glideMs, signal)
   }
   writeLocal(positionKey, JSON.stringify({ x, y }))
 }
 
-/** Shows the cursor going to the element and clicking it. The caller does what the click stands for. */
-export async function clickWithCursor(target: Element): Promise<void> {
+function fade(cursor: HTMLElement) {
+  cursor.style.transitionDuration = `${String(fadeMs)}ms`
+  cursor.dataset.state = 'hidden'
+}
+
+/** Moves the cursor, taking it off the screen at once if the move is called off part-way. */
+async function moving(move: (cursor: HTMLElement) => Promise<void>): Promise<void> {
   const cursor = document.getElementById(cursorID)
   if (cursor == null) return
-  if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
-  const to = target.getBoundingClientRect()
-  await travel(cursor, to.left + Math.min(to.width / 2, 40), to.top + to.height / 2)
-  await wait(restMs)
-  cursor.dataset.state = 'pressing'
-  await wait(pressMs)
-  cursor.dataset.state = 'moving'
+  try {
+    await move(cursor)
+  } catch (error) {
+    clearTimeout(fading)
+    fade(cursor)
+    throw error
+  }
+}
+
+/**
+ * Shows the cursor going to the element and clicking it. The caller does what the click
+ * stands for, unless the signal aborts first: then this throws and nothing is to be clicked.
+ */
+export function clickWithCursor(target: Element, signal: AbortSignal): Promise<void> {
+  return moving(async (cursor) => {
+    if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
+    const to = target.getBoundingClientRect()
+    await travel(cursor, to.left + Math.min(to.width / 2, 40), to.top + to.height / 2, signal)
+    await wait(restMs, signal)
+    cursor.dataset.state = 'pressing'
+    await wait(pressMs, signal)
+    cursor.dataset.state = 'moving'
+  })
 }
 
 /** Shows the cursor going to the element's corner, where it does not cover what it points at. */
-export async function pointWithCursor(target: Element): Promise<void> {
-  const cursor = document.getElementById(cursorID)
-  if (cursor == null) return
-  if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
-  const to = target.getBoundingClientRect()
-  await travel(cursor, Math.min(to.right - 10, window.innerWidth - 40), to.bottom - 8)
+export function pointWithCursor(target: Element, signal: AbortSignal): Promise<void> {
+  return moving(async (cursor) => {
+    if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
+    const to = target.getBoundingClientRect()
+    await travel(cursor, Math.min(to.right - 10, window.innerWidth - 40), to.bottom - 8, signal)
+  })
 }
 
 /** Lets the cursor fade once it has rested a moment; another click keeps it on screen. */
@@ -107,8 +150,7 @@ export function releaseCursor() {
   if (cursor == null) return
   clearTimeout(fading)
   fading = setTimeout(() => {
-    cursor.style.transitionDuration = `${String(fadeMs)}ms`
-    cursor.dataset.state = 'hidden'
+    fade(cursor)
   }, lingerMs)
 }
 

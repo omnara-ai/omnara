@@ -27,7 +27,7 @@ export function AgentPanelChat({
   archived: panelArchived,
 }: {
   selection: AgentPanelSelection
-  getContext: () => string
+  getContext: () => string | undefined
   archived: boolean
 }) {
   const { org_id: orgID, project_id: projectID } = selection.scope
@@ -49,9 +49,10 @@ export function AgentPanelChat({
   const currentActorId = useCurrentActorId(orgID, projectID, me.user.id)
   const archived = panelArchived || agentQuery.data?.agent.state === 'archived'
   const canOperate = selection.can_operate && !archived && agentQuery.isSuccess
-  usePageActions(scope, chat.messages, {
-    ready: chat.historyStatus === 'success',
+  usePageActions(scope, chat, {
+    enabled: selection.own_assistant,
     actorId: currentActorId,
+    tools: config.data?.compiled_definition.tools,
   })
   const canSendNow =
     canOperate &&

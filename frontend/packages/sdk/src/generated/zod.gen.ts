@@ -3609,6 +3609,7 @@ export const zAgentPanelScope = z.object({
 
 export const zAgentPanelSelection = z.object({
     can_operate: z.boolean(),
+    own_assistant: z.boolean(),
     scope: zAgentPanelScope,
     agent_id: zAgentId,
     name: zAgentName

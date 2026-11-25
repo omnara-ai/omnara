@@ -9,6 +9,7 @@ import type {
   openAgentEventStream,
   OpenAgentEventStreamOptions,
   sdk,
+  ToolCallUpdate,
 } from '@omnara/sdk'
 import type { QueryClient, QueryStatus } from '@tanstack/react-query'
 
@@ -112,4 +113,11 @@ export interface UseAgentChatResult {
   loadOlderMessages: () => void
   sendMessage: (message: AgentChatMessageInput) => Promise<void>
   inputBacklog: AgentInputBacklogControls
+  /**
+   * Listens to tool calls changing state on the live stream. These frames are not replayed,
+   * so a `ready` one means the call became ready while this conversation was connected.
+   */
+  subscribeToolCallUpdates: (listener: ToolCallUpdateListener) => () => void
 }
+
+export type ToolCallUpdateListener = (update: ToolCallUpdate) => void

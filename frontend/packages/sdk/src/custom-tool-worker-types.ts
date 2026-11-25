@@ -9,12 +9,14 @@ import type {
 export interface CustomToolCall {
   agentID: string
   toolCallID: string
+  /** The turn the call was made in. That turn's input events say who asked for it. */
+  turnID: string
   name: string
   input: ToolInput
   signal: AbortSignal
 }
 
-export type CustomToolCallRef = Omit<CustomToolCall, 'input' | 'signal'>
+export type CustomToolCallRef = Pick<CustomToolCall, 'agentID' | 'toolCallID' | 'name'>
 export type CustomToolHandlerResult = SubmitToolCallResultRequest | { outcome: 'deferred' }
 export type CustomToolHandler = (call: CustomToolCall) => Promise<CustomToolHandlerResult>
 export interface CustomToolOutcome {

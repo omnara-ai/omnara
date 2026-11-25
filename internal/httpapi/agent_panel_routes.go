@@ -51,10 +51,11 @@ func (s strictOpenAPIServer) agentPanelResponse(
 			return openapi.AgentPanel{}, err
 		}
 		response.Selection = &openapi.AgentPanelSelection{
-			AgentId:    agentID,
-			Name:       record.Selection.Name,
-			Scope:      scope,
-			CanOperate: record.Selection.CanOperate,
+			AgentId:      agentID,
+			Name:         record.Selection.Name,
+			Scope:        scope,
+			CanOperate:   record.Selection.CanOperate,
+			OwnAssistant: record.Selection.OwnAssistant,
 		}
 	}
 	if record.Setup != nil {

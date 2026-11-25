@@ -46,6 +46,7 @@ describe('finite custom tool handling', () => {
     expect(handler.mock.calls[0]?.[0]).toMatchObject({
       agentID: ready.agent_id,
       toolCallID,
+      turnID: toolCall().turn_id,
       input: { authoritative: true },
     })
     pending.resolve(found)

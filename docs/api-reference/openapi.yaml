@@ -19288,11 +19288,17 @@ components:
     AgentPanelSelection:
       type: object
       additionalProperties: false
-      required: [scope, agent_id, name, can_operate]
+      required: [scope, agent_id, name, can_operate, own_assistant]
       properties:
         can_operate:
           type: boolean
           description: Whether the current user has permission to operate the selected agent. Archived agents still cannot accept input.
+        own_assistant:
+          type: boolean
+          description: >-
+            Whether the current user created the selected agent as their assistant. The dashboard
+            shares what is on the user's screen with the agent, and carries out its page tools,
+            only when this is true.
         scope:
           $ref: '#/components/schemas/AgentPanelScope'
         agent_id:

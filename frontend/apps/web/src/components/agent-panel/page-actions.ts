@@ -1,167 +1,177 @@
-import type { OmnaraUIMessage } from '@omnara/react'
+import type {
+  AgentEvent,
+  CustomToolCall,
+  CustomToolHandler,
+  CustomToolHandlerResult,
+  SubmitToolCallResultRequest,
+} from '@omnara/sdk'
 import * as z from 'zod'
 
-// The assistant's two page tools, both carried out with its own cursor and both answered
-// from the user's browser. Clicking is how it acts on the screen and the only way it moves
-// the user; the answer is what the screen shows afterwards. Pointing marks something; the
-// answer says whether it was found. Omnara stops waiting after a few seconds when no
-// dashboard answers.
+import type { PageMatch } from './page-snapshot'
+
+// The assistant's two page tools, both carried out with its own cursor in the browser of the
+// person who asked. Clicking is how it acts on the screen and the only way it moves the
+// user; the answer is what the screen shows afterwards. Pointing marks something; the answer
+// says whether it was found. A call is carried out only once Omnara says it is ready, and
+// only within the time its tool waits for an answer.
 export const clickTool = 'dashboard_click'
 export const pointAtTool = 'dashboard_point_at'
 
 const clickInput = z.object({ target: z.string().min(1) })
 const pointInput = z.object({ target: z.string().min(1), note: z.string().optional() })
 
-export type PageAction =
-  | { id: string; tool: typeof clickTool; target: string; waiting: boolean }
-  | {
-      id: string
-      tool: typeof pointAtTool
-      target: string
-      note: string | undefined
-      waiting: boolean
-    }
+// What a call keeps back from its tool's timeout for the answer to reach Omnara.
+const answerMs = 500
 
 /** What a click came to. `what` words the element the way the page outline does. */
 export type PageClick =
-  | { outcome: 'clicked'; what: string; opened: string | null }
-  | { outcome: 'refused'; why: string }
-  | { outcome: 'missing' }
+  { outcome: 'clicked'; what: string; opened: string | null } | { outcome: 'refused'; why: string }
 
 export interface PagePointer {
   element: Element
   note: string | undefined
 }
 
-/**
- * The page tool calls in a conversation, oldest first, from the turns this person started.
- * A turn someone or something else started never moves this person's screen.
- */
-export function pageActionsIn(
-  messages: OmnaraUIMessage[],
-  actorId: string | undefined,
-): PageAction[] {
-  const actions: PageAction[] = []
-  let mine = false
-  for (const message of messages) {
-    if (message.role === 'user') {
-      mine = actorId != null && message.metadata?.actorId === actorId
-      continue
-    }
-    if (!mine) continue
-    for (const part of message.parts) {
-      if (part.type !== 'dynamic-tool' || part.toolType !== 'custom') continue
-      if (part.state === 'input-streaming') continue
-      const waiting = part.state === 'input-available'
-      if (part.toolName === clickTool) {
-        const input = clickInput.safeParse(part.input)
-        if (input.success) {
-          actions.push({ id: part.toolCallId, tool: clickTool, target: input.data.target, waiting })
-        }
-      }
-      if (part.toolName === pointAtTool) {
-        const input = pointInput.safeParse(part.input)
-        if (input.success) {
-          const { target, note } = input.data
-          actions.push({ id: part.toolCallId, tool: pointAtTool, target, note, waiting })
-        }
-      }
-    }
-  }
-  return actions
+/** When a call has to stop: Omnara gave up on it or the conversation left the screen, or its time ran out. */
+export interface PageActionLimits {
+  signal: AbortSignal
+  /** Epoch milliseconds by which the answer has to be on its way. */
+  deadline: number
 }
 
 /**
- * Sends an answer, trying again while the call cannot take one yet: a call shows up in the
- * conversation a moment before Omnara is ready for its result.
+ * Whether this person, and nobody else, gave the assistant everything it was told in a turn.
+ * A turn's events sit together in the conversation, so all of its inputs are on hand once
+ * something older than the turn is loaded or nothing older exists; until then the answer is no.
  */
-export async function answerWhenReady(
-  send: () => Promise<'sent' | 'not_ready'>,
-  options: { timeoutMs: number; pollMs: number },
-): Promise<void> {
-  const deadline = Date.now() + options.timeoutMs
-  while ((await send()) === 'not_ready' && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, options.pollMs))
-  }
+export function startedTurn(
+  events: AgentEvent[],
+  turnID: string,
+  actorID: string | undefined,
+  olderEventsExist: boolean,
+): boolean {
+  if (actorID == null) return false
+  const first = events.findIndex((event) => event.turn_id === turnID)
+  if (first === -1 || (first === 0 && olderEventsExist)) return false
+  const inputs = events.flatMap((event) =>
+    event.turn_id === turnID && event.event_kind === 'agent_input' ? [event] : [],
+  )
+  return inputs.length > 0 && inputs.every((input) => input.actor_id === actorID)
 }
 
 export interface PageActionHost {
   /** Whether the user is looking at this tab. */
   visible: () => boolean
+  /** Whether the person at this dashboard, alone, started the turn. */
+  startedTurn: (turnID: string) => boolean
+  /** How long the tool waits for an answer, if it stops waiting at all. */
+  timeoutMs: (tool: string) => number | undefined
   /**
    * Carries out a call unless another window of this browser already has it: with the
    * dashboard open in two windows, a click must still happen once.
    */
-  claim: (id: string, act: () => Promise<void>) => Promise<void>
-  click: (target: string) => Promise<PageClick>
-  find: (target: string) => Promise<Element | null>
-  /** The element as the page outline words it. */
-  describe: (element: Element) => string
+  claim: <T>(id: string, act: () => Promise<T>) => Promise<T | undefined>
+  /** What the target is on the page, giving it a moment to appear. */
+  find: (target: string, how: 'click' | 'point', limits: PageActionLimits) => Promise<PageMatch>
+  click: (element: Element, limits: PageActionLimits) => Promise<PageClick>
   /** Takes the cursor to the element and marks it. */
   point: (pointer: PagePointer) => Promise<void>
+  /** The element as the page outline words it. */
+  describe: (element: Element) => string
   /** The page as the assistant reads it. */
   snapshot: () => string
-  answer: (id: string, outcome: 'succeeded' | 'failed', text: string) => Promise<void>
 }
 
-export function createPageActionRunner(host: PageActionHost) {
-  const seen = new Set<string>()
-  let watching = false
-  let queue = Promise.resolve()
+function answer(outcome: 'succeeded' | 'failed', text: string): SubmitToolCallResultRequest {
+  return { outcome, content_blocks: [{ type: 'text', text }] }
+}
 
-  async function run(action: PageAction) {
-    // Omnara has already stopped waiting for this one, so nothing happens late.
-    if (!action.waiting) return
-    const seen = () => `What the user sees now:\n${host.snapshot()}`
-    if (action.tool === pointAtTool) {
-      const element = await host.find(action.target)
-      if (element == null) {
-        const why = `Nothing matching ${JSON.stringify(action.target)} is on the user's screen.`
-        await host.answer(action.id, 'failed', `${why}\n\n${seen()}`)
-        return
-      }
-      // Answered while the cursor travels, so neither the assistant nor the user waits.
-      const what = host.describe(element)
-      await Promise.all([
-        host.answer(action.id, 'succeeded', `Pointed at ${what}. The user can see it marked.`),
-        host.point({ element, note: action.note }),
-      ])
-      return
-    }
-    const click = await host.click(action.target)
-    if (click.outcome === 'clicked') {
-      const opened = click.opened == null ? '' : ` It opened ${click.opened}.`
-      await host.answer(action.id, 'succeeded', `Clicked ${click.what}.${opened}\n\n${seen()}`)
-      return
-    }
-    const why =
-      click.outcome === 'refused'
-        ? click.why
-        : `Nothing to click matching ${JSON.stringify(action.target)} is on the user's screen.`
-    await host.answer(action.id, 'failed', `${why}\n\n${seen()}`)
+function unresolved(match: Exclude<PageMatch, { kind: 'one' }>, target: string): string {
+  const named = JSON.stringify(target)
+  if (match.kind === 'several') {
+    return `${String(match.refs.length)} different things on the user's screen match ${named}: ${match.refs.join(', ')}. Give the ref of the one you mean; the outline below shows where each one is.`
   }
+  if (match.kind === 'gone') return `${named} is no longer on the user's screen.`
+  return `Nothing matching ${named} is on the user's screen.`
+}
+
+/** What a call comes to, and what it still has the cursor doing after its answer is known. */
+interface Carried {
+  result: SubmitToolCallResultRequest
+  rest?: Promise<void>
+}
+
+/**
+ * The handlers that carry out the page tools for a custom tool worker. A call that is not
+ * this dashboard's to answer is left alone, for whoever started its turn or for its timeout.
+ */
+export function createPageTools(host: PageActionHost) {
+  const seen = () => `What the user sees now:\n${host.snapshot()}`
+
+  // There is one cursor, so calls are carried out one at a time in the order they arrived.
+  let cursor: Promise<unknown> = Promise.resolve()
+  function inOrder(act: () => Promise<Carried>): Promise<SubmitToolCallResultRequest> {
+    const carried = cursor.then(act)
+    cursor = carried.then(({ rest }) => rest).catch(() => undefined)
+    return carried.then(({ result }) => result)
+  }
+
+  async function click(call: CustomToolCall, limits: PageActionLimits): Promise<Carried> {
+    const input = clickInput.safeParse(call.input)
+    if (!input.success) return { result: answer('failed', 'Say what to click.') }
+    const { target } = input.data
+    const match = await host.find(target, 'click', limits)
+    if (match.kind !== 'one') {
+      return { result: answer('failed', `${unresolved(match, target)}\n\n${seen()}`) }
+    }
+    const done = await host.click(match.element, limits)
+    if (done.outcome === 'refused') {
+      return { result: answer('failed', `${done.why}\n\n${seen()}`) }
+    }
+    const opened = done.opened == null ? '' : ` It opened ${done.opened}.`
+    return { result: answer('succeeded', `Clicked ${done.what}.${opened}\n\n${seen()}`) }
+  }
+
+  async function pointAt(call: CustomToolCall, limits: PageActionLimits): Promise<Carried> {
+    const input = pointInput.safeParse(call.input)
+    if (!input.success) return { result: answer('failed', 'Say what to point at.') }
+    const { target, note } = input.data
+    const match = await host.find(target, 'point', limits)
+    if (match.kind !== 'one') {
+      return { result: answer('failed', `${unresolved(match, target)}\n\n${seen()}`) }
+    }
+    // Answered while the cursor travels, so neither the assistant nor the user waits.
+    const what = host.describe(match.element)
+    return {
+      result: answer('succeeded', `Pointed at ${what}. The user can see it marked.`),
+      rest: host.point({ element: match.element, note }),
+    }
+  }
+
+  const tool =
+    (
+      name: string,
+      carryOut: (call: CustomToolCall, limits: PageActionLimits) => Promise<Carried>,
+    ): CustomToolHandler =>
+    async (call): Promise<CustomToolHandlerResult> => {
+      if (!host.visible() || !host.startedTurn(call.turnID)) return { outcome: 'deferred' }
+      const timeoutMs = host.timeoutMs(name)
+      const limits = {
+        signal: call.signal,
+        deadline: timeoutMs == null ? Infinity : Date.now() + timeoutMs - answerMs,
+      }
+      const result = await host.claim(call.toolCallID, () =>
+        inOrder(() => {
+          // Waiting for an earlier call may have outlasted this one.
+          call.signal.throwIfAborted()
+          return carryOut(call, limits)
+        }),
+      )
+      return result ?? { outcome: 'deferred' }
+    }
 
   return {
-    /**
-     * Takes the conversation as it is now. What is already there when watching starts is
-     * history; only calls that arrive afterwards run, once each, in order.
-     */
-    take: (actions: PageAction[]) => {
-      const fresh = actions.filter((action) => !seen.has(action.id))
-      for (const action of fresh) seen.add(action.id)
-      if (!watching) {
-        watching = true
-        return
-      }
-      if (!host.visible()) return
-      for (const action of fresh) {
-        queue = queue.then(() => host.claim(action.id, () => run(action))).catch(() => undefined)
-      }
-    },
-    /** Stops watching, so a call that arrives while the conversation is hidden never runs late. */
-    pause: () => {
-      watching = false
-    },
-    settled: () => queue,
-  }
+    [clickTool]: tool(clickTool, click),
+    [pointAtTool]: tool(pointAtTool, pointAt),
+  } satisfies Record<string, CustomToolHandler>
 }

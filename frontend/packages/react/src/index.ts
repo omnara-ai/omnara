@@ -18,6 +18,7 @@ export {
   type UseAgentChatResult,
 } from './domains/agent-chat'
 export { agentEventsToMessages } from './domains/agent-chat-messages'
+export type { ToolCallUpdateListener } from './domains/agent-chat-types'
 export { useAgentConfigTools } from './domains/agent-config-tools'
 export {
   abbreviate,

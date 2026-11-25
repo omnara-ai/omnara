@@ -283,6 +283,7 @@ it('shares settings pending state and shows a failed disconnect before allowing 
       agent_id: fakeId('agt'),
       name: 'Connected agent',
       can_operate: true,
+      own_assistant: true,
       scope: {
         org_id: owner.id,
         org_name: owner.name,

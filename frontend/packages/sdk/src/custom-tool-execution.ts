@@ -90,7 +90,12 @@ export async function executeCustomTool(
   let handlerOutcome: 'succeeded' | 'failed' | 'deferred' | 'canceled' = 'canceled'
   let body: SubmitToolCallResultRequest
   try {
-    const result = await options.handler({ ...call, input: current.input, signal })
+    const result = await options.handler({
+      ...call,
+      turnID: current.turn_id,
+      input: current.input,
+      signal,
+    })
     if (task.completed) return { status: 'completed' }
     if (result.outcome === 'deferred') {
       signal.throwIfAborted()

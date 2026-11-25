@@ -29,6 +29,12 @@ SELECT user_id, request_id, org_id, project_id, agent_id,
 FROM assistant_agent_creations
 WHERE user_id = sqlc.arg(user_id) AND request_id = sqlc.arg(request_id);
 
+-- name: IsOwnAssistantAgent :one
+SELECT EXISTS (
+    SELECT 1 FROM assistant_agent_creations
+    WHERE agent_id = sqlc.arg(agent_id) AND user_id = sqlc.arg(user_id)
+)::boolean;
+
 -- name: RecordAssistantAgentCreation :exec
 INSERT INTO assistant_agent_creations(
     user_id, request_id, org_id, project_id, agent_id, personal_access_token_id,

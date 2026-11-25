@@ -5882,6 +5882,10 @@ export type AgentPanelSelection = {
      * Whether the current user has permission to operate the selected agent. Archived agents still cannot accept input.
      */
     can_operate: boolean;
+    /**
+     * Whether the current user created the selected agent as their assistant. The dashboard shares what is on the user's screen with the agent, and carries out its page tools, only when this is true.
+     */
+    own_assistant: boolean;
     scope: AgentPanelScope;
     agent_id: AgentId;
     name: AgentName;

@@ -387,7 +387,7 @@ function PanelContents({
                     pathname,
                     route,
                     params,
-                    snapshot: pageSnapshot(),
+                    snapshot: pageSnapshot,
                     docked,
                     viewedOrg: activeOrg?.activeOrg,
                     selection,

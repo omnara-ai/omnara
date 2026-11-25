@@ -33,6 +33,8 @@ type AgentPanelSelection struct {
 	AgentID    uuid.UUID
 	Name       string
 	CanOperate bool
+	// The user created this agent as their assistant, so it already acts with their access.
+	OwnAssistant bool
 }
 
 const (
@@ -99,8 +101,14 @@ func (s *Service) GetAgentPanel(
 				if err != nil {
 					return AgentPanelRecord{}, err
 				}
+				own, err := s.q.IsOwnAssistantAgent(ctx, dbsqlc.IsOwnAssistantAgentParams{
+					AgentID: agent.ID, UserID: principal.ID,
+				})
+				if err != nil {
+					return AgentPanelRecord{}, err
+				}
 				result.Selection = &AgentPanelSelection{
-					AgentPanelScope: scope, AgentID: agent.ID, Name: agent.Name, CanOperate: allowed,
+					AgentPanelScope: scope, AgentID: agent.ID, Name: agent.Name, CanOperate: allowed, OwnAssistant: own,
 				}
 			}
 		}

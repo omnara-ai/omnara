@@ -96,8 +96,10 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('keeps consuming the stream after a tool call update', async () => {
+  it('hands a tool call update to its listeners and keeps consuming the stream', async () => {
     const session = startSession()
+    const updates = vi.fn()
+    session.toolCallUpdates.subscribe(updates)
     const stream = await connection(0)
 
     stream.push({
@@ -120,6 +122,9 @@ describe('AgentChatSession input lifecycle', () => {
       (state) => state.messages.at(-1)?.id === 'input-event',
     )
     expect(snapshot.error).toBeUndefined()
+    expect(updates).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ tool_call_id: 'tcl_123', state: 'ready' }),
+    )
     session.disconnect()
   })
 

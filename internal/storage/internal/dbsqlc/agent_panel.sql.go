@@ -136,6 +136,25 @@ func (q *Queries) GetAssistantAgentCreation(ctx context.Context, arg GetAssistan
 	return i, err
 }
 
+const isOwnAssistantAgent = `-- name: IsOwnAssistantAgent :one
+SELECT EXISTS (
+    SELECT 1 FROM assistant_agent_creations
+    WHERE agent_id = $1 AND user_id = $2
+)::boolean
+`
+
+type IsOwnAssistantAgentParams struct {
+	AgentID uuid.UUID
+	UserID  uuid.UUID
+}
+
+func (q *Queries) IsOwnAssistantAgent(ctx context.Context, arg IsOwnAssistantAgentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isOwnAssistantAgent, arg.AgentID, arg.UserID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const recordAssistantAgentCreation = `-- name: RecordAssistantAgentCreation :exec
 INSERT INTO assistant_agent_creations(
     user_id, request_id, org_id, project_id, agent_id, personal_access_token_id,

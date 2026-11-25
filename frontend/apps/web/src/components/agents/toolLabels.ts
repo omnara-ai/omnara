@@ -48,8 +48,14 @@ const quoted = (value: string | undefined, fallback: string) =>
 const pathOr = (value: string | undefined, fallback: string) =>
   str(value) ? short(str(value)) : fallback
 
-/** The assistant may name something the way the page outline does: button "New model". */
-const outlineName = (value: string | undefined) => /"([^"]+)"/.exec(str(value))?.[1] ?? value
+/**
+ * The assistant may name something the way the page outline does, `button "New model" [e12]`,
+ * or by that ref alone, which means nothing to a reader.
+ */
+function outlineName(value: string | undefined) {
+  const named = /"([^"]+)"/.exec(str(value))?.[1]
+  return named ?? (/^\[?e\d+\]?$/.test(str(value)) ? undefined : value)
+}
 
 const files: [string, string] = ['file', 'files']
 

@@ -54,7 +54,13 @@ async function mountPanel({
   const connected: Panel = {
     revision: 1,
     state: 'ready',
-    selection: { agent_id: agentID, name: 'Omnara assistant', can_operate: true, scope },
+    selection: {
+      agent_id: agentID,
+      name: 'Omnara assistant',
+      can_operate: true,
+      own_assistant: true,
+      scope,
+    },
   }
   let panel: Panel = queued
     ? {

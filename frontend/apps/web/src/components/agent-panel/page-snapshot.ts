@@ -1,6 +1,7 @@
 // What the user can see, as text the model can read: headings, visible text, table rows
-// and every control by role and name, in reading order. Anything typed into a field or
-// editor is left out. Adapted from examples/in-app-guide/guide/snapshot.ts.
+// and every control by role, name and ref, in reading order. Anything typed into a field
+// or editor is left out, and so is any credential the page shows. Adapted from
+// examples/in-app-guide/guide/snapshot.ts.
 
 const interactive = [
   'a[href]',
@@ -92,6 +93,9 @@ function isHiddenFromUser(element: Element): boolean {
 
 const typedContent =
   'textarea,select,[contenteditable="true"],.monaco-editor,[role="textbox"],[role="searchbox"]'
+// A component that shows a credential as text marks it; see SecretText.
+const secret = '[data-secret]'
+const withheld = `${typedContent},${secret}`
 
 /** Holds what the user typed: its text is a value, never a name. */
 function isTextEntry(element: Element): boolean {
@@ -117,22 +121,28 @@ function hasOwnText(element: Element): boolean {
   )
 }
 
-/** The element's displayed text, without anything typed into a field or editor inside it. */
-function shownText(element: Element): string {
-  if (element.querySelector(typedContent) != null) {
-    return [...element.childNodes]
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent ?? '')
-      .join(' ')
+/**
+ * The element's displayed text. Every read of page text goes through here, so nothing typed
+ * into a field or editor and no credential is read, however deep inside the element it sits.
+ */
+function shownText(element: Element | null | undefined): string {
+  if (element == null || element.matches(withheld)) return ''
+  if (element.querySelector(withheld) == null) {
+    return element instanceof HTMLElement ? element.innerText : element.textContent
   }
-  return element instanceof HTMLElement ? element.innerText : element.textContent
+  return [...element.childNodes]
+    .map((node) => {
+      if (node instanceof Element) return isRendered(node) ? shownText(node) : ''
+      return node.nodeType === Node.TEXT_NODE ? (node.textContent ?? '') : ''
+    })
+    .join(' ')
 }
 
 function labelText(element: Element): string {
   const label =
     (element.id === '' ? null : document.querySelector(`label[for="${CSS.escape(element.id)}"]`)) ??
     element.closest('label')
-  return clean(label?.textContent, maxName)
+  return clean(shownText(label), maxName)
 }
 
 function accessibleName(element: Element): string {
@@ -141,7 +151,7 @@ function accessibleName(element: Element): string {
     const text = clean(
       labelledBy
         .split(/\s+/)
-        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .map((id) => shownText(document.getElementById(id)))
         .join(' '),
       maxName,
     )
@@ -203,8 +213,27 @@ function controlName(element: Element): string {
     : accessibleName(element)
 }
 
+// A control keeps one ref for as long as it stays in the document. The outline prints it, so
+// the assistant can say which of several controls that read the same it means.
+const refs = new WeakMap<Element, string>()
+const referenced = new Map<string, WeakRef<Element>>()
+let lastRef = 0
+
+function refOf(element: Element): string {
+  let ref = refs.get(element)
+  if (ref == null) {
+    lastRef += 1
+    ref = `e${String(lastRef)}`
+    refs.set(element, ref)
+  }
+  referenced.set(ref, new WeakRef(element))
+  return ref
+}
+
 function describe(element: Element): string {
-  if (element.tagName === 'TR') return `row "${clean(rowCells(element), 160)}" (clickable)`
+  if (element.tagName === 'TR') {
+    return `row "${clean(rowCells(element), 160)}" (clickable) [${refOf(element)}]`
+  }
   const role = roleOf(element)
   const dropdown = isDropdown(element)
   const name = controlName(element)
@@ -233,6 +262,7 @@ function describe(element: Element): string {
   if (href?.startsWith('/') === true) parts.push(`href=${href}`)
   const rect = element.getBoundingClientRect()
   if (rect.bottom < 0 || rect.top > window.innerHeight) parts.push('(off-screen)')
+  parts.push(`[${refOf(element)}]`)
   return parts.join(' ')
 }
 
@@ -252,70 +282,129 @@ function isShown(element: Element): boolean {
   return element.closest(`${notPage},[aria-hidden="true"],[inert]`) == null && isVisible(element)
 }
 
+/** What a name or a ref from the outline comes to on the page as it is now. */
+export type PageMatch =
+  | { kind: 'one'; element: Element }
+  /** Several different things answer to the name; these are their refs. */
+  | { kind: 'several'; refs: string[] }
+  /** The ref belongs to something that is no longer on the screen. */
+  | { kind: 'gone' }
+  | { kind: 'none' }
+
 /**
- * What the assistant may click for a name, the outline's own wording such as
+ * What the assistant may click for a ref, a name, the outline's own wording such as
  * `button "New provider"`, or a link's path such as `/models`. Anything the user could click
  * themselves counts; a heading does not, and neither does the assistant's own surface.
  */
-export function findClickableOnPage(target: string): Element | null {
+export function matchClickableOnPage(target: string): PageMatch {
   const wanted = target.trim()
-  if (!wanted.startsWith('/')) return findOnPage(wanted, (element) => !element.matches(heading))
+  if (!wanted.startsWith('/')) return matchOnPage(wanted, (element) => !element.matches(heading))
   const pathname = wanted.split(/[?#]/, 1)[0]
-  return (
-    [...(topDialog() ?? document.body).querySelectorAll('a[href]')].find(
-      (link) =>
-        link instanceof HTMLAnchorElement &&
-        link.origin === window.location.origin &&
-        link.pathname === pathname &&
-        isShown(link),
-    ) ?? null
+  const link = [...(topDialog() ?? document.body).querySelectorAll('a[href]')].find(
+    (candidate) =>
+      candidate instanceof HTMLAnchorElement &&
+      candidate.origin === window.location.origin &&
+      candidate.pathname === pathname &&
+      isShown(candidate),
   )
+  return link == null ? { kind: 'none' } : { kind: 'one', element: link }
 }
 
-/** The element as the outline words it, for example `button "New provider" primary`. */
+/** The element as the outline words it, for example `button "New provider" primary [e12]`. */
 export function describeOnPage(element: Element): string {
   return describe(element)
 }
 
+// What a name can refer to, most specific first: a control, then a table row, then a heading.
+const kinds = [
+  { selector: interactive, role: null, name: controlName },
+  { selector: 'tbody tr', role: 'row', name: (row: Element) => clean(rowCells(row), 160) },
+  {
+    selector: heading,
+    role: 'heading',
+    name: (element: Element) => clean(shownText(element), 140),
+  },
+]
+
 /**
- * The element a name from the outline refers to: a control, a table row or a heading.
- * Takes the bare name or the outline's own wording, such as `button "New model"`.
+ * The different things a set of matches stands for. A control beats the row or heading that
+ * merely contains or repeats its name, and two links to the same place are one destination.
  */
-export function findOnPage(
+function distinct(matches: { element: Element; kind: number }[]): Element[] {
+  const best = Math.min(...matches.map((match) => match.kind))
+  const elements = [
+    ...new Set(matches.filter((match) => match.kind === best).map((match) => match.element)),
+  ]
+  const destinations = new Set<string>()
+  return elements
+    .filter((element) => !elements.some((other) => other !== element && element.contains(other)))
+    .filter((element) => {
+      if (!(element instanceof HTMLAnchorElement)) return true
+      if (destinations.has(element.href)) return false
+      destinations.add(element.href)
+      return true
+    })
+}
+
+/**
+ * What a ref or a name from the outline refers to: a control, a table row or a heading. A
+ * name may be bare or in the outline's own wording, such as `button "New model"`. A name
+ * that fits several different things is not resolved to the first of them.
+ */
+export function matchOnPage(
   target: string,
   only: (element: Element) => boolean = () => true,
-): Element | null {
-  const outline = /^(?:([a-z]+) )?"([^"]+)"/i.exec(target.trim())
-  const role = outline?.[1]?.toLowerCase()
-  const wanted = clean(outline?.[2] ?? target, 400).toLowerCase()
-  if (wanted === '') return null
+): PageMatch {
+  const wanted = target.trim()
   const root = topDialog() ?? document.body
-  const named = (selector: string, kind: string | null, name: (element: Element) => string) =>
-    [...root.querySelectorAll(selector)]
+  const ref = (/^\[?(e\d+)\]?$/.exec(wanted) ?? /\[(e\d+)\]$/.exec(wanted))?.[1]
+  if (ref != null) {
+    const element = referenced.get(ref)?.deref()
+    if (element == null || !root.contains(element) || !isShown(element)) return { kind: 'gone' }
+    return only(element) ? { kind: 'one', element } : { kind: 'none' }
+  }
+  const outline = /^(?:([a-z]+) )?"([^"]+)"/i.exec(wanted)
+  const role = outline?.[1]?.toLowerCase()
+  const name = clean(outline?.[2] ?? wanted, 400).toLowerCase()
+  if (name === '') return { kind: 'none' }
+  const all = kinds.flatMap((kind, index) =>
+    [...root.querySelectorAll(kind.selector)]
       .filter((element) => isShown(element) && only(element))
       .map((element) => ({
         element,
-        role: kind ?? roleOf(element),
-        name: name(element).toLowerCase(),
-      }))
-  const all = [
-    ...named(interactive, null, controlName),
-    ...named('tbody tr', 'row', (row) => clean(rowCells(row), 160)),
-    ...named(heading, 'heading', (element) => clean(shownText(element), 140)),
-  ]
+        kind: index,
+        role: kind.role ?? roleOf(element),
+        name: kind.name(element).toLowerCase(),
+      })),
+  )
   const ofRole = all.filter((candidate) => candidate.role === role)
   const pool = ofRole.length > 0 ? ofRole : all
-  const words = nameWords(wanted)
-  const match =
-    pool.find((candidate) => candidate.name === wanted) ??
-    pool.find((candidate) => candidate.name.startsWith(wanted)) ??
-    pool.find((candidate) => candidate.name.includes(wanted)) ??
-    // A name given from memory: the same words in another order or with another verb.
-    pool.find((candidate) => {
-      const named = nameWords(candidate.name)
+  const words = nameWords(name)
+  const closeness: ((candidate: string) => boolean)[] = [
+    (candidate) => candidate === name,
+    (candidate) => candidate.startsWith(name),
+    (candidate) => candidate.includes(name),
+    // A name given from memory: the same words in another order or with another verb,
+    // then those words among others.
+    (candidate) => {
+      const named = nameWords(candidate)
+      return words.size > 0 && named.size === words.size && [...words].every((w) => named.has(w))
+    },
+    (candidate) => {
+      const named = nameWords(candidate)
       return words.size > 0 && [...words].every((word) => named.has(word))
-    })
-  return match?.element ?? null
+    },
+  ]
+  for (const close of closeness) {
+    const matches = pool.filter((candidate) => close(candidate.name))
+    if (matches.length === 0) continue
+    const elements = distinct(matches)
+    const [only] = elements
+    return elements.length === 1 && only != null
+      ? { kind: 'one', element: only }
+      : { kind: 'several', refs: elements.map(refOf) }
+  }
+  return { kind: 'none' }
 }
 
 const fillerWords = new Set(['a', 'an', 'the', 'your', 'my', 'to', 'of', 'button', 'link', 'page'])
@@ -333,6 +422,9 @@ function nameWords(name: string): Set<string> {
 }
 
 export function pageSnapshot(): string {
+  for (const [ref, element] of referenced) {
+    if (element.deref()?.isConnected !== true) referenced.delete(ref)
+  }
   const root = topDialog() ?? document.body
   const lines = [`URL: ${window.location.pathname}`, `Title: ${document.title}`]
   if (root !== document.body) {
@@ -370,7 +462,7 @@ export function pageSnapshot(): string {
   }
   function table(element: HTMLTableElement) {
     const heads = [...element.querySelectorAll('thead th')].map((cell) =>
-      clean(cell.textContent, 30),
+      clean(shownText(cell), 30),
     )
     const rows = [...element.querySelectorAll('tbody tr')].filter(isRendered)
     const columns = heads.some((head) => head !== '') ? `: ${heads.join(' | ')}` : ''
@@ -391,7 +483,9 @@ export function pageSnapshot(): string {
   // readText=false: this subtree's text was already written; only list its controls.
   function walk(node: Element, readText: boolean) {
     for (const child of node.children) {
-      if (skippedTags.has(child.tagName) || child.matches(notPage)) continue
+      if (skippedTags.has(child.tagName) || child.matches(notPage) || child.matches(secret)) {
+        continue
+      }
       if (!isRendered(child) || isHiddenFromUser(child)) continue
       if (child.matches(interactive)) {
         addControl(child)
@@ -420,7 +514,7 @@ export function pageSnapshot(): string {
       } else if (child.tagName === 'DL') {
         const pairs = [...child.querySelectorAll('dt')].map(
           (term) =>
-            `${clean(shownText(term), 40)}: ${clean(term.nextElementSibling == null ? '' : shownText(term.nextElementSibling), 80)}`,
+            `${clean(shownText(term), 40)}: ${clean(shownText(term.nextElementSibling), 80)}`,
         )
         if (pairs.length > 0) push(`details: ${pairs.join('; ')}`)
         walk(child, false)

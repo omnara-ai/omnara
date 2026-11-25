@@ -106,8 +106,13 @@ The preset can use Omnara's API on your behalf and explain steps in the UI. It
 can also click links, buttons, tabs and menus on your screen with its own
 cursor, and point at a control on the page you are looking at. Its clicks do
 what yours would. It cannot type on your screen or control your computer. Each message includes the viewed page and organization as context,
-separately from the agent's home project. Its tools run without asking for approval; it is instructed to confirm with you
+separately from the agent's home project. That context leaves out anything typed into a field or editor and any credential the page is showing. Its tools run without asking for approval; it is instructed to confirm with you
 in the conversation before deleting, replacing or spending anything.
+
+Your dashboard is shared and acted on only for an assistant you created, and only
+in turns you started. An agent someone else created is a conversation and nothing
+more when you connect it here: it is not sent your page and cannot click on it.
+A message another person sends to your assistant never moves your screen.
 
 Creating the preset also creates a dedicated personal access token stored in an
 encrypted project secret. The token carries your permissions across all your

@@ -20,6 +20,7 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import { ToolCallUpdates } from './agent-chat-tool-calls'
 import {
   createAgentChatInput,
   isDefiniteSendFailure,
@@ -44,7 +45,7 @@ import {
   isScheduledBacklogInput,
   useAgentInputBacklog,
 } from './agent-input-backlog'
-import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateOpenInteractions, invalidateSubagentList } from './agent-interactions'
 import { TraceInvalidationCoalescer } from './agent-traces'
 import { invalidateBudgetQueries } from './budgets'
 import { agentUsageQueryPredicate } from './usage'
@@ -76,6 +77,7 @@ export class AgentChatSession {
   private readonly traceInvalidator: TraceInvalidationCoalescer
 
   private listeners: (() => void)[] = []
+  readonly toolCallUpdates = new ToolCallUpdates()
   private runController: AbortController | null = null
 
   private events: AgentEvent[] = []
@@ -327,19 +329,13 @@ export class AgentChatSession {
       void invalidateBudgetQueries(this.queryClient, this.scope.orgID)
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
-      this.invalidateInteractions()
+      invalidateOpenInteractions(this.queryClient, this.client, this.scope)
     }
     const hasEvent = this.hasLoadedEvent.bind(this)
     invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
     void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
     this.traceInvalidator.onEvent(event.turn_id, event.is_opening_event)
     this.notify()
-  }
-
-  private invalidateInteractions(): void {
-    void this.queryClient.invalidateQueries({
-      queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
-    })
   }
 
   private handleDelta(delta: ModelOutputDelta): void {
@@ -370,7 +366,7 @@ export class AgentChatSession {
       return
     }
     if (state.reconnected) {
-      this.invalidateInteractions()
+      invalidateOpenInteractions(this.queryClient, this.client, this.scope)
       this.traceInvalidator.onReconnect()
     }
   }
@@ -420,7 +416,10 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        else {
+          invalidateOpenInteractions(this.queryClient, this.client, this.scope)
+          this.toolCallUpdates.emit(parsed.update)
+        }
       }
     } catch (error) {
       if (signal.aborted) return
@@ -451,9 +450,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
 
   const history = useAgentChatHistory(client, scope)
 
-  const newestLoadedSequence = sequenceNumber(
-    history.data?.pages[0]?.data.at(-1)?.sequence ?? undefined,
-  )
+  const newestLoadedSequence = sequenceNumber(history.data?.pages[0]?.data.at(-1)?.sequence)
   const session = useMemo(
     () =>
       new AgentChatSession({
@@ -509,6 +506,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
     sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
+    subscribeToolCallUpdates: session.toolCallUpdates.subscribe,
     inputBacklog: {
       inputs: projected.backlogInputs,
       actionPending:

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { dashboardPageContext } from './page-context'
 
@@ -6,6 +6,7 @@ const home = {
   agent_id: 'agent-home',
   name: 'Assistant',
   can_operate: true,
+  own_assistant: true,
   scope: {
     org_id: 'org-home',
     project_id: 'project-home',
@@ -27,7 +28,7 @@ describe('dashboard page context', () => {
       pathname: '/projects/project-other/agents/agent-other?token=secret#private',
       route: '/projects/$projectId/agents/$agentId',
       params,
-      snapshot: '# Reviewer\nbutton "Send message"',
+      snapshot: () => '# Reviewer\nbutton "Send message"',
       docked: false,
       viewedOrg: { id: 'org-other', name: 'Other', role: 'owner', created_at: '' },
       selection: home,
@@ -55,7 +56,7 @@ describe('dashboard page context', () => {
       pathname: '/onboarding',
       route: '/onboarding',
       params: {},
-      snapshot: '',
+      snapshot: () => '',
       docked: true,
       viewedOrg: undefined,
       selection: home,
@@ -63,5 +64,20 @@ describe('dashboard page context', () => {
     expect(context).toContain('"pathname":"/onboarding"')
     expect(context).toContain('"surface":"the conversation is the main column of the page"')
     expect(context).not.toContain('viewed_organization')
+  })
+
+  it('tells an agent that is not the viewer’s own assistant nothing, without reading the page', () => {
+    const snapshot = vi.fn(() => 'button "Invite user"')
+    const context = dashboardPageContext({
+      pathname: '/members',
+      route: '/members',
+      params: {},
+      snapshot,
+      docked: false,
+      viewedOrg: { id: 'org-other', name: 'Other', role: 'owner', created_at: '' },
+      selection: { ...home, own_assistant: false },
+    })
+    expect(context).toBeUndefined()
+    expect(snapshot).toHaveBeenCalledTimes(0)
   })
 })
