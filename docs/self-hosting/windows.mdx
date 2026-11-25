@@ -6,9 +6,9 @@ icon: "windows"
 
 This single-machine POC was tested on Windows Server 2022 x64. It runs the API, worker, maintenance, migrations, and embedded dashboard without Docker or a Linux VM. The machine daemon (`omnarad`) is separate and is not included.
 
-Use PostgreSQL because Omnara requires PostgreSQL 18+; SQL Server cannot replace it. Garnet provides a native Windows Redis-compatible server with Lua and persistence. RustFS is the S3 store used by Compose; its [Windows build is for development and debugging](https://docs.rustfs.com/en/installation/windows), which is suitable for this POC. IIS fronts the embedded dashboard and API without changing other sites' proxy settings.
+PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. IIS fronts the embedded dashboard and API without changing other sites' proxy settings.
 
-## 1. Prepare Windows and the native dependencies
+## 1. Download Omnara and its tools
 
 Use a local NTFS disk and an administrator PowerShell 5.1 session. From a [`cluster-v*` GitHub release](https://github.com/omnara-ai/omnara/releases?q=cluster-v&expanded=true) that includes Windows assets, download `omnara-windows-amd64.zip` and `omnara-windows-amd64.zip.sha256` into the same directory. Verify and extract them:
 
@@ -23,7 +23,7 @@ if ((Get-FileHash .\omnara-windows-amd64.zip -Algorithm SHA256).Hash -eq $expect
 }
 ```
 
-The bundle contains `bin` with all five executables, the embedded dashboard, migrations and MCP registry; `deploy/windows` with setup scripts; `WINDOWS-SETUP.mdx` with these instructions; and `SOURCE.txt` identifying the source commit. Go, Node, and a source checkout are not needed. These unsigned POC executables use the fresh-install steps below; the installers do not upgrade existing services.
+The bundle contains `bin` with all five executables, the embedded dashboard, migrations and MCP registry; `deploy/windows` with setup scripts; `WINDOWS-SETUP.mdx` with these instructions and `WINDOWS-DEPENDENCIES.mdx` with optional dependency recipes; and `SOURCE.txt` identifying the source commit. Go, Node, and a source checkout are not needed. These unsigned POC executables use the fresh-install steps below; the installers do not upgrade existing services.
 
 Tagged release ZIPs also have GitHub build attestations. To verify their provenance with the optional GitHub CLI, run `gh attestation verify .\omnara-windows-amd64.zip --repo omnara-ai/omnara` from the download directory.
 
@@ -37,18 +37,14 @@ Skip the bundle download and extraction above. Start from a separate Omnara chec
 .\deploy\windows\Build-Windows.ps1 -OutputDirectory C:\Omnara\bin
 ```
 
-Continue with the native dependencies below. For a source build, run the configuration and service-install commands from the checkout root.
+Continue with the tools below. For a source build, run the configuration and service-install commands from the checkout root.
 
 </Accordion>
 
-These are the pinned x64 distributions used for the POC. Keep each program in its own directory: the installers replace that directory's ownership and permissions.
+Download these x64 tools. Keep the Omnara binaries and file tools in dedicated directories: the application installer replaces their ownership and permissions.
 
 | Download | Installation |
 | --- | --- |
-| [PostgreSQL 18.7-1](https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64.exe) | Run the Windows installer with port 5432. |
-| [.NET runtime 10.0.15](https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.15/dotnet-runtime-10.0.15-win-x64.exe) | Install the x64 runtime for Garnet. |
-| [Garnet 2.2.14](https://github.com/microsoft/garnet/releases/download/v2.2.14/win-x64-based-readytorun.zip) | Extract; use the `net10.0` directory containing `GarnetServer.exe` and its DLLs. |
-| [RustFS 1.0.4](https://github.com/rustfs/rustfs/releases/download/1.0.4/rustfs-windows-x86_64-v1.0.4.zip) | Extract into `C:\Omnara\rustfs`. |
 | [WinSW 2.14.0](https://github.com/winsw/winsw/releases/download/v2.14.0/WinSW-x64.exe) | Save as `C:\Omnara\WinSW-x64.exe`; the installers verify its SHA256. |
 | [ripgrep 16.0.0, MSVC](https://github.com/BurntSushi/ripgrep/releases/download/16.0.0/ripgrep-16.0.0-x86_64-pc-windows-msvc.zip) | Copy `rg.exe` into `C:\Omnara\file-tools`. |
 | [MSYS2 base 2026-11-20](https://github.com/msys2/msys2-installer/releases/download/2026-11-20/msys2-base-x86_64-20261120.sfx.exe) | Run `.\msys2-base-x86_64-20261120.sfx.exe -y -oC:\Omnara\`; copy `sed.exe` (GNU sed 4.10), `msys-2.0.dll`, `msys-intl-8.dll`, and `msys-iconv-2.dll` from `C:\Omnara\msys64\usr\bin` into the same file-tools directory. |
@@ -58,74 +54,54 @@ These are the pinned x64 distributions used for the POC. Keep each program in it
 Compare `Get-FileHash -Algorithm SHA256` against these values:
 
 ```text
-90bf244854a6c7f6d204b26934a32bd571b9953963b6137bb46d2fcd3f1a313e  postgresql-18.7-1-windows-x64.exe
-8d7a99ab34fce4ecdb6c63b54db03407fd442ac083514c752fe98328897e384a  win-x64-based-readytorun.zip
-2e3af0b187dd70435dfdefe5f61aae7eede5a21fc9a2a2f07e289f727adbcfa6  rustfs-windows-x86_64-v1.0.4.zip
 4ebd9dc3e817f80b2bd8c18f5bfe0d550241c1d08b57bd9694777a6e56a7b24f  WinSW-x64.exe
 f418ae83e63046a94a7b5f3a44bf3a169f66e689164856ecee02547131c73931  ripgrep-16.0.0-x86_64-pc-windows-msvc.zip
 4f6dadfdb2c9be5fc1938e30b635cb72bb4344c35e8b6fd225bc3250fcab5897  msys2-base-x86_64-20261120.sfx.exe
 ```
 
-For `dotnet-runtime-10.0.15-win-x64.exe`, use `Get-FileHash -Algorithm SHA512`:
-
-```text
-c202a6721d66f49086e087a58e31c448062b0718fdd66b31807d7b2b31673adae5d3ccb36fc7451e113172ce59913d6c8034a35d5cc1cf6b079d5b544f1f425b
-```
-
 </Accordion>
 
-Keep PostgreSQL bound to `127.0.0.1` (`listen_addresses` in `postgresql.conf`) and restart its service after changing this setting. In its SQL Shell (`psql`), connect as `postgres` and create an application owner and UTF-8 database:
+## 2. Choose dependencies and configure
 
-```sql
-CREATE ROLE omnara LOGIN;
-\password omnara
-CREATE DATABASE omnara OWNER omnara TEMPLATE template0
-  ENCODING 'UTF8' LOCALE_PROVIDER builtin BUILTIN_LOCALE 'C.UTF-8';
-```
+Supply each service independently; installing a local Redis server does not require a local S3 server. Skip installation for any dependency you already have.
 
-The dependency installer needs `curl.exe` with `--aws-sigv4`. Update curl on older Windows installations if its preflight reports that option missing.
+| Dependency | What Omnara needs |
+| --- | --- |
+| PostgreSQL | Version 18+, a dedicated UTF-8 database owned by the application role, and `pg_trgm` available for migrations. SQL Server cannot replace it. |
+| Redis | A standalone Redis-compatible endpoint with atomic Lua (`EVAL`, `cjson`, `TIME`), TTLs, and Pub/Sub. State is ephemeral; disk storage and restart persistence are not required. Size memory for your workload; key loss resets temporary sign-in, rate-limit, and presence state. Direct Cluster and Sentinel configurations are unsupported. |
+| S3 | An existing bucket and credentials with object Get/Put/Delete access to `artifacts/*` and `skills/*`. Omnara does not create buckets. |
 
-## 2. Configure
+For a dependency you need to install, follow its separate [native Windows recipe](/self-hosting/windows-dependencies) (`WINDOWS-DEPENDENCIES.mdx` in the download). The tested choices are PostgreSQL's Windows installer, Garnet, and RustFS. An existing service may be local or remote; allow connections from the Windows server and configure TLS for remote endpoints. Certificates and credentials must be accessible to the service accounts, not just your interactive login.
 
 Run the remaining commands from `C:\Omnara`, where the bundle was extracted, or from the checkout root for a source build.
 
-Create private setup files and fresh keys. Run this only for a new installation; retain these keys with your backups.
+Create a private application configuration and fresh encryption/signing keys. Run this only for a new installation; retain these keys with your backups.
 
 ```powershell
-. .\deploy\windows\Common.ps1
-$setup = 'C:\ProgramData\Omnara\setup'
-New-Item -ItemType Directory -Path $setup -ErrorAction Stop | Out-Null
-Set-PrivatePermissions $setup
-function New-Key {
-    $bytes = New-Object byte[] 32
-    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-    [Convert]::ToBase64String($bytes)
+& {
+    $ErrorActionPreference = 'Stop'
+    . .\deploy\windows\Common.ps1
+    $setup = 'C:\ProgramData\Omnara\setup'
+    New-Item -ItemType Directory -Path $setup -ErrorAction Stop | Out-Null
+    Set-PrivatePermissions $setup
+    function New-Key {
+        $bytes = New-Object byte[] 32
+        $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+        [Convert]::ToBase64String($bytes)
+    }
+    $configuration = [IO.File]::ReadAllText("$PWD\deploy\windows\control-plane.env.example")
+    $configuration = $configuration.Replace('REPLACE_ENCRYPTION_KEY', (New-Key)).Replace('REPLACE_SIGNING_KEY', (New-Key))
+    [IO.File]::WriteAllText("$setup\control-plane.env", $configuration)
+    notepad.exe "$setup\control-plane.env"
 }
-[IO.File]::WriteAllText("$setup\s3-access.txt", 'omnara-poc')
-[IO.File]::WriteAllText("$setup\s3-secret.txt", (New-Key))
 ```
 
-Install Garnet and RustFS as services, substituting your extracted Garnet directory. This creates the `omnara` S3 bucket, verifies authenticated Redis and S3 access, and prints protected credential file paths.
+Replace all remaining `REPLACE_` values with your chosen endpoints and credentials. URL-encode reserved characters in database and Redis credentials. For example, local connections can use `postgres://omnara:PASSWORD@127.0.0.1:5432/omnara?sslmode=disable` and `redis://:PASSWORD@127.0.0.1:6379/0`.
 
-```powershell
-.\deploy\windows\Install-Dependencies.ps1 `
-  -GarnetDirectory C:\Omnara\garnet\net10.0 `
-  -RustFSDirectory C:\Omnara\rustfs `
-  -RustFSAccessKeyFile "$setup\s3-access.txt" `
-  -RustFSSecretKeyFile "$setup\s3-secret.txt" `
-  -WinSWPath C:\Omnara\WinSW-x64.exe
+Set the S3 bucket, region, access key and secret key. For local RustFS, use endpoint `http://127.0.0.1:9000`, region `us-east-1`, and path style `1`. For AWS S3, leave the custom endpoint empty and use path style `0`. If using the AWS default credential chain instead of static keys, leave both key fields empty and make those credentials available to the API and worker service accounts.
 
-$configuration = [IO.File]::ReadAllText("$PWD\deploy\windows\control-plane.env.example")
-$configuration = $configuration.Replace('REPLACE_REDIS_PASSWORD', [IO.File]::ReadAllText('C:\ProgramData\Omnara\dependencies\garnet\config\password.txt'))
-$configuration = $configuration.Replace('REPLACE_S3_ACCESS_KEY', [IO.File]::ReadAllText("$setup\s3-access.txt"))
-$configuration = $configuration.Replace('REPLACE_S3_SECRET_KEY', [IO.File]::ReadAllText("$setup\s3-secret.txt"))
-$configuration = $configuration.Replace('REPLACE_ENCRYPTION_KEY', (New-Key)).Replace('REPLACE_SIGNING_KEY', (New-Key))
-[IO.File]::WriteAllText("$setup\control-plane.env", $configuration)
-notepad.exe "$setup\control-plane.env"
-```
-
-Replace `REPLACE_DATABASE_PASSWORD` with the database password, URL-encoding reserved characters. Leave `OMNARA_PUBLIC_URL=http://localhost:8088` for the SSH-forwarded POC. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample enables console email and development mode; development mode also lets `web_fetch` reach loopback, so keep this POC private.
+Leave `OMNARA_PUBLIC_URL=http://localhost:8088` for the SSH-forwarded POC. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample enables console email and development mode; development mode also lets `web_fetch` reach loopback, so keep this POC private.
 
 ## 3. Install services and IIS
 
@@ -133,7 +109,7 @@ Replace `REPLACE_DATABASE_PASSWORD` with the database password, URL-encoding res
 .\deploy\windows\Install-Services.ps1 `
   -BinaryDirectory C:\Omnara\bin `
   -FileToolsDirectory C:\Omnara\file-tools `
-  -EnvironmentFile "$setup\control-plane.env" `
+  -EnvironmentFile C:\ProgramData\Omnara\setup\control-plane.env `
   -WinSWPath C:\Omnara\WinSW-x64.exe
 
 Install-WindowsFeature Web-Server, Web-WebSockets -IncludeManagementTools
@@ -145,7 +121,7 @@ Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), 
 .\deploy\windows\Configure-IIS.ps1
 ```
 
-The scripts run migrations once, create separate virtual service accounts, make binaries read-only to services, and create private logs, temporary directories, and a shared case-sensitive memory directory. Services use delayed automatic startup, so allow a few minutes after boot. IIS listens on `127.0.0.1:8088`; dependencies and API listeners also stay on loopback. No firewall rules are opened. These are initial-install scripts: existing services or nonempty data directories are refused. Inspect any reported failure before removing only the failed installation's new services/files and retrying; database migrations are not rolled back.
+The scripts run migrations once, create separate virtual service accounts, make binaries read-only to services, and create private logs, temporary directories, and a shared case-sensitive memory directory. Services use delayed automatic startup, so allow a few minutes after boot. IIS listens on `127.0.0.1:8088` and the API listeners stay on loopback; dependency addresses come from your configuration. No firewall rules are opened. These are initial-install scripts: existing Omnara services or nonempty data directories are refused. If services were installed but a dependency connection fails, correct the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying; database migrations are not rolled back.
 
 From your workstation, forward IIS and open `http://localhost:8088`:
 
@@ -157,16 +133,18 @@ Sign up using the verification link in the protected API logs under `C:\ProgramD
 
 ## 4. Operate the POC
 
-Edit `C:\ProgramData\Omnara\control-plane\config\control-plane.env` for subsequent configuration changes, then restart the affected services. Logs are under each service's `logs` directory. Back up PostgreSQL, the entire memory directory, RustFS data, and the configuration containing encryption keys together.
+Edit `C:\ProgramData\Omnara\control-plane\config\control-plane.env` for subsequent configuration changes, then restart the affected services. Logs are under each service's `logs` directory. Coordinate database and S3 backups with their owners, and retain the entire memory directory and configuration containing encryption keys with them.
 
 Memory search and scripted edits use native ripgrep and GNU sed. Windows does not apply Linux Landlock, seccomp, or chroot isolation; GNU sed's restricted mode and process lifetime/output limits still apply. These tools have the worker account's filesystem access. Startup failures produce a warning. A failed edit check disables scripted edits until you fix the executable/DLL setup and restart `omnara-worker`; searches check availability on each call.
 
-WinSW 2 does not provide a Windows preshutdown hook. Before a planned reboot, stop Omnara and its wrapped dependencies explicitly so the worker can drain:
+WinSW 2 does not provide a Windows preshutdown hook. Before a planned reboot, stop Omnara explicitly so the worker can drain:
 
 ```powershell
 Stop-Service omnara-worker, omnara-api, omnara-maintenance
-Stop-Service omnara-garnet, omnara-rustfs
-Restart-Computer
 ```
 
-This page describes a private POC. Use the [configuration reference](/self-hosting/configuration) when planning public URLs, TLS, email delivery, or an existing Redis/S3 service.
+WinSW 2.14 can fail a stop after the process exits and then restart the service. Wait 15 seconds and confirm these services still report `Stopped` with `Get-Service omnara-worker, omnara-api, omnara-maintenance`. If one restarted after a failed stop, stop it again and recheck before proceeding. The [upstream fix](https://github.com/winsw/winsw/pull/1544) has not shipped in a release binary.
+
+Then follow the shutdown procedure for any dependencies hosted on this machine before restarting Windows. Do not stop remote or shared customer services as part of Omnara maintenance.
+
+This page describes a private POC. Use the [configuration reference](/self-hosting/configuration) when planning public URLs, TLS, email delivery, or additional dependency options.

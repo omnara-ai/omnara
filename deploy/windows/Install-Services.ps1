@@ -214,6 +214,8 @@ Protect-ProgramDirectory $BinaryDirectory $accounts
 Protect-ProgramDirectory $FileToolsDirectory @('NT SERVICE\omnara-worker')
 foreach ($service in $services) {
     Set-PrivatePermissions (Join-Path $DataDirectory $service) @("NT SERVICE\omnara-$service") 'Modify'
+}
+foreach ($service in $services) {
     Start-Service -Name "omnara-$service"
 }
 
@@ -232,7 +234,7 @@ foreach ($index in 0..($services.Count - 1)) {
         if (-not $ready) { Start-Sleep -Seconds 1 }
     } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready) {
-        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$($services[$index])\logs."
+        throw "$id did not become ready. Inspect its protected logs under $DataDirectory\$($services[$index])\logs. Correct $installedEnvironment and restart the installed services with Restart-Service omnara-api, omnara-worker, omnara-maintenance; do not reinstall them."
     }
 }
 if (Get-ChildItem -LiteralPath (Join-Path $DataDirectory 'worker\logs') -Filter '*.log' |

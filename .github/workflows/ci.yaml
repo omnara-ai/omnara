@@ -181,7 +181,7 @@ jobs:
           "TEMP=$testTemp" >> $env:GITHUB_ENV
           "TMP=$testTemp" >> $env:GITHUB_ENV
 
-      - name: Parse Windows installers with PowerShell 5.1
+      - name: Parse Windows installers and documentation with PowerShell 5.1
         shell: powershell
         run: |
           Get-ChildItem deploy/windows -Filter '*.ps1' | ForEach-Object {
@@ -189,6 +189,19 @@ jobs:
             $parseErrors = $null
             [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors)
             if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
+          Get-ChildItem docs/self-hosting -Filter 'windows*.mdx' | ForEach-Object {
+            $content = [IO.File]::ReadAllText($_.FullName)
+            $blocks = [regex]::Matches($content, '(?ms)^```powershell\r?\n(.*?)^```')
+            if (-not $blocks.Count -or $blocks.Count -ne [regex]::Matches($content, '(?m)^\s*```powershell\b').Count) {
+              throw "Unrecognized PowerShell fence in $($_.Name)"
+            }
+            foreach ($block in $blocks) {
+              $tokens = $null
+              $parseErrors = $null
+              [void][Management.Automation.Language.Parser]::ParseInput($block.Groups[1].Value, [ref]$tokens, [ref]$parseErrors)
+              if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+            }
           }
 
       - name: Test Windows storage, file tools, configuration, and process helpers
