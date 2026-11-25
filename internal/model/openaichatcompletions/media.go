@@ -167,7 +167,7 @@ func userChatContentFromParts(
 				if block, ok := chatMediaPart(resolved); ok {
 					hasMedia = true
 					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
-						blocks = append(blocks, map[string]any{"type": "text", "text": "\n\nartifact_id: " + ref + "\n\n"})
+						blocks = append(blocks, map[string]any{"type": "text", "text": "artifact_id: " + ref})
 					}
 					blocks = append(blocks, block)
 				}

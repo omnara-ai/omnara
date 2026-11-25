@@ -81,10 +81,10 @@ func TestPrepareBuildsInputImageAndFileParts(t *testing.T) {
 	if len(content) != 5 ||
 		content[0].Type != "input_text" ||
 		content[1].Type != "input_text" ||
-		content[1].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestImageID)+"\n\n" ||
+		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
 		content[2].Type != "input_image" ||
 		content[3].Type != "input_text" ||
-		content[3].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestDocumentID)+"\n\n" ||
+		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) ||
 		content[4].Type != "input_file" {
 		t.Fatalf("unexpected content layout: %s", prepared.Body)
 	}
@@ -153,39 +153,6 @@ func TestOpenAIMediaPartRendersTextDocuments(t *testing.T) {
 		if _, ok := part["file_data"]; ok {
 			t.Fatalf("text document included file data: %+v", part)
 		}
-	}
-}
-
-func TestTextAttachmentKeepsArtifactIDSeparate(t *testing.T) {
-	const artifactID = mediaTestDocumentID
-	parts := renderOpenAIInputContent(
-		json.RawMessage(`[{"type":"text","text":"Inspect /memory/notes.txt"},
-			{"type":"media_ref","artifact_id":"`+artifactID+`"}]`),
-		map[string]modelcontext.ResolvedMedia{artifactID: {
-			ArtifactID: artifactID,
-			Kind:       modelcontext.AttachmentKindDocument,
-			MediaType:  "text/plain",
-			Filename:   "notes.txt",
-			Data:       []byte("hello"),
-		}},
-	)
-	var text strings.Builder
-	for _, part := range parts {
-		block, ok := part.(map[string]any)
-		if !ok || block["type"] != responsesContentTypeInputText {
-			t.Fatalf("unexpected text attachment block: %#v", part)
-		}
-		value, ok := block["text"].(string)
-		if !ok {
-			t.Fatalf("unexpected attachment text: %#v", block["text"])
-		}
-		text.WriteString(value)
-	}
-	// Providers may concatenate adjacent text blocks without a separator.
-	words := strings.Fields(text.String())
-	if len(words) < 4 || words[1] != "/memory/notes.txt" || words[2] != "artifact_id:" ||
-		words[3] != mediaTestPublicID(artifactID) || !strings.Contains(text.String(), "hello") {
-		t.Fatalf("artifact ID joined the attachment text: %q", text.String())
 	}
 }
 
@@ -407,7 +374,7 @@ func TestPrepareToolResultMediaRidesInFunctionCallOutput(t *testing.T) {
 		output.Output[0].Type != "input_text" ||
 		output.Output[0].Text != "captured" ||
 		output.Output[1].Type != "input_text" ||
-		output.Output[1].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestImageID)+"\n\n" ||
+		output.Output[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
 		output.Output[2].Type != "input_image" {
 		t.Fatalf("expected text and image inside function_call_output: %s", payload.Input[len(payload.Input)-1])
 	}

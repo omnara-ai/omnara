@@ -72,7 +72,7 @@ func TestPrepareBuildsInputAudioParts(t *testing.T) {
 			t.Fatalf("unexpected messages for %s: %s", mediaType, prepared.Body)
 		}
 		content := payload.Messages[0].Content
-		if content[1].Text != "\n\nartifact_id: "+mediaTestPublicID(mediaTestAudioID)+"\n\n" ||
+		if content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestAudioID) ||
 			content[2].Type != "input_audio" || content[2].InputAudio.Format != format ||
 			content[2].InputAudio.Data != "YXVkaW8gYnl0ZXM=" {
 			t.Fatalf("unexpected audio part for %s: %s", mediaType, prepared.Body)

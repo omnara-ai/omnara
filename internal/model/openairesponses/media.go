@@ -122,7 +122,7 @@ func renderOpenAIContent(
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := openaiMediaPart(resolved); ok {
 					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
-						out = append(out, map[string]any{"type": textType, "text": "\n\nartifact_id: " + ref + "\n\n"})
+						out = append(out, map[string]any{"type": textType, "text": "artifact_id: " + ref})
 					}
 					out = append(out, block)
 				}
