@@ -721,6 +721,8 @@ func (s strictOpenAPIServer) createAgent(
 		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
+		TraceParent:    valueOrEmpty(request.Params.Traceparent),
+		TraceState:     valueOrEmpty(request.Params.Tracestate),
 	}
 	// Replay before compiling config_source or resolving integration references, which may have
 	// changed since launch. The kernel repeats this lookup under the launch key lock.

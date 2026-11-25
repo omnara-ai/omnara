@@ -845,6 +845,52 @@ func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTrace
 	return items, nil
 }
 
+const listTurnTraceParents = `-- name: ListTurnTraceParents :many
+SELECT DISTINCT ON (event.agent_id, event.turn_id)
+       event.turn_id, input.trace_parent::text AS trace_parent,
+       coalesce(input.trace_state, '')::text AS trace_state
+FROM agent_events event
+JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
+WHERE event.agent_id = ANY($1::uuid[])
+  AND event.turn_id = ANY($2::uuid[])
+  AND event.is_opening_event
+  AND input.trace_parent IS NOT NULL
+ORDER BY event.agent_id, event.turn_id, event.sequence
+`
+
+type ListTurnTraceParentsParams struct {
+	AgentIds []uuid.UUID
+	TurnIds  []uuid.UUID
+}
+
+type ListTurnTraceParentsRow struct {
+	TurnID      uuid.UUID
+	TraceParent string
+	TraceState  string
+}
+
+// The W3C trace context each turn joined: that of its first opening input
+// sent with one. A turn opened without one has no row and is its own trace.
+func (q *Queries) ListTurnTraceParents(ctx context.Context, arg ListTurnTraceParentsParams) ([]ListTurnTraceParentsRow, error) {
+	rows, err := q.db.Query(ctx, listTurnTraceParents, arg.AgentIds, arg.TurnIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnTraceParentsRow{}
+	for rows.Next() {
+		var i ListTurnTraceParentsRow
+		if err := rows.Scan(&i.TurnID, &i.TraceParent, &i.TraceState); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurnTraceSentInputs = `-- name: ListTurnTraceSentInputs :many
 SELECT input.source_tool_call_id AS tool_call_id, input.source_link_kind, input.agent_id, event.turn_id
 FROM agent_inputs input

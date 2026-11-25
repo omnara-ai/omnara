@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -242,6 +243,8 @@ func createAgentContentInputTx(
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
+	// A malformed trace context is ignored, as its specification requires.
+	traceParent, traceState := oteltrace.NormalizeTraceContext(input.TraceParent, input.TraceState)
 	received, err := h.ReceiveContent(ctx, agentexecution.ReceiveContentInput{
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
@@ -249,6 +252,7 @@ func createAgentContentInputTx(
 		SourceScheduledFor: input.SourceScheduledFor,
 		SourceLinkKind:     input.sourceLinkKind,
 		SourceToolCallID:   input.sourceToolCallID,
+		TraceParent:        traceParent, TraceState: traceState,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -329,8 +333,12 @@ type CreateAgentContentInputInput struct {
 	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
 	SourceScheduledFor     *time.Time                       `json:"scheduled_for,omitempty"`
 	MaxScheduledDelay      time.Duration                    `json:"-"`
-	sourceLinkKind         string
-	sourceToolCallID       uuid.UUID
+	// TraceParent and TraceState are the W3C trace context of the request that
+	// sent the input. The turn the input opens joins that trace.
+	TraceParent      string `json:"-"`
+	TraceState       string `json:"-"`
+	sourceLinkKind   string
+	sourceToolCallID uuid.UUID
 }
 
 func scheduledDelayLabel(delay time.Duration) string {

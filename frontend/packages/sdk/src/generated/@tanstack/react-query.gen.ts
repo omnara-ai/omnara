@@ -3282,7 +3282,7 @@ export const getTurnTraceQueryKey = (options: Options<GetTurnTraceData>) => crea
 /**
  * Get a turn as an OpenTelemetry trace
  *
- * Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID. A turn that is still running returns the spans completed so far.
+ * Returns the turn as one OpenTelemetry trace in the OTLP/JSON encoding, ready to POST to any OTLP/HTTP traces endpoint that accepts JSON. The trace has an invoke_agent root span, a chat span per model call attempt, and an execute_tool span per completed tool call, named and attributed by the GenAI semantic conventions. The trace ID is the turn ID, unless the request that opened the turn sent a W3C traceparent header, in which case the trace has that trace ID and its root span is a child of the calling span. A turn that is still running returns the spans completed so far.
  */
 export const getTurnTraceOptions = (options: Options<GetTurnTraceData>): UnusedSkipTokenOptions<GetTurnTraceResponse, GetTurnTraceError, GetTurnTraceResponse, ReturnType<typeof getTurnTraceQueryKey>> & { queryKey: DataTag<ReturnType<typeof getTurnTraceQueryKey>, GetTurnTraceResponse, GetTurnTraceError> } => queryOptions<GetTurnTraceResponse, GetTurnTraceError, GetTurnTraceResponse, ReturnType<typeof getTurnTraceQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

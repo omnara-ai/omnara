@@ -8,11 +8,25 @@ Omnara renders every agent turn as one OpenTelemetry trace following the GenAI s
 
 ## Trace structure
 
-Each turn is one trace whose trace ID is the turn UUID:
+Each turn is one trace whose trace ID is the turn UUID, unless it [joins your own trace](#join-your-own-trace):
 
 - **`invoke_agent <name>`** (root span): covers the entire turn, with all opening inputs on `gen_ai.input.messages` and the final answer on `gen_ai.output.messages`.
 - **`chat <model>`** (client span): one span per completed model call attempt, including retries and failed attempts, with token usage, finish reason, and provider-reported cost.
 - **`execute_tool <name>`** (internal span): one span per completed tool call, with arguments, result, and error status on failure.
+
+### Join your own trace
+
+Send a [W3C Trace Context](https://www.w3.org/TR/trace-context/) `traceparent` header (and optionally `tracestate`) when you create an agent or an agent input, and the turn that input opens joins your trace instead of starting its own: every span takes your trace ID, the `invoke_agent` span becomes a child of your calling span, and `tracestate` is carried on each span.
+
+```bash
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  -H "Content-Type: application/json" \
+  -d '{"content_blocks": [{"type": "text", "text": "Summarize the incident"}]}'
+```
+
+A turn opened by several inputs joins the trace of the first one sent with a `traceparent`. A malformed `traceparent` is ignored, as is a `tracestate` longer than 512 bytes. Subagent turns stay their own traces, connected by the links below. The header's sampled flag is passed through on the spans but does not change which turns an exporter sends; that is still decided by `sample_percent`.
 
 Cross-agent activity (subagent spawns, messages, and results) is connected with OTLP span links (`spawned_by`, `message_from`, `result_from`, `spawned`, `message_to`) and mirrored in the `omnara.links` attribute for backends that drop span links on ingestion.
 

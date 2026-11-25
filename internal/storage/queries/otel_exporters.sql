@@ -315,6 +315,20 @@ WHERE event.agent_id = sqlc.arg(agent_id)
 ORDER BY event.sequence
 LIMIT sqlc.arg(row_limit);
 
+-- name: ListTurnTraceParents :many
+-- The W3C trace context each turn joined: that of its first opening input
+-- sent with one. A turn opened without one has no row and is its own trace.
+SELECT DISTINCT ON (event.agent_id, event.turn_id)
+       event.turn_id, input.trace_parent::text AS trace_parent,
+       coalesce(input.trace_state, '')::text AS trace_state
+FROM agent_events event
+JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
+WHERE event.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
+  AND event.turn_id = ANY(sqlc.arg(turn_ids)::uuid[])
+  AND event.is_opening_event
+  AND input.trace_parent IS NOT NULL
+ORDER BY event.agent_id, event.turn_id, event.sequence;
+
 -- name: GetTraceLinkToolCall :one
 SELECT call.agent_id, call.turn_id
 FROM tool_call_read_projection call

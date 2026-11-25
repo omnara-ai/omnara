@@ -106,6 +106,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		ContentBlocks: initial.ContentBlocks, Metadata: initial.Metadata,
 		DeliveryMode: initial.DeliveryMode, CancelOpenInteractions: initial.CancelOpenInteractions,
 		IdempotencyScope: "content_input", IdempotencyKey: initial.SemanticEventKey,
+		TraceParent: launch.TraceParent, TraceState: launch.TraceState,
 	}
 	if content.IdempotencyKey == "" {
 		content.IdempotencyKey = launchChildIdempotencyKey(launch.IdempotencyKey, "content-input")

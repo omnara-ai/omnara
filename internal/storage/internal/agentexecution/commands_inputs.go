@@ -27,6 +27,10 @@ type ReceiveContentInput struct {
 	SourceLinkKind      string
 	SourceToolCallID    uuid.UUID
 	SourceModelOutputID uuid.UUID
+	// TraceParent and TraceState are the normalized W3C trace context of the
+	// request that sent the input.
+	TraceParent string
+	TraceState  string
 }
 
 type ReceivedContent struct {
@@ -117,7 +121,9 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			ScheduledFor:        input.SourceScheduledFor,
 			SourceLinkKind:      storeutil.TextFromEmpty(input.SourceLinkKind),
 			SourceToolCallID:    storeutil.IDFromNil(input.SourceToolCallID),
-			SourceModelOutputID: storeutil.IDFromNil(input.SourceModelOutputID)})
+			SourceModelOutputID: storeutil.IDFromNil(input.SourceModelOutputID),
+			TraceParent:         storeutil.TextFromEmpty(input.TraceParent),
+			TraceState:          storeutil.TextFromEmpty(input.TraceState)})
 		if err != nil {
 			return ReceivedContent{}, err
 		}
