@@ -70,7 +70,7 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 		return nil, err
 	}
 	filter := executionstore.ModelUsageSeriesFilter{
-		OrgIDs:                  []uuid.UUID{org.ID},
+		OrgID:                   org.ID,
 		ProjectIDs:              projects.projectIDs,
 		AllProjects:             projects.all,
 		AgentProfileIDs:         profileIDs,

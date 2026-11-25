@@ -18795,7 +18795,7 @@ components:
       type: string
       description: >-
         How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime
-        never resets and counts spend recorded since budgets became available.
+        never resets and counts all recorded spend.
       enum: [day, week, month, lifetime]
       x-enum-varnames: [BudgetIntervalDay, BudgetIntervalWeek, BudgetIntervalMonth, BudgetIntervalLifetime]
     BudgetAmount:

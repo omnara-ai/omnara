@@ -129,18 +129,17 @@ func TestUsageBucketStartsRejectTooManyBuckets(t *testing.T) {
 func TestModelUsageSeriesFilterValidation(t *testing.T) {
 	until := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 	for name, filter := range map[string]ModelUsageSeriesFilter{
-		"projects without orgs": {ProjectIDs: []uuid.UUID{uuid.New()}, Until: until},
-		"missing until":         {OrgIDs: []uuid.UUID{uuid.New()}},
-		"since not before end":  {OrgIDs: []uuid.UUID{uuid.New()}, Since: &until, Until: until},
+		"missing until":        {OrgID: uuid.New()},
+		"since not before end": {OrgID: uuid.New(), Since: &until, Until: until},
 	} {
 		if err := filter.validate(); err == nil {
 			t.Fatalf("%s: expected validation error", name)
 		}
 	}
-	if err := (ModelUsageSeriesFilter{OrgIDs: []uuid.UUID{uuid.New()}, Until: until}).validate(); err != nil {
+	if err := (ModelUsageSeriesFilter{OrgID: uuid.New(), Until: until}).validate(); err != nil {
 		t.Fatalf("valid filter: %v", err)
 	}
-	// A caller without memberships has no orgs and no projects: an empty, valid scope.
+	// A caller without memberships has no projects: an empty, valid scope.
 	if err := (ModelUsageSeriesFilter{Until: until}).validate(); err != nil {
 		t.Fatalf("empty scope: %v", err)
 	}

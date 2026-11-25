@@ -57,7 +57,7 @@ func (s strictOpenAPIServer) orgListScope(ctx context.Context, action string) (r
 			projectIDs = append(projectIDs, record.Project.ID)
 		}
 	}
-	return resourceListScope{key: org.ID.String(), projectIDs: projectIDs}, nil
+	return resourceListScope{key: org.ID.String(), orgID: org.ID, projectIDs: projectIDs}, nil
 }
 
 // listAllVisibleProjects pages through every project in the org the caller can see.

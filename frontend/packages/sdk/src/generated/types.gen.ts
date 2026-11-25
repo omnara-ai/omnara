@@ -5660,7 +5660,7 @@ export type BudgetAttachment = {
 };
 
 /**
- * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts all recorded spend.
  */
 export type BudgetInterval = 'day' | 'week' | 'month' | 'lifetime';
 

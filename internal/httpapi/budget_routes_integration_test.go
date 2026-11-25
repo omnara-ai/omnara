@@ -250,36 +250,44 @@ func TestUsageReportsEffectiveCost(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `
 UPDATE model_call_contexts c SET effective_cost_usd = v.cost, effective_cost_kind = v.kind
-FROM (VALUES ($1::uuid, 2::numeric, 'custom'), ($2::uuid, NULL, NULL), ($3::uuid, 0.5, 'estimated'))
-    v(agent_id, cost, kind)
-WHERE c.agent_id = v.agent_id AND c.input_tokens_total IS NOT NULL`, agents[0], agents[1], agents[2])
+FROM (VALUES ($1::uuid, 2::numeric, 'custom'), ($2::uuid, 0.5, 'estimated')) v(agent_id, cost, kind)
+WHERE c.agent_id = v.agent_id AND c.input_tokens_total IS NOT NULL`, agents[0], agents[2])
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `ALTER TABLE model_call_contexts ENABLE TRIGGER model_call_contexts_transition_guard`)
 	require.NoError(t, err)
 
 	admin := authHeaders(project.AdminToken)
-	report := requestJSONWithHeaders(t, handler, http.MethodGet,
-		"/api/v1/orgs/"+project.OrgID+"/usage", "", "", http.StatusOK, admin)
-	totals := testutil.RequireType[map[string]any](t, report["totals"])
-	require.Equal(t, float64(5), totals["model_calls"])
-	tokens := testutil.RequireType[map[string]any](t, totals["tokens"])
-	require.Equal(t, float64(50), tokens["input_tokens_total"])
-	require.Equal(t, float64(25), tokens["output_tokens_total"])
-	require.Equal(t, map[string]any{
-		"provider_reported_usd":           "0.35",
-		"model_calls_with_reported_cost":  float64(3),
-		"effective_usd":                   "2.6",
-		"model_calls_with_effective_cost": float64(4),
-	}, totals["cost"], "a $0 call is priced and a call with no cost is not")
+	assertUsage := func() {
+		t.Helper()
+		report := requestJSONWithHeaders(t, handler, http.MethodGet,
+			"/api/v1/orgs/"+project.OrgID+"/usage", "", "", http.StatusOK, admin)
+		totals := testutil.RequireType[map[string]any](t, report["totals"])
+		require.Equal(t, float64(5), totals["model_calls"])
+		tokens := testutil.RequireType[map[string]any](t, totals["tokens"])
+		require.Equal(t, float64(50), tokens["input_tokens_total"])
+		require.Equal(t, float64(25), tokens["output_tokens_total"])
+		require.Equal(t, map[string]any{
+			"provider_reported_usd":           "0.35",
+			"model_calls_with_reported_cost":  float64(3),
+			"effective_usd":                   "2.6",
+			"model_calls_with_effective_cost": float64(4),
+		}, totals["cost"], "a $0 call is priced and a call with no cost is not")
 
-	series := requestJSONWithHeaders(t, handler, http.MethodGet,
-		orgUsageTimeseriesPath(project.OrgID, url.Values{"metric": {"sum_cost"}}), "", "", http.StatusOK, admin)
-	var total float64
-	for _, raw := range testutil.RequireType[[]any](t, series["series"]) {
-		total += testutil.RequireType[float64](t, testutil.RequireType[map[string]any](t, raw)["total"])
+		series := requestJSONWithHeaders(t, handler, http.MethodGet,
+			orgUsageTimeseriesPath(project.OrgID, url.Values{"metric": {"sum_cost"}}), "", "", http.StatusOK, admin)
+		var total float64
+		for _, raw := range testutil.RequireType[[]any](t, series["series"]) {
+			total += testutil.RequireType[float64](t, testutil.RequireType[map[string]any](t, raw)["total"])
+		}
+		require.InDelta(t, 2.6, total, 1e-12)
+		require.Equal(t, totals["cost"], testutil.RequireType[map[string]any](t, series["totals"])["cost"])
 	}
-	require.InDelta(t, 2.6, total, 1e-12)
-	require.Equal(t, totals["cost"], testutil.RequireType[map[string]any](t, series["totals"])["cost"])
+	assertUsage()
+
+	merged, err := store.Identity().MergeDailyModelCosts(ctx, 10_000)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), merged)
+	assertUsage()
 }
 
 func TestBudgetsReportSpendBeyondOneCallsRange(t *testing.T) {

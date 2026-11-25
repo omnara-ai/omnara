@@ -3397,7 +3397,7 @@ export const zBudgetScope = z.discriminatedUnion('type', [
 ]);
 
 /**
- * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts all recorded spend.
  */
 export const zBudgetInterval = z.enum([
     'day',

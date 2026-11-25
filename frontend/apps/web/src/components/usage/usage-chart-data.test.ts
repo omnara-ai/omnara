@@ -194,13 +194,16 @@ describe('usageChartData', () => {
 })
 
 describe('bucket formatting', () => {
-  it('labels months by month and weeks by their first day', () => {
-    const start = new Date(2026, 8, 1)
+  it('labels months by month and weeks by their first day, in UTC', () => {
+    const start = new Date(Date.UTC(2026, 10, 1))
     expect(formatBucketLabel(start, 'month')).toContain('2026')
     expect(formatBucketTitle(start, 'week')).toMatch(/^Week of /)
-    expect(usageBucketEnd(start, 'month')).toEqual(new Date(2026, 9, 1))
-    expect(usageBucketEnd(start, 'week')).toEqual(new Date(2026, 8, 8))
-    expect(usageBucketEnd(start, 'day')).toEqual(new Date(2026, 8, 2))
+    expect(formatBucketTitle(start, 'day')).toBe(
+      formatBucketTitle(new Date(Date.UTC(2026, 10, 1, 23)), 'day'),
+    )
+    expect(usageBucketEnd(start, 'month')).toEqual(new Date(Date.UTC(2026, 11, 1)))
+    expect(usageBucketEnd(start, 'week')).toEqual(new Date(Date.UTC(2026, 10, 8)))
+    expect(usageBucketEnd(start, 'day')).toEqual(new Date(Date.UTC(2026, 10, 2)))
   })
 
   it('labels hours by time of day and ends them an hour later', () => {

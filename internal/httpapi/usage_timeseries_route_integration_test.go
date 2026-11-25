@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetOrgUsageTimeseries(t *testing.T) {
@@ -256,6 +257,53 @@ func TestGetOrgUsageTimeseries(t *testing.T) {
 	get(otherOrg.AdminToken, window(nil), http.StatusNotFound)
 	otherUsage := getIn(otherOrg.OrgID, otherOrg.AdminToken, window(nil), http.StatusOK)
 	assertUsageTotals(t, "other org", overviewUsageObject(t, otherUsage, "totals"), nothing)
+}
+
+func TestUsageTimeseriesReadsBucketsOnlyForUTCDays(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "usage-series-buckets")
+	agent := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "usage-series-buckets",
+	)
+	recordHTTPModelUsageForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent.Agent,
+		modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5}, "0.5",
+	)
+	merged, err := store.Identity().MergeDailyModelCosts(ctx, 10_000)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), merged)
+	_, err = pool.Exec(ctx, `
+UPDATE daily_model_costs SET model_calls = model_calls + 1 WHERE org_id = $1 AND agent_id IS NOT NULL`,
+		project.OrgUUID)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	for _, test := range []struct {
+		timezone, interval string
+		calls              float64
+	}{
+		{"", "day", 2},
+		{"Etc/UTC", "month", 2},
+		{"Etc/GMT-1", "day", 1},
+		{"", "hour", 1},
+	} {
+		query := url.Values{
+			"since":    {today.Format(time.RFC3339)},
+			"until":    {today.AddDate(0, 0, 1).Format(time.RFC3339)},
+			"interval": {test.interval},
+		}
+		if test.timezone != "" {
+			query.Set("timezone", test.timezone)
+		}
+		series := requestJSONWithHeaders(t, handler, http.MethodGet, orgUsageTimeseriesPath(project.OrgID, query),
+			"", "", http.StatusOK, authHeaders(project.AdminToken))
+		require.Equal(t, test.calls, overviewUsageObject(t, series, "totals")["model_calls"],
+			"%s %s reads buckets only when every bucket starts at a UTC midnight", test.timezone, test.interval)
+	}
 }
 
 func TestGetOrgUsageTimeseriesRequiresMembership(t *testing.T) {
