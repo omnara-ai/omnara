@@ -85,7 +85,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 			t.Fatalf("file = %q, %s, %v; want %q", content, digest, err, want)
 		}
 	}
-	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" {
 		setupSandbox(t)
 	}
 	toolPath := os.Getenv("PATH")
