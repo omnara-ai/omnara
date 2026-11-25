@@ -1,12 +1,12 @@
 ---
 title: Windows Server
-description: Run Omnara natively on Windows Server behind IIS
+description: Run Omnara natively on Windows Server
 icon: "windows"
 ---
 
 Run the API, worker, maintenance service, migrations, and dashboard natively on Windows Server, without Docker or a Linux VM. These steps were tested on Windows Server 2022 x64 and do not install the machine daemon (`omnarad`).
 
-PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. IIS fronts the embedded dashboard and API without changing other sites' proxy settings.
+PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. The API serves the dashboard too; IIS is optional.
 
 ## 1. Download Omnara and its tools
 
@@ -103,11 +103,11 @@ Set the S3 bucket, region, access key and secret key. For local RustFS, use endp
 
 Keep `OMNARA_PUBLIC_URL=http://localhost:8088` when using the SSH forward below. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample writes signup links to private API logs and enables development settings, including access from `web_fetch` to local services. Keep this configuration private.
 
-## 3. Install services and IIS
+## 3. Install services
 
 The installer uses loopback ports 8080-8083 by default. To choose different ports, pass `-ApiPort`, `-ApiMetricsPort`, `-WorkerMetricsPort`, and `-MaintenanceMetricsPort` to `Install-Services.ps1`; all four must be distinct and free. These parameters set the installed service listeners, overriding addresses in the environment file.
 
-For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command below, then run `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090`. IIS `-BackendPort` must match the installer's `-ApiPort`. IIS `-Port` defaults to 8088 and must be free and differ from all four service ports; changing backend ports does not change `OMNARA_PUBLIC_URL`.
+For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command below.
 
 ```powershell
 .\deploy\windows\Install-Services.ps1 `
@@ -115,27 +115,47 @@ For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -Ma
   -FileToolsDirectory C:\Omnara\file-tools `
   -EnvironmentFile C:\ProgramData\Omnara\setup\control-plane.env `
   -WinSWPath C:\Omnara\WinSW-x64.exe
+```
 
+The installer updates the database, creates a separate Windows account for each service, prepares permissions and storage, and starts the services. They start automatically after a reboot; allow a few minutes. The dashboard and API listen on `127.0.0.1:8080` by default. Omnara accepts connections only from this machine, and no firewall rules are opened.
+
+These scripts are for new installations. If services were installed but a dependency connection fails, fix the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying. Database migrations are not rolled back.
+
+For workstation access, [install and start OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) on Windows and allow SSH connections from your workstation. Forward the API and open `http://localhost:8088`:
+
+```sh
+ssh -L 8088:127.0.0.1:8080 <user>@<server>
+```
+
+For `-ApiPort 8090`, use `8088:127.0.0.1:8090` instead. The first port is on your workstation; keep it consistent with `OMNARA_PUBLIC_URL`.
+
+Sign up using the verification link in the protected API logs under `C:\ProgramData\Omnara\control-plane\api\logs`. Add a model provider and API key in the dashboard, create an agent, send a conversation that uses tools, and upload a file. Check that the conversation and file remain after restarting the services.
+
+<Accordion title="Optional: serve Omnara through IIS">
+
+Use this recipe if you want IIS in front of Omnara. It creates a separate site and application pool without changing other sites' proxy settings.
+
+```powershell
 Install-WindowsFeature Web-Server, Web-WebSockets -IncludeManagementTools
 ```
 
-Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), then [Application Request Routing 3](https://www.iis.net/downloads/microsoft/application-request-routing), using their x64 installers. Then run:
+Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), then [Application Request Routing 3](https://www.iis.net/downloads/microsoft/application-request-routing), using their x64 installers.
+
+IIS `-BackendPort` defaults to 8080 and must match the installer's `-ApiPort`. For example, use `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090` after installing with `-ApiPort 8090`. IIS `-Port` defaults to 8088 and must be free and differ from all four service ports.
 
 ```powershell
 .\deploy\windows\Configure-IIS.ps1
 ```
 
-The installer updates the database, creates a separate Windows account for each service, prepares permissions and storage, and starts the services. They start automatically after a reboot; allow a few minutes. IIS listens on `127.0.0.1:8088` by default, and Omnara accepts connections only from this machine. No firewall rules are opened.
-
-These scripts are for new installations. If services were installed but a dependency connection fails, fix the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying. Database migrations are not rolled back.
-
-For workstation access, [install and start OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) on Windows and allow SSH connections from your workstation. Forward IIS and open `http://localhost:8088`:
+The IIS site listens on loopback only. To access it privately, replace the direct API forward above with this command:
 
 ```sh
 ssh -L 8088:127.0.0.1:8088 <user>@<server>
 ```
 
-Sign up using the verification link in the protected API logs under `C:\ProgramData\Omnara\control-plane\api\logs`. Add a model provider and API key in the dashboard, create an agent, send a conversation that uses tools, and upload a file. Check that the conversation and file remain after restarting the services.
+If you choose a different IIS `-Port`, use that as the SSH destination port. The browser address and `OMNARA_PUBLIC_URL` remain `http://localhost:8088`.
+
+</Accordion>
 
 ## 4. Operate the services
 
