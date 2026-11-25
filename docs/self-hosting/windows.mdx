@@ -10,7 +10,21 @@ Use PostgreSQL because Omnara requires PostgreSQL 18+; SQL Server cannot replace
 
 ## 1. Prepare Windows and the native dependencies
 
-Use a local NTFS disk and an administrator PowerShell 5.1 session. Start from an Omnara checkout. Install Go matching `go.mod`, Node matching `.node-version`, and Corepack (`npm install --global corepack`, then `corepack enable`) to build; these are not needed by the running Omnara services.
+Use a local NTFS disk and an administrator PowerShell 5.1 session. From a [`cluster-v*` GitHub release](https://github.com/omnara-ai/omnara/releases?q=cluster-v&expanded=true) that includes Windows assets, download `omnara-windows-amd64.zip` and `omnara-windows-amd64.zip.sha256` into the same directory. Verify and extract them:
+
+```powershell
+$expected = (Get-Content .\omnara-windows-amd64.zip.sha256 -Raw).Split(' ')[0]
+if ((Get-FileHash .\omnara-windows-amd64.zip -Algorithm SHA256).Hash -ne $expected) {
+    throw 'Windows bundle checksum mismatch'
+}
+Unblock-File .\omnara-windows-amd64.zip
+Expand-Archive .\omnara-windows-amd64.zip -DestinationPath C:\Omnara
+Set-Location C:\Omnara
+```
+
+The bundle contains `bin` with all five executables, the embedded dashboard, migrations and MCP registry; `deploy/windows` with setup scripts; `WINDOWS-SETUP.mdx` with these instructions; and `SOURCE.txt` identifying the source commit. Go, Node, and a source checkout are not needed. These unsigned POC builds use the fresh-install steps below; the installers do not upgrade existing services.
+
+Before a tagged release, download the `omnara-windows-amd64-bundle` artifact from a successful [CI run](https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml). GitHub login is required and these artifacts expire after 14 days. Extract the artifact download to obtain the same ZIP and checksum pair, then follow the commands above. Release assets remain available independently of CI artifact retention.
 
 These are the pinned x64 distributions used for the POC. Keep each program in its own directory: the installers replace that directory's ownership and permissions.
 
@@ -56,13 +70,21 @@ CREATE DATABASE omnara OWNER omnara TEMPLATE template0
 
 The dependency installer needs `curl.exe` with `--aws-sigv4`. Update curl on older Windows installations if its preflight reports that option missing.
 
-## 2. Build and configure
+## 2. Configure
 
-Run from the repository root. Build a fresh output directory:
+Run the remaining commands from `C:\Omnara`, where the bundle was extracted.
+
+<Accordion title="Optional: build from source">
+
+Start from a separate Omnara checkout. Install Go matching `go.mod`, Node matching `.node-version`, and Corepack (`npm install --global corepack`, then `corepack enable`). From that checkout's root, build a fresh output directory:
 
 ```powershell
 .\deploy\windows\Build-Windows.ps1 -OutputDirectory C:\Omnara\bin
 ```
+
+For a source build, run the remaining commands from the checkout root instead.
+
+</Accordion>
 
 Create private setup files and fresh keys. Run this only for a new installation; retain these keys with your backups.
 
