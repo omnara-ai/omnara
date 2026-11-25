@@ -6,6 +6,8 @@ icon: "cloud-arrow-up"
 
 One Docker Compose command starts all of Omnara: the dashboard, the API, the agent workers, and background maintenance, along with Postgres, Redis, and S3-compatible storage. In production, Omnara runs on the same standard pieces as most web backends. You point it at your own Postgres, Redis, and S3-compatible bucket, plus a shared filesystem for agent memory ([Architecture](/self-hosting/architecture)), and put one public URL in front of it.
 
+For a native Windows Server installation behind IIS, follow the [Windows POC steps](/self-hosting/windows).
+
 ## Quick start (local)
 
 The repository's compose file runs everything behind the `app` profile:

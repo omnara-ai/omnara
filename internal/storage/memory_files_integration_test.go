@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,7 +79,7 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memoryops.OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +175,7 @@ func TestMemoryFilesystemContentsAndQuota(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	var stores []*Store
 	var filesystems []*memoryops.Filesystem
 	for range 2 {
@@ -280,7 +282,7 @@ func TestMemoryScopeDeletionRemovesDeletedStoreFiles(t *testing.T) {
 			ctx := t.Context()
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
-			dir := t.TempDir()
+			dir := testfs.TempDir(t)
 			files, err := memoryops.OpenFilesystem(dir)
 			if err != nil {
 				t.Fatal(err)
@@ -474,7 +476,7 @@ func TestMemoryCleanupFiles(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memoryops.OpenFilesystem(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
@@ -529,13 +531,13 @@ func TestMemoryCleanupFiles(t *testing.T) {
 
 func TestMemoryCleanupFilesRetriesFailedRemoval(t *testing.T) {
 	t.Parallel()
-	if os.Geteuid() == 0 {
-		t.Skip("requires filesystem permission enforcement")
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires Unix filesystem permission enforcement")
 	}
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memoryops.OpenFilesystem(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
@@ -582,7 +584,7 @@ func TestMemoryCleanupFilesRemovesLaterDeletedScope(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memoryops.OpenFilesystem(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
@@ -640,7 +642,7 @@ func TestMemoryCleanupFilesRefusesUnpreparedDirectory(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	unprepared := t.TempDir()
+	unprepared := testfs.TempDir(t)
 	unpreparedFiles, err := memoryops.OpenUnpreparedFilesystem(unprepared)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = unpreparedFiles.Close() })
@@ -650,7 +652,7 @@ func TestMemoryCleanupFilesRefusesUnpreparedDirectory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, memorystore.FileCleanupResult{}, result)
 
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memoryops.OpenFilesystem(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
@@ -696,7 +698,7 @@ func TestMemoryStoreFileCount(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	files, err := memoryops.OpenFilesystem(t.TempDir())
+	files, err := memoryops.OpenFilesystem(testfs.TempDir(t))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
 	store := newIntegrationStore(pool, WithMemoryFilesystem(files))

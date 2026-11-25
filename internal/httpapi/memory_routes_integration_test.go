@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 )
 
 func TestMemoryStoreManagementAPI(t *testing.T) {
@@ -456,7 +457,7 @@ func TestListOrgMemoryStores(t *testing.T) {
 
 func memoryFileOption(t *testing.T) storage.Option {
 	t.Helper()
-	files, err := memorystore.OpenFilesystem(t.TempDir())
+	files, err := memorystore.OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

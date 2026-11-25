@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -36,9 +37,12 @@ func fileToolUnavailable(ctx context.Context, message string, cause error) error
 	return storeerr.Tag(errFileToolUnavailable, errors.New(message))
 }
 
-func CheckFileToolSupport(ctx context.Context) error {
+func CheckFileSearchSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if runtime.GOOS == "windows" {
+		return checkNativeFileSearchSupport(ctx)
+	}
 	dir, err := os.MkdirTemp("", "omnara-file-probe-")
 	if err != nil {
 		return err
@@ -69,11 +73,39 @@ func CheckFileToolSupport(ctx context.Context) error {
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("file search: %s (%w)", strings.TrimSpace(string(output)), err)
 	}
-	output, err := editFileText(ctx, []byte("é"), "s/./x/g")
-	if err == nil && string(output) != "x" {
-		return errors.New("script execution requires a working C.UTF-8 locale")
+	return nil
+}
+
+func checkNativeFileSearchSupport(ctx context.Context) error {
+	line := 1
+	output := searchOutput{input: storageSearchRequest{Args: []string{"-e", "x"}, Limit: 1, OffsetLine: &line}}
+	if err := output.search(ctx, searchSource{path: "/artifacts/probe", content: []byte("x")}); err != nil {
+		return err
 	}
-	return err
+	if output.result.MatchCount != 1 {
+		return errors.New("native file search did not return the probe match")
+	}
+	return nil
+}
+
+func CheckScriptEditSupport(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	text, err := editFileText(ctx, []byte("é😀\n"), "s/./x/g")
+	if err != nil {
+		return err
+	}
+	if string(text) != "xx\n" {
+		return errors.New("scripted editing requires a working C.UTF-8 locale")
+	}
+	text, err = editFileText(ctx, []byte("a\r\n"), "s/a/b/")
+	if err != nil {
+		return err
+	}
+	if string(text) != "b\r\n" {
+		return errors.New("scripted editing requires binary I/O")
+	}
+	return nil
 }
 
 type boundedStderrBuffer struct{ data []byte }

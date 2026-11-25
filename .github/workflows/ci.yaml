@@ -141,6 +141,65 @@ jobs:
 
       - run: go test ./internal/machinedaemon ./cmd/daemon ./internal/omnarad
 
+  control-plane-windows:
+    name: Control Plane Windows Tests
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare native file tools and NTFS temporary storage
+        shell: pwsh
+        run: |
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'omnara-file-tools'
+          New-Item -ItemType Directory -Path $toolRoot | Out-Null
+          $rgArchive = Join-Path $toolRoot 'ripgrep.zip'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/16.0.0/ripgrep-16.0.0-x86_64-pc-windows-msvc.zip' -OutFile $rgArchive
+          if ((Get-FileHash $rgArchive -Algorithm SHA256).Hash -ne 'f418ae83e63046a94a7b5f3a44bf3a169f66e689164856ecee02547131c73931') { throw 'ripgrep hash mismatch' }
+          Expand-Archive $rgArchive -DestinationPath $toolRoot
+          Copy-Item "$toolRoot\ripgrep-16.0.0-x86_64-pc-windows-msvc\rg.exe" $toolRoot
+          $msysArchive = Join-Path $toolRoot 'msys2.exe'
+          Invoke-WebRequest 'https://github.com/msys2/msys2-installer/releases/download/2026-11-20/msys2-base-x86_64-20261120.sfx.exe' -OutFile $msysArchive
+          if ((Get-FileHash $msysArchive -Algorithm SHA256).Hash -ne '4f6dadfdb2c9be5fc1938e30b635cb72bb4344c35e8b6fd225bc3250fcab5897') { throw 'MSYS2 hash mismatch' }
+          & 7z x $msysArchive "-o$toolRoot\msys" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'MSYS2 extraction failed' }
+          foreach ($name in @('sed.exe', 'msys-2.0.dll', 'msys-intl-8.dll', 'msys-iconv-2.dll')) {
+            Copy-Item "$toolRoot\msys\msys64\usr\bin\$name" $toolRoot
+          }
+          $toolRoot >> $env:GITHUB_PATH
+          # Hosted Windows D: is moving to ReFS; memory tests require NTFS.
+          $testTemp = 'C:\omnara-test-temp'
+          if (([IO.DriveInfo]::new('C:\')).DriveFormat -ne 'NTFS') { throw 'Tests require an NTFS volume' }
+          New-Item -ItemType Directory -Path $testTemp | Out-Null
+          "TEMP=$testTemp" >> $env:GITHUB_ENV
+          "TMP=$testTemp" >> $env:GITHUB_ENV
+
+      - name: Parse Windows installers with PowerShell 5.1
+        shell: powershell
+        run: |
+          Get-ChildItem deploy/windows -Filter '*.ps1' | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
+
+      - name: Test Windows storage, file tools, configuration, and process helpers
+        run: go test -v ./internal/config ./internal/storage/internal/memoryops ./internal/storage/memorystore ./internal/harness/tools ./internal/sandbox ./internal/testutil/integrationdb ./internal/testutil/integrationlock
+
+      - name: Compile and vet Windows integration and service tests
+        run: go vet -tags=integration,servicee2e,webe2e ./internal/e2e ./internal/harness/tools ./internal/httpapi ./internal/storage/... ./internal/blobstore ./internal/httpapi/auth ./internal/notifications ./internal/redistore
+
+      - name: Build Windows control-plane commands
+        run: go build ./cmd/api ./cmd/worker ./cmd/maintenance ./cmd/migrate ./cmd/sandbox
+
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest

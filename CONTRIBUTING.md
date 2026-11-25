@@ -23,7 +23,7 @@ Node.js 24 or newer with Corepack, ripgrep (`rg` on `PATH`), and Docker with
 Compose.
 
 `make run-worker` builds the sandbox launcher. File search and scripted
-edits require a Linux worker; see the
+edits require a supported Linux or Windows worker; see the
 [worker prerequisites](https://docs.omnara.com/self-hosting/configuration#memory-storage).
 
 Run the fast repository gate:

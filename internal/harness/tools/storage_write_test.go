@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -56,5 +57,21 @@ func TestStorageWriteInput(t *testing.T) {
 		if err := tool.validateInput(raw); err == nil {
 			t.Errorf("oversized %s accepted", field)
 		}
+	}
+}
+
+func TestFailedScriptProbeDisablesExecution(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	probeErr := CheckScriptEditSupport(t.Context())
+	if probeErr == nil {
+		t.Fatal("probe succeeded without file tools")
+	}
+	// A nil store proves the disabled operation stops before accessing files.
+	_, err := runStorageWriteAsync(t.Context(), asyncToolContext{
+		Executor: Executor{ScriptEditSupportError: probeErr},
+		Call:     model.ToolCall{Input: json.RawMessage(`{"path":"/memory/team/file.txt","script":"s/x/y/"}`)},
+	})
+	if !errors.Is(err, errFileToolUnavailable) || err.Error() != scriptEditUnavailableMessage {
+		t.Fatalf("disabled operation = %v, want %q", err, scriptEditUnavailableMessage)
 	}
 }

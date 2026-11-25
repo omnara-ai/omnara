@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -452,13 +451,6 @@ func generatedDatabaseParts(databaseName string) ([]string, bool) {
 func generatedDatabaseProcessIsRunning(databaseName string) bool {
 	pid, ok := generatedDatabasePID(databaseName)
 	return ok && processIsRunning(pid)
-}
-
-func processIsRunning(pid int) bool {
-	if err := syscall.Kill(pid, 0); err != nil {
-		return err == syscall.EPERM
-	}
-	return true
 }
 
 func openAdminConn(t testing.TB, ctx context.Context, dsn string) *pgx.Conn {

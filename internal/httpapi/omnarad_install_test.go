@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -649,6 +650,9 @@ func assertShellSyntax(t *testing.T, script []byte) {
 
 func requireInstallerShell(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("omnarad installation supports Linux and macOS")
+	}
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh is unavailable")
 	}
@@ -656,6 +660,7 @@ func requireInstallerShell(t *testing.T) {
 
 func writeInstaller(t *testing.T, releaseURL string) string {
 	t.Helper()
+	requireInstallerShell(t)
 	script, err := renderOmnaradInstallScript(releaseURL, "https://app.omnara.test")
 	if err != nil {
 		t.Fatalf("render installer: %v", err)

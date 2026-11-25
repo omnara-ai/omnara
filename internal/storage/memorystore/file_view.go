@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 var memoryGlobEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}")
@@ -193,6 +194,11 @@ type globFS struct {
 func (g globFS) Open(name string) (fs.File, error) {
 	if err := g.checkCanceled(); err != nil {
 		return nil, err
+	}
+	if name != "." {
+		if err := validateNativePath(name); err != nil {
+			return nil, storeerr.InvalidRequest(err)
+		}
 	}
 	var file *os.File
 	err := memoryops.CheckPath(g.root, name)

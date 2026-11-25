@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,10 +18,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 )
 
 func TestFileDigest(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +71,7 @@ func TestFileDigest(t *testing.T) {
 }
 
 func TestFilePublication(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +150,7 @@ func TestFilePublication(t *testing.T) {
 	if err := write("link/file.bin", []byte("x")); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("symlink write: %v", err)
 	}
-	outside := t.TempDir()
+	outside := testfs.TempDir(t)
 	outsidePath := filepath.Join(outside, "file.bin")
 	if err := os.WriteFile(outsidePath, content, 0600); err != nil {
 		t.Fatal(err)
@@ -179,38 +181,35 @@ func TestSharedLock(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = lock.Close(); _ = files.Close() }()
-		ready := os.NewFile(3, "ready")
-		if _, err := ready.Write([]byte{1}); err != nil {
+		if _, err := os.Stdout.Write([]byte{1}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ready.Close(); err != nil {
-			t.Fatal(err)
-		}
-		select {}
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
 	}
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = files.Close() }()
-	readReady, writeReady, err := os.Pipe()
+	command := exec.Command(os.Args[0], "-test.run=^TestSharedLock$")
+	command.Env = append(os.Environ(), "OMNARA_TEST_MEMORY_LOCK_DIR="+dir)
+	readReady, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = readReady.Close(); _ = writeReady.Close() }()
-	command := exec.Command(os.Args[0], "-test.run=^TestSharedLock$")
-	command.ExtraFiles = []*os.File{writeReady}
-	command.Env = append(os.Environ(), "OMNARA_TEST_MEMORY_LOCK_DIR="+dir)
+	lifetime, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lifetime.Close() }()
 	var output bytes.Buffer
-	command.Stdout, command.Stderr = &output, &output
+	command.Stderr = &output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = command.Process.Kill(); _ = command.Wait() }()
-	if err := writeReady.Close(); err != nil {
-		t.Fatal(err)
-	}
 	ready := make(chan error, 1)
 	go func() { _, err := io.ReadFull(readReady, make([]byte, 1)); ready <- err }()
 	select {
@@ -242,7 +241,7 @@ func TestSharedLock(t *testing.T) {
 }
 
 func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +283,7 @@ func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
 }
 
 func TestPublicationUsesOpenedStore(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +351,7 @@ func testStoreRef(t *testing.T, name string) StoreRef {
 }
 
 func TestStoreLayoutAndIsolation(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +427,7 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 }
 
 func TestRemoveScopeIsolation(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +566,7 @@ func TestNFSMissingPaths(t *testing.T) {
 }
 
 func TestOpenUnpreparedFilesystem(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "memory")
+	dir := filepath.Join(testfs.TempDir(t), "memory")
 	files, err := OpenUnpreparedFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -595,7 +594,7 @@ func TestOpenUnpreparedFilesystem(t *testing.T) {
 }
 
 func TestDiscardStagedFile(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +635,7 @@ func TestDiscardStagedFile(t *testing.T) {
 }
 
 func TestDiscardStagedBefore(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -669,7 +668,7 @@ func TestDiscardStagedBefore(t *testing.T) {
 }
 
 func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -704,10 +703,10 @@ func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
 }
 
 func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("requires filesystem permission enforcement")
 	}
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

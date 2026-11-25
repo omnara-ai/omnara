@@ -176,7 +176,7 @@ func (e *serviceE2EEnvironment) startAPI(t *testing.T, ctx context.Context) serv
 
 func (e *serviceE2EEnvironment) runMigrations(t *testing.T, ctx context.Context) {
 	t.Helper()
-	migratePath := filepath.Join(e.root, "migrate")
+	migratePath := serviceBinaryPath(e.root, "migrate")
 	build := exec.CommandContext(ctx, goBin(e.repoRoot), "build", "-o", migratePath, "./cmd/migrate")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
@@ -206,13 +206,14 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 	webServing string,
 ) serviceProcess {
 	t.Helper()
-	apiPath := filepath.Join(e.root, "api")
+	apiPath := serviceBinaryPath(e.root, "api")
 	build := exec.CommandContext(ctx, goBin(e.repoRoot), "build", "-o", apiPath, "./cmd/api")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build api: %v\n%s", err, output)
 	}
 	cmd := exec.Command(apiPath)
+	prepareServiceProcess(t, cmd)
 	cmd.Dir = e.repoRoot
 	cmd.Env = serviceProcessEnv(
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
@@ -222,6 +223,7 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 		"OMNARA_REDIS_URL="+e.redisURL,
 		"OMNARA_PUBLIC_URL="+e.publicURL,
 		"OMNARA_WEB_SERVING="+webServing,
+		"OMNARA_MCP_REGISTRY_SNAPSHOT_PATH="+filepath.Join(e.root, "mcp-registry.json"),
 		"OMNARA_API_RATE_LIMIT_READS_PER_HOUR=0",
 		"OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR=0",
 		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
@@ -261,22 +263,26 @@ func (e *serviceE2EEnvironment) startWorker(
 	if opts.ProviderConfig != "" && opts.BaseURL != "" {
 		e.updateServiceE2EProviderBaseURL(t, ctx, projectID, opts.ProviderConfig, opts.BaseURL)
 	}
-	workerPath := filepath.Join(e.root, "worker")
+	// Windows cannot replace a running executable. Each worker also owns its
+	// launcher so tests can run multiple workers or restart one independently.
+	workerRoot := t.TempDir()
+	workerPath := serviceBinaryPath(workerRoot, "worker")
 	build := exec.CommandContext(ctx, goBin(e.repoRoot), "build", "-o", workerPath, "./cmd/worker")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build worker: %v\n%s", err, output)
 	}
 	build = exec.CommandContext(ctx, goBin(e.repoRoot), "build",
-		"-o", filepath.Join(e.root, "omnara-sandbox"), "./cmd/sandbox")
+		"-o", serviceBinaryPath(workerRoot, "omnara-sandbox"), "./cmd/sandbox")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build sandbox launcher: %v\n%s", err, output)
 	}
 	cmd := exec.Command(workerPath)
+	prepareServiceProcess(t, cmd)
 	cmd.Dir = e.repoRoot
 	workerEnv := []string{
-		"PATH=" + e.root + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH=" + workerRoot + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
 		"OMNARA_WORKER_METRICS_ADDR=" + e.workerListenAddr,
 		"OMNARA_DATABASE_URL=" + e.databaseURL,
@@ -329,13 +335,14 @@ WHERE org_id = (SELECT org_id FROM projects WHERE id = $1)
 
 func (e *serviceE2EEnvironment) startMaintenance(t *testing.T, ctx context.Context) serviceProcess {
 	t.Helper()
-	maintenancePath := filepath.Join(e.root, "maintenance")
+	maintenancePath := serviceBinaryPath(e.root, "maintenance")
 	build := exec.CommandContext(ctx, goBin(e.repoRoot), "build", "-o", maintenancePath, "./cmd/maintenance")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build maintenance: %v\n%s", err, output)
 	}
 	cmd := exec.Command(maintenancePath)
+	prepareServiceProcess(t, cmd)
 	cmd.Dir = e.repoRoot
 	cmd.Env = serviceProcessEnv(
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
@@ -729,7 +736,12 @@ func (p serviceProcess) stop() {
 			p.lifecycle.waitOnce.Do(func() { close(p.lifecycle.done) })
 			return
 		}
-		_ = p.cmd.Process.Signal(os.Interrupt)
+		select {
+		case <-p.lifecycle.done:
+			return
+		default:
+		}
+		_ = signalServiceProcess(p.cmd, os.Interrupt)
 		p.exited()
 	})
 	select {
@@ -826,9 +838,16 @@ func waitForHTTP(t *testing.T, ctx context.Context, url string, logs *safeLogBuf
 }
 
 func goBin(repoRoot string) string {
-	candidate := filepath.Join(repoRoot, ".tools", "go", "bin", "go")
+	candidate := serviceBinaryPath(filepath.Join(repoRoot, ".tools", "go", "bin"), "go")
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate
 	}
 	return "go"
+}
+
+func serviceBinaryPath(root, name string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(root, name)
 }

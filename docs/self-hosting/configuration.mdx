@@ -301,13 +301,13 @@ on the bucket's `artifacts/*` and `skills/*` objects.
 | --- | --- | --- | --- |
 | `OMNARA_MEMORY_DIR` | Absolute directory on the same persistent filesystem for API, every worker, and maintenance | *dev:* `.local/memory`; Compose: `/var/lib/omnara/memory` | API, worker, and maintenance |
 
-The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. File search and scripted edits require a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
+The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups. On Windows, use the [Windows installer](/self-hosting/windows) to prepare a private, case-sensitive directory on local NTFS; network shares are not supported by this setup. Windows memory filenames cannot use device names, alternate data streams, 8.3 aliases, trailing dots or spaces, or the characters `< > " |`.
 
-Native workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
+Linux file search and scripted edits require Landlock ABI 2 or newer and seccomp. Native Linux workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup. On macOS, use Compose with its named volume.
 
-Workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
+Linux workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there. Windows workers need native `rg.exe`, GNU `sed.exe` with its runtime DLLs, and `omnara-sandbox.exe` on `PATH`, plus private `TEMP` and `TMP` directories; the Windows service installer sets these paths. Windows retains GNU sed's `--sandbox` restrictions and process memory, time, and output limits, but does not provide Linux kernel isolation. Memory searches start one rg process per selected file and report truncation when they reach the existing deadline. A failed scripted-edit startup probe disables scripts; searches check availability on each call. Ordinary memory reads and writes remain available.
 
-Scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the chroot helper acquires the capability; it drops it before running sed.
+Linux scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the chroot helper acquires the capability; it drops it before running sed.
 
 ## Machine daemon and pools
 

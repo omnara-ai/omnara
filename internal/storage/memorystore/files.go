@@ -89,10 +89,15 @@ func (s *Store) ReadFile(ctx context.Context, scope Scope, storeID uuid.UUID, pa
 }
 
 func fileReadError(err error) error {
+	// On Windows ENOTDIR and ERROR_PATH_NOT_FOUND are the same error code.
+	// Preserve the explicit conflict from checking a non-directory parent.
+	if errors.Is(err, storeerr.ErrConflict) {
+		return storeerr.InvalidRequest(err)
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return storeerr.Tag(storeerr.ErrNotFound, storeerr.ErrPathNotFound)
 	}
-	if errors.Is(err, storeerr.ErrConflict) || errors.Is(err, syscall.ENOTDIR) {
+	if errors.Is(err, syscall.ENOTDIR) {
 		return storeerr.InvalidRequest(err)
 	}
 	return err
@@ -189,7 +194,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	if root != nil {
 		defer func() { _ = root.Close() }()
 		currentDigest, err = memoryops.Digest(root, input.Path)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err != nil && (errors.Is(err, storeerr.ErrConflict) || !errors.Is(err, fs.ErrNotExist)) {
 			return WriteResult{}, err
 		}
 		exists = err == nil

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "postbuild": "touch dist/.gitkeep",
+    "postbuild": "node -e \"require('node:fs').writeFileSync('dist/.gitkeep', '')\"",
     "preview": "vite preview",
     "test": "vitest run src",
     "test:e2e": "playwright test",

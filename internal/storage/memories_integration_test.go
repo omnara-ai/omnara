@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -1069,7 +1070,7 @@ func newMemoryIntegrationStore(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 ) (*Store, *memorystore.Filesystem) {
 	t.Helper()
-	files, err := memorystore.OpenFilesystem(t.TempDir())
+	files, err := memorystore.OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1113,7 +1114,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			defer cancel()
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
-			dir := t.TempDir()
+			dir := testfs.TempDir(t)
 			files, err := memorystore.OpenFilesystem(dir)
 			if err != nil {
 				t.Fatal(err)

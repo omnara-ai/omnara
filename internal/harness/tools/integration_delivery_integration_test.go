@@ -35,6 +35,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -911,7 +912,7 @@ func newIntegrationToolFixtureWithOptions(
 	}
 	options = append(options, storeOptions...)
 	if fixtureOptions.withMemory {
-		files, err := memorystore.OpenFilesystem(t.TempDir())
+		files, err := memorystore.OpenFilesystem(testfs.TempDir(t))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = files.Close() })
 		options = append(options, storage.WithMemoryFilesystem(files))

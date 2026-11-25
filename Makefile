@@ -29,6 +29,7 @@ OMNARALINT_SOURCES := $(shell find tools/omnaralint -name '*.go' -print)
 GO_MODULE_DIRS := . observability tools/ci tools/goose tools/omnaralint
 GO_FMT_FILES = find . \( -path './.tools' -o -path './.cache' -o -path './.context' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print
 INTEGRATION_STORAGE_PACKAGES := \
+	./internal/blobstore \
 	./internal/storage \
 	./internal/storage/executionstore \
 	./internal/storage/identitystore \

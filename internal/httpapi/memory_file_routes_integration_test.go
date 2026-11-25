@@ -235,7 +235,7 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	require.Len(t, page.Data, 1)
 	require.Equal(t, "nested/c.txt", page.Data[0].Path)
 	require.Nil(t, page.Next)
-	longName := strings.Repeat("<", 255)
+	longName := strings.Repeat("&", 255)
 	request(t, http.MethodPut, file(longName), []byte("content"), project.AdminToken, http.StatusOK)
 	first = request(t, http.MethodGet, base+"/files?limit=1", nil, project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &page))
