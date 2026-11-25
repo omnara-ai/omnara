@@ -11179,7 +11179,7 @@ components:
     OtelExporterHeaders:
       type: object
       maxProperties: 20
-      description: Plain request headers sent with every export, by header name.
+      description: Plain request headers sent with every export, by header name. Values are stored and returned as plain text, so Authorization is not accepted here; use auth_kind or secret_headers for credentials.
       additionalProperties:
         type: string
         minLength: 1

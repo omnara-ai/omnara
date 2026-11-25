@@ -47,10 +47,13 @@ type Settings struct {
 }
 
 // reservedHeaders are set by the sender or describe the connection and body
-// framing it controls, so an exporter cannot override them.
+// framing it controls, so an exporter cannot override them. Accept-Encoding is
+// one: setting it turns off the transport's own response decompression, and the
+// sender could then not read the acknowledgment.
 var reservedHeaders = map[string]bool{
 	"content-type": true, "content-length": true, "content-encoding": true, "host": true,
-	"connection": true, "keep-alive": true, "proxy-connection": true, "transfer-encoding": true,
+	"accept-encoding": true,
+	"connection":      true, "keep-alive": true, "proxy-connection": true, "transfer-encoding": true,
 	"te": true, "trailer": true, "upgrade": true, "expect": true,
 }
 
@@ -179,6 +182,10 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 	for name, value := range settings.Headers {
 		if err := validateName(name); err != nil {
 			return Settings{}, err
+		}
+		// Plain header values are returned to everyone who can read the project.
+		if strings.EqualFold(name, "authorization") {
+			return Settings{}, fmt.Errorf("header %s carries a credential; use auth_kind or secret_headers", name)
 		}
 		if err := ValidateHeaderValue(name, value); err != nil {
 			return Settings{}, err

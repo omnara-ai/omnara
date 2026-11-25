@@ -97,6 +97,34 @@ func TestValidateTypedAuth(t *testing.T) {
 	})
 }
 
+func TestValidateHeaderNames(t *testing.T) {
+	t.Parallel()
+	base := Settings{Endpoint: "https://otel.example.com/v1/traces", SamplePercent: 100}
+	secretID := uuid.New()
+
+	// A custom Accept-Encoding would stop the transport decoding the acknowledgment.
+	for _, settings := range []Settings{
+		{Headers: map[string]string{"Accept-Encoding": "gzip"}},
+		{SecretHeaders: map[string]uuid.UUID{"accept-encoding": secretID}},
+		{AuthKind: AuthKindAPIKeyHeader, CredentialSecretID: secretID, AuthOptions: AuthOptions{HeaderName: "Accept-Encoding"}},
+	} {
+		settings.Endpoint, settings.SamplePercent = base.Endpoint, base.SamplePercent
+		_, err := Validate(settings, nil)
+		require.ErrorContains(t, err, "reserved")
+	}
+
+	// Authorization is a credential, so it may come from a secret but not in plain text.
+	plain := base
+	plain.Headers = map[string]string{"Authorization": "Bearer plain"}
+	_, err := Validate(plain, nil)
+	require.ErrorContains(t, err, "carries a credential")
+
+	secret := base
+	secret.SecretHeaders = map[string]uuid.UUID{"Authorization": secretID}
+	_, err = Validate(secret, nil)
+	require.NoError(t, err)
+}
+
 func TestFormatAuthHeader(t *testing.T) {
 	name, value, err := FormatAuthHeader(AuthKindNone, AuthOptions{}, "")
 	require.NoError(t, err)

@@ -409,7 +409,7 @@ export const zOtelExporterAuthOptions = z.object({
 });
 
 /**
- * Plain request headers sent with every export, by header name.
+ * Plain request headers sent with every export, by header name. Values are stored and returned as plain text, so Authorization is not accepted here; use auth_kind or secret_headers for credentials.
  */
 export const zOtelExporterHeaders = z.record(z.string(), z.string().min(1).max(8192));
 

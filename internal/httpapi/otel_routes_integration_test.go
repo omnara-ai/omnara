@@ -111,6 +111,8 @@ func TestOtelExporterRoutes(t *testing.T) {
 		`{"endpoint":"https://other.example.com","headers":{"Content-Type":"text/plain"}}`,
 		`{"endpoint":"https://other.example.com","headers":{"Content-Encoding":"gzip"}}`,
 		`{"endpoint":"https://other.example.com","headers":{"Transfer-Encoding":"chunked"}}`,
+		`{"endpoint":"https://other.example.com","headers":{"Accept-Encoding":"identity"}}`,
+		`{"endpoint":"https://other.example.com","headers":{"Authorization":"Bearer plain"}}`,
 		`{"endpoint":"https://other.example.com","auth_kind":"bearer_token"}`,
 		`{"endpoint":"https://other.example.com","auth_kind":"basic","credential_secret_id":"` + secretID + `"}`,
 		`{"endpoint":"https://other.example.com","auth_kind":"api_key_header","credential_secret_id":"` + secretID + `"}`,
