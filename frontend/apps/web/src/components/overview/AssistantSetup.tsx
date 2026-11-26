@@ -59,31 +59,37 @@ export function AssistantSetup({ org, panel }: { org: CurrentUserOrg; panel: Age
   )
 }
 
-function SetupAction({
-  org,
-  setup,
-  creating,
-}: {
+interface SetupProps {
   org: CurrentUserOrg
   setup: Creation
   creating: boolean
-}) {
-  const { project, model } = setup
+}
+
+/** The choices that exist, whatever the chosen project still needs: another may be ready. */
+function SetupAction({ org, setup, creating }: SetupProps) {
   if (setup.creatingAutomatically) return <Waiting>Creating your assistant…</Waiting>
-  // A list that failed to load is retried from its picker, so the pickers stay with the form.
+  return (
+    <>
+      {(setup.pickProject || setup.pickModel) && <Choices setup={setup} />}
+      <SetupStep org={org} setup={setup} creating={creating} />
+    </>
+  )
+}
+
+/** The button to create the assistant, or what the chosen project needs before that. */
+function SetupStep({ org, setup, creating }: SetupProps) {
+  const { project, model } = setup
+  // A list that failed to load is retried from its picker, which stays above.
   if (model != null || setup.failed) {
     return (
-      <>
-        {(setup.pickProject || setup.pickModel) && <Choices setup={setup} />}
-        <Button
-          className="w-full"
-          disabled={setup.busy || model == null}
-          loading={creating}
-          onClick={setup.submit}
-        >
-          Create assistant
-        </Button>
-      </>
+      <Button
+        className="w-full"
+        disabled={setup.busy || model == null}
+        loading={creating}
+        onClick={setup.submit}
+      >
+        Create assistant
+      </Button>
     )
   }
   if (setup.provisioning) return <Waiting>Setting up your model…</Waiting>
