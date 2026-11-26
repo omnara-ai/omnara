@@ -19,20 +19,28 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestWindowsScriptParentDeath(t *testing.T) {
+func TestWindowsFileToolParentDeath(t *testing.T) {
 	requireNativeFileTools(t)
-	for _, mode := range []string{"running", "running_with_search", "before_assignment"} {
+	for _, mode := range []string{"running", "running_with_search", "before_assignment", "search_running"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := privateFileToolTemp(t)
 			parent := windowsFileToolHelper(t, mode)
 			stdout, err := parent.StdoutPipe()
 			require.NoError(t, err)
-			stdin, err := parent.StdinPipe()
+			// Wait closes StdinPipe; this writer must outlive the helper.
+			stdinRead, stdin, err := os.Pipe()
 			require.NoError(t, err)
+			defer stdinRead.Close()
 			defer stdin.Close()
+			parent.Stdin = stdinRead
 			parent.Stderr = os.Stderr
 			require.NoError(t, parent.Start())
 			defer func() { _ = parent.Process.Kill(); _ = parent.Wait() }()
+			require.NoError(t, stdinRead.Close())
+			if mode == "search_running" {
+				_, err := io.WriteString(stdin, strings.Repeat("x", 64*1024)+"\n")
+				require.NoError(t, err)
+			}
 			var ready struct {
 				Launcher uint32
 				Members  []uint32
@@ -55,7 +63,7 @@ func TestWindowsScriptParentDeath(t *testing.T) {
 			require.NotZero(t, ready.Launcher)
 			if mode != "before_assignment" {
 				require.Contains(t, ready.Members, ready.Launcher)
-				require.GreaterOrEqual(t, len(ready.Members), 2, "launcher and real sed must both be in the job")
+				require.GreaterOrEqual(t, len(ready.Members), 2, "launcher and tool must both be in the job")
 			} else {
 				require.Empty(t, ready.Members, "suspended launcher must not have joined the job")
 				ready.Members = []uint32{ready.Launcher}
@@ -113,7 +121,7 @@ func TestWindowsFileToolsSurviveConsoleInterrupt(t *testing.T) {
 	}
 }
 
-func TestWindowsScriptLaunchFailureCleanup(t *testing.T) {
+func TestWindowsFileToolLaunchFailureCleanup(t *testing.T) {
 	requireNativeFileTools(t)
 	for _, mode := range []string{"launcher_missing", "job_assignment", "tool_missing"} {
 		t.Run(mode, func(t *testing.T) {
@@ -153,9 +161,12 @@ func TestWindowsScriptLaunchFailureCleanup(t *testing.T) {
 		dir := privateFileToolTemp(t)
 		sed, err := exec.LookPath("sed")
 		require.NoError(t, err)
-		t.Setenv("PATH", filepath.Dir(sed))
+		rg, err := exec.LookPath("rg")
+		require.NoError(t, err)
+		t.Setenv("PATH", filepath.Dir(sed)+string(os.PathListSeparator)+filepath.Dir(rg))
 		_, err = editFileText(t.Context(), []byte("a"), "s/a/b/")
 		require.ErrorIs(t, err, errFileToolUnavailable)
+		require.ErrorIs(t, CheckFileSearchSupport(t.Context()), errFileToolUnavailable)
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
 		require.Empty(t, entries)
@@ -179,7 +190,7 @@ func TestWindowsScriptOutputLimit(t *testing.T) {
 	require.Empty(t, entries)
 }
 
-func TestWindowsScriptRepeatedCleanup(t *testing.T) {
+func TestWindowsFileToolRepeatedCleanup(t *testing.T) {
 	requireNativeFileTools(t)
 	privateFileToolTemp(t)
 	// Isolate handle accounting from other tests and their background goroutines.
@@ -210,8 +221,10 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 			defer cleanup()
 			want = "b"
 		} else {
-			command, err = newFileSearchCommand(t.Context(), "rg", []string{"--line-buffered", "-e", "."}, nil, 0)
+			var cleanup func()
+			command, cleanup, err = newFileSearchCommand(t.Context(), "rg", []string{"--line-buffered", "-e", "."}, nil, 0)
 			require.NoError(t, err)
+			defer cleanup()
 		}
 		stdin, err := command.StdinPipe()
 		require.NoError(t, err)
@@ -261,6 +274,15 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "b", string(output))
 			requireFileToolProcessesExited(t, command)
+			for _, pattern := range []string{"a", "missing", "["} {
+				output := searchOutput{input: searchRequestForTest(t, []string{"-e", pattern}, 10)}
+				err := output.search(t.Context(), searchSource{path: "/artifacts/test", content: []byte("a")})
+				if pattern == "[" {
+					require.ErrorContains(t, err, "regex parse error")
+				} else {
+					require.NoError(t, err)
+				}
+			}
 		}
 		for range 4 {
 			run()
@@ -273,19 +295,29 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 		}
 		after := fileToolProcessHandleCount(t)
 		// Runtime thread/event caches may grow slightly. A leaked job, pipe or
-		// process handle per command would exceed this allowance after 32 pairs
-		// of successful and failed edits.
-		require.LessOrEqual(t, after, before+24, "handle count grew across completed edits: %d -> %d", before, after)
+		// process handle per command would exceed this allowance after 32 rounds.
+		require.LessOrEqual(t, after, before+24, "handle count grew across completed file tools: %d -> %d", before, after)
 		entries, err := os.ReadDir(os.TempDir())
 		require.NoError(t, err)
 		require.Empty(t, entries)
 		return
 	}
-	require.Contains(t, []string{"running", "running_with_search", "before_assignment"}, mode)
-	command, cleanup, err := newScriptEditCommand(t.Context(), "p;:again;b again")
+	require.Contains(t, []string{"running", "running_with_search", "before_assignment", "search_running"}, mode)
+	var command *exec.Cmd
+	var cleanup func()
+	var err error
+	if mode == "search_running" {
+		command, cleanup, err = newFileSearchCommand(t.Context(), "rg", []string{"--line-buffered", "-e", "."}, nil, 0)
+	} else {
+		command, cleanup, err = newScriptEditCommand(t.Context(), "p;:again;b again")
+	}
 	require.NoError(t, err)
 	defer cleanup()
-	command.Stdin = strings.NewReader(strings.Repeat("x", 64*1024) + "\n")
+	if mode == "search_running" {
+		command.Stdin = os.Stdin
+	} else {
+		command.Stdin = strings.NewReader(strings.Repeat("x", 64*1024) + "\n")
+	}
 	command.Stderr = os.Stderr
 	stdout, err := command.StdoutPipe()
 	require.NoError(t, err)
@@ -301,17 +333,21 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 	require.NoError(t, command.Start())
 	defer func() { _ = command.Cancel(); _ = command.Wait() }()
 	if mode != "before_assignment" {
-		// More than sed's stdout buffer proves the real tool is running, without
+		// More than the tool's stdout buffer proves it is running, without
 		// depending on buffering flags or timing sleeps.
-		_, err := io.ReadFull(stdout, make([]byte, 64*1024))
+		readyBytes := 64 * 1024
+		if mode == "search_running" {
+			readyBytes++
+		}
+		_, err := io.ReadFull(stdout, make([]byte, readyBytes))
 		require.NoError(t, err)
 	}
 	var searchPID uint32
 	if mode == "running_with_search" {
-		search, err := newFileSearchCommand(t.Context(), "rg", []string{"-e", "."}, nil, 0)
+		search, cleanup, err := newFileSearchCommand(t.Context(), "rg", []string{"-e", "."}, nil, 0)
 		require.NoError(t, err)
-		// Keep a real search process alive after the parent dies. Otherwise stdin
-		// EOF could make rg exit and conceal an accidentally inherited job handle.
+		defer cleanup()
+		// A suspended launcher must not keep the other command's job alive.
 		search.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
 		require.NoError(t, search.Start())
 		defer func() { _ = search.Process.Kill(); _ = search.Wait() }()
@@ -322,6 +358,10 @@ func TestWindowsFileToolLifetimeHelper(t *testing.T) {
 		Members  []uint32
 		Search   uint32
 	}{uint32(command.Process.Pid), fileToolJobMembers(t, command), searchPID}))
+	if mode == "search_running" {
+		_ = command.Wait()
+		return
+	}
 	// The controlling test kills this process. EOF also releases it if that test
 	// fails, so its normal defers can terminate the tool and close the job.
 	_, _ = io.Copy(io.Discard, os.Stdin)

@@ -18,13 +18,11 @@ import (
 // flag is still mandatory: scripts may not execute commands or open other files.
 func newFileSearchCommand(
 	ctx context.Context, binary string, args []string, roots []*os.File, storeCount int,
-) (*exec.Cmd, error) {
+) (*exec.Cmd, func(), error) {
 	if len(roots) != 0 || storeCount != 0 {
-		return nil, errors.New("memory searches on Windows must use confined file reads and stdin")
+		return nil, nil, errors.New("memory searches on Windows must use confined file reads and stdin")
 	}
-	command := exec.CommandContext(ctx, binary, args...)
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
-	return command, nil
+	return newFileToolCommand(ctx, binary, args, 0)
 }
 
 func newScriptEditCommand(ctx context.Context, script string) (*exec.Cmd, func(), error) {
@@ -45,25 +43,38 @@ func newScriptEditCommand(ctx context.Context, script string) (*exec.Cmd, func()
 		cleanup()
 		return nil, nil, err
 	}
-	attributes := windows.SecurityAttributes{InheritHandle: 1}
-	attributes.Length = uint32(unsafe.Sizeof(attributes))
-	job, err := windows.CreateJobObject(&attributes, nil)
+	command, closeJob, err := newFileToolCommand(ctx, binary,
+		[]string{"--sandbox", "--binary", "-E", "-f", file.Name(), "--", "-"}, 128*1024*1024)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
-	closeJob := func() { _ = windows.CloseHandle(job); cleanup() }
-	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{ProcessMemoryLimit: 128 * 1024 * 1024}
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
-		windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY
+	command.Env = []string{"LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
+	return command, func() { closeJob(); cleanup() }, nil
+}
+
+func newFileToolCommand(
+	ctx context.Context, binary string, args []string, memoryLimit uintptr,
+) (*exec.Cmd, func(), error) {
+	attributes := windows.SecurityAttributes{InheritHandle: 1}
+	attributes.Length = uint32(unsafe.Sizeof(attributes))
+	job, err := windows.CreateJobObject(&attributes, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeJob := func() { _ = windows.CloseHandle(job) }
+	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{ProcessMemoryLimit: memoryLimit}
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if memoryLimit != 0 {
+		limits.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY
+	}
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		closeJob()
 		return nil, nil, err
 	}
-	command := exec.CommandContext(ctx, "omnara-sandbox", strconv.FormatUint(uint64(job), 10),
-		binary, "--sandbox", "--binary", "-E", "-f", file.Name(), "--", "-")
-	command.Env = []string{"LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
+	command := exec.CommandContext(ctx, "omnara-sandbox",
+		append([]string{strconv.FormatUint(uint64(job), 10), binary}, args...)...)
 	command.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP, AdditionalInheritedHandles: []syscall.Handle{syscall.Handle(job)},
 	}

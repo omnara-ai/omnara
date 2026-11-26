@@ -285,10 +285,11 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 			_ = os.RemoveAll(view.Name())
 		}()
 	}
-	command, err := newSearchCommand(commandCtx, output.input, source, view)
+	command, cleanup, err := newSearchCommand(commandCtx, output.input, source, view)
 	if err != nil {
 		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 	}
+	defer cleanup()
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
 	var stderr boundedStderrBuffer
@@ -346,7 +347,7 @@ func newSearchView(stores []searchStore) (_ *os.File, err error) {
 
 func newSearchCommand(
 	ctx context.Context, input storageSearchRequest, source searchSource, view *os.File,
-) (*exec.Cmd, error) {
+) (*exec.Cmd, func(), error) {
 	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
 		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}
 	args = append(args, input.Args...)
@@ -375,16 +376,16 @@ func newSearchCommand(
 	}
 	binary, err := exec.LookPath("rg")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	command, err := newFileSearchCommand(ctx, binary, args, roots, len(source.stores))
+	command, cleanup, err := newFileSearchCommand(ctx, binary, args, roots, len(source.stores))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(source.stores) == 0 {
 		command.Stdin = bytes.NewReader(source.content)
 	}
-	return command, nil
+	return command, cleanup, nil
 }
 
 type searchEvent struct {
