@@ -114,7 +114,7 @@ const worker = createCustomToolWorker({
 })
 ```
 
-A handler also receives `turnID`, the turn the call was made in, for an executor that acts only for whoever started that turn. Pass only authenticated SSE frames or signature-verified webhook updates to `handle`. Verify webhook bodies with `verifyEventWebhook` before using their contents. A signing secret authorizes requests to your tool handlers; keep it out of agent machines and tool inputs.
+A handler also receives `turnID`, the turn the call was made in, for an executor that acts only for whoever started that turn, and `answerBy` when the tool has a [timeout](#timeouts-and-send-only-tools): the time on your machine's clock by which Omnara must have the result. Pass only authenticated SSE frames or signature-verified webhook updates to `handle`. Verify webhook bodies with `verifyEventWebhook` before using their contents. A signing secret authorizes requests to your tool handlers; keep it out of agent machines and tool inputs.
 
 ### Recover a result without repeating the action
 
@@ -264,7 +264,7 @@ tools:
     timeout_seconds: 0
 ```
 
-**A positive timeout** starts when the call becomes `ready`, which for an `always_ask` tool is after someone approves it. If no result arrives in time, Omnara completes the call as `failed` with the text `No result was submitted within 300 seconds.` and the agent continues. The agent is told about once a second, and the deadline itself is exact: a result that arrives after it is never accepted. It gets the usual `409 tool_call_already_completed`, and your system may already have done the work, so use a timeout where a late result is harmless.
+**A positive timeout** starts when the call becomes `ready`, which for an `always_ask` tool is after someone approves it. If no result arrives in time, Omnara completes the call as `failed` with the text `No result was submitted within 300 seconds.` and the agent continues. A ready call reports its `timeout_seconds` and `expires_in_ms`, the time it has left as of that read. The agent is told about once a second, and the deadline itself is exact: a result that arrives after it is never accepted. It gets the usual `409 tool_call_already_completed`, and your system may already have done the work, so use a timeout where a late result is harmless.
 
 **`timeout_seconds: 0` makes the tool send-only.** Omnara completes the call the moment it would have become ready, as `succeeded` with the text `Sent. This tool does not wait for a result.`, and the agent carries on in the same turn. Use it for things the agent announces rather than asks: showing something in your app, emitting an event, sending a notification.
 

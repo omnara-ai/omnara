@@ -88,6 +88,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     const completed = new Set<string>()
     listingCompletions.add(completed)
     try {
+      const readAt = Date.now()
       const { data: page } = await listProjectToolCalls({
         client: options.client,
         path: options.path,
@@ -110,7 +111,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
               call,
               outcome: completed.has(`${call.agentID}/${call.toolCallID}`)
                 ? { status: 'completed' as const }
-                : await start({ call, source: 'recovery', current }, checkOptions.signal),
+                : await start({ call, source: 'recovery', current, readAt }, checkOptions.signal),
             }
           } catch (cause) {
             return { call, outcome: { status: 'failed' as const, error: toolError(cause) } }

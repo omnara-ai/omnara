@@ -106,6 +106,19 @@ type ToolCallSummary struct {
 	Outcome        ToolResultOutcome
 	CreatedAt      time.Time
 	CompletedAt    *time.Time
+	// How long a custom call waits for its result once ready; nil when it waits indefinitely.
+	TimeoutSeconds *int32
+	// What is left of that wait for a ready call, as of the read; nil otherwise.
+	ExpiresIn *time.Duration
+}
+
+// What is left of a ready call's wait, by the database's own clock at the time of the read.
+func toolCallExpiresIn(state ToolCallState, expiresAt *time.Time, readAt time.Time) *time.Duration {
+	if state != ToolCallStateReady || expiresAt == nil {
+		return nil
+	}
+	left := max(expiresAt.Sub(readAt), 0)
+	return &left
 }
 
 type ToolCallStatus struct {

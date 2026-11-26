@@ -2029,7 +2029,9 @@ export const zToolCall = z.object({
     state: zToolCallState,
     outcome: zToolCallOutcome.optional(),
     completed_at: zTimestamp.optional(),
-    created_at: zTimestamp
+    created_at: zTimestamp,
+    timeout_seconds: z.int().gte(0).lte(86400).optional(),
+    expires_in_ms: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional()
 });
 
 export const zListToolCallsResponse = z.object({

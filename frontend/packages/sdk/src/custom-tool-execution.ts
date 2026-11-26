@@ -27,7 +27,11 @@ interface ToolExecutionOptions {
 
 export type CustomToolWork = {
   call: CustomToolCallRef
-} & ({ source: 'notification' } | { source: 'recovery'; current: ToolCall })
+} & (
+  | { source: 'notification' }
+  /** `readAt` is this machine's clock just before the read that returned `current`. */
+  | { source: 'recovery'; current: ToolCall; readAt: number }
+)
 
 export type CustomToolTask = CustomToolWork & {
   cancel: AbortController
@@ -53,9 +57,14 @@ export async function executeCustomTool(
   const { signal } = cancel
   const path = { ...options.path, agentID: call.agentID, toolCallID: call.toolCallID }
   let current: ToolCall
+  // The server says how long the call has left as of its read. Counting from before the read
+  // was sent puts the deadline on this machine's clock without ever placing it too late.
+  let readAt: number
   if (task.source === 'recovery') {
     current = task.current
+    readAt = task.readAt
   } else {
+    readAt = Date.now()
     const readStarted = performance.now()
     let readiness: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
     try {
@@ -94,6 +103,7 @@ export async function executeCustomTool(
       ...call,
       turnID: current.turn_id,
       input: current.input,
+      answerBy: current.expires_in_ms == null ? undefined : readAt + current.expires_in_ms,
       signal,
     })
     if (task.completed) return { status: 'completed' }

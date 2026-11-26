@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,14 @@ func TestCustomToolResultAfterTimeout(t *testing.T) {
 		})
 		require.NoError(t, err, name)
 		require.Equal(t, executionstore.ToolCallStateReady, ready.State, name)
+		path := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, launch.Agent.ID) +
+			"/tool-calls/" + testPublicID(t, publicid.KindToolCall, toolCall.ID)
+		waiting := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK,
+			authHeaders(project.AdminToken))
+		require.EqualValues(t, 45, waiting["timeout_seconds"], name)
+		left := testutil.RequireType[float64](t, waiting["expires_in_ms"])
+		require.Positive(t, left, name)
+		require.LessOrEqual(t, left, float64(45_000), name)
 		_, err = pool.Exec(ctx,
 			`UPDATE tool_calls SET expires_at = statement_timestamp() - interval '1 second' WHERE id = $1`, toolCall.ID)
 		require.NoError(t, err, name)
@@ -49,8 +58,6 @@ func TestCustomToolResultAfterTimeout(t *testing.T) {
 			require.Positive(t, expired, name)
 		}
 
-		path := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, launch.Agent.ID) +
-			"/tool-calls/" + testPublicID(t, publicid.KindToolCall, toolCall.ID)
 		late := requestJSONWithHeaders(t, handler, http.MethodPost, path+"/result",
 			`{"outcome":"succeeded","content_blocks":[{"type":"text","text":"Too late."}]}`, "", http.StatusConflict,
 			authHeaders(project.AdminToken))
@@ -58,6 +65,7 @@ func TestCustomToolResultAfterTimeout(t *testing.T) {
 		fetched := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK,
 			authHeaders(project.AdminToken))
 		require.Equal(t, "completed", fetched["state"], name)
+		require.NotContains(t, fetched, "expires_in_ms", name)
 		record, err := store.Execution().GetToolCall(ctx, project.ProjectUUID, launch.Agent.ID, toolCall.ID)
 		require.NoError(t, err, name)
 		require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome, name)

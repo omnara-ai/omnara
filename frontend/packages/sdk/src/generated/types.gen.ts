@@ -3319,6 +3319,14 @@ export type ToolCall = {
     outcome?: ToolCallOutcome;
     completed_at?: Timestamp;
     created_at: Timestamp;
+    /**
+     * Seconds a custom call waits for its result once it is ready, as its tool was configured when the call was made. Absent when the call waits indefinitely.
+     */
+    timeout_seconds?: number;
+    /**
+     * Milliseconds left before a ready call with a timeout stops waiting, measured by the server when it produced this response. Absent for a call that waits indefinitely or is not ready.
+     */
+    expires_in_ms?: number;
 };
 
 /**

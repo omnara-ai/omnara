@@ -15461,6 +15461,21 @@ components:
           $ref: '#/components/schemas/Timestamp'
         created_at:
           $ref: '#/components/schemas/Timestamp'
+        timeout_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: >-
+            Seconds a custom call waits for its result once it is ready, as its tool was configured
+            when the call was made. Absent when the call waits indefinitely.
+        expires_in_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Milliseconds left before a ready call with a timeout stops waiting, measured by the
+            server when it produced this response. Absent for a call that waits indefinitely or
+            is not ready.
     ToolCallUpdate:
       description: >-
         A notification that a tool call entered a lifecycle state.

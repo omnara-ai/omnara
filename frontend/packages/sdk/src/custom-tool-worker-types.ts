@@ -13,6 +13,11 @@ export interface CustomToolCall {
   turnID: string
   name: string
   input: ToolInput
+  /**
+   * When the call's tool has a timeout: the time on this machine's clock, in epoch
+   * milliseconds, by which Omnara must have the result. A later result is refused.
+   */
+  answerBy?: number
   signal: AbortSignal
 }
 
