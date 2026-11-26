@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +23,7 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := memorystore.OpenFilesystem(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
@@ -34,6 +35,13 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	input := memorystore.WriteInput{Scope: scope, StoreID: memory.ID, Path: "nested/note.txt", Content: []byte("initial")}
 	result, err := store.Memories().Write(ctx, input)
 	require.NoError(t, err)
+	_, _, err = store.Memories().Read(ctx, scope, memory.ID, input.Path+"/child")
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.NotErrorIs(t, err, storeerr.ErrNotFound)
+	err = store.Memories().DeleteFile(ctx, scope, memory.ID, input.Path+"/child", result.Digest)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.NotErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.NotErrorIs(t, err, storeerr.ErrNotFound)
 	viewer := createSecretTestUser(t, ctx, store, "Memory Viewer", authz.OrgRoleMember)
 	_, err = store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 		OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID, Role: authz.ProjectRoleViewer,
@@ -56,7 +64,7 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 
 	root := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
 		mustPublicID(t, publicid.KindProject, scope.ProjectID), mustPublicID(t, publicid.KindMemoryStore, memory.ID))
-	outside := t.TempDir()
+	outside := testfs.TempDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret"), []byte("secret"), 0600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape")))
 	page, err := store.Memories().ListDirectory(ctx, scope, memory.ID, "", "", 50)

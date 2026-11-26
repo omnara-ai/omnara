@@ -3,7 +3,6 @@ package integrationlock
 import (
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 )
 
@@ -15,12 +14,12 @@ func Acquire(t testing.TB) {
 	if err != nil {
 		t.Fatalf("open integration db lock: %v", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFile(file); err != nil {
 		_ = file.Close()
 		t.Fatalf("acquire integration db lock: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = unlockFile(file)
 		_ = file.Close()
 	})
 }

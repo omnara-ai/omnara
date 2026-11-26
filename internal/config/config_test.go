@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
+func TestMain(m *testing.M) {
+	registryPath, err := filepath.Abs("mcp-registry.json")
+	if err == nil {
+		err = os.Setenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", registryPath)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "set registry path fixture:", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
 func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
 	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "")
@@ -20,6 +33,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -28,6 +42,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 
 	if cfg.APIAddr != ":8080" {
 		t.Fatalf("expected default addr, got %q", cfg.APIAddr)
+	}
+	if cfg.MCPRegistrySnapshotPath != "/app/mcp-registry/mcp-registry.json" {
+		t.Fatalf("expected container registry path default, got %q", cfg.MCPRegistrySnapshotPath)
 	}
 	if cfg.APIMetricsAddr != ":8081" {
 		t.Fatalf("expected default api metrics addr, got %q", cfg.APIMetricsAddr)
@@ -903,12 +920,30 @@ func TestValidateAPIRejectsPartialSecretEncryptionConfigInDev(t *testing.T) {
 
 func TestValidateAPIRejectsMissingSecretEncryptionConfigEvenInDevConfig(t *testing.T) {
 	cfg := Config{
-		APIAddr:          ":8080",
-		APIMetricsAddr:   ":8081",
-		AllowInsecureDev: true,
+		APIAddr:                 ":8080",
+		APIMetricsAddr:          ":8081",
+		AllowInsecureDev:        true,
+		MCPRegistrySnapshotPath: filepath.Join(t.TempDir(), "mcp-registry.json"),
 	}
-	if err := cfg.ValidateAPI(); err == nil {
-		t.Fatal("expected missing secret encryption config error")
+	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_SECRET_ENCRYPTION_KEYS") {
+		t.Fatalf("expected missing secret encryption config error, got %v", err)
+	}
+}
+
+func TestMCPRegistrySnapshotPathConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatalf("native absolute registry path: %v", err)
+	}
+	for _, path := range []string{"", "relative/mcp-registry.json"} {
+		cfg.MCPRegistrySnapshotPath = path
+		if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_MCP_REGISTRY_SNAPSHOT_PATH") {
+			t.Fatalf("API accepted registry path %q: %v", path, err)
+		}
 	}
 }
 

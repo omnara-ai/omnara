@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,17 +88,7 @@ func TestSkillInputValidatorIsRegistered(t *testing.T) {
 
 func TestSkillInstallPathDoesNotDoubleOmnaraSegment(t *testing.T) {
 	got := SkillInstallPath("skl_abc", "skr_def")
-	want := filepath.Join(
-		"$OMNARA_HOME",
-		"installations",
-		"*",
-		"machines",
-		"*",
-		"skills",
-		"skl_abc",
-		"revisions",
-		"skr_def",
-	)
+	want := "$OMNARA_HOME/installations/*/machines/*/skills/skl_abc/revisions/skr_def"
 	if got != want {
 		t.Fatalf("install path = %q, want %q", got, want)
 	}
@@ -146,7 +135,7 @@ func TestWrapSkillContentHidesInstallFailureDetails(t *testing.T) {
 	}
 }
 
-func TestWrapSkillContentInstallPathHintMatchesSkillInstallPath(t *testing.T) {
+func TestWrapSkillContentInstallPathHintUsesRemotePath(t *testing.T) {
 	machineID := integrationToolTestID("machine-ready")
 	got, err := wrapSkillContent(
 		"harmless",
@@ -165,7 +154,7 @@ func TestWrapSkillContentInstallPathHintMatchesSkillInstallPath(t *testing.T) {
 	if !strings.Contains(got, "Installed on: "+machinePublicIDForTest(t, machineID)) {
 		t.Fatalf("wrapper should identify the machine where the skill was installed: %s", got)
 	}
-	if !strings.Contains(got, SkillInstallPath("skl_hintcheck", "skr_hintcheck")) {
+	if !strings.Contains(got, "$OMNARA_HOME/installations/*/machines/*/skills/skl_hintcheck/revisions/skr_hintcheck") {
 		t.Fatalf("wrapper should include the on-machine install path for the skill: %s", got)
 	}
 }

@@ -159,7 +159,7 @@ func main() {
 	}
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
-	if err := tools.CheckFileToolSupport(ctx); err != nil {
+	if err := errors.Join(tools.CheckFileSearchSupport(ctx), tools.CheckScriptEditSupport(ctx)); err != nil {
 		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	store := storage.NewStore(db, storeOpts...)

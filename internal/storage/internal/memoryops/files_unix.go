@@ -4,12 +4,19 @@ package memoryops
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"runtime"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+func checkFilesystem(_ *os.Root) error { return nil }
+
+func checkNativePath(_ *os.Root, _ string, _ fs.FileInfo) error { return nil }
+
+func syncFile(file *os.File) error { return file.Sync() }
 
 func tryLock(file *os.File) (bool, error) {
 	err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestWebE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	env := newServiceE2EEnvironment(t, ctx, "web")
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "web")
 	apiURL, err := url.Parse(env.apiURL)
 	if err != nil {
 		t.Fatal(err)
@@ -211,6 +212,9 @@ func TestWebE2E(t *testing.T) {
 	}
 
 	cmd := exec.CommandContext(ctx, "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", "pnpm", "--filter", "@omnara/web", "run", "test:e2e")
+	}
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = filepath.Join(env.repoRoot, "frontend")
 	cmd.Env = serviceProcessEnv(

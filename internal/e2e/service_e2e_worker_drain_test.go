@@ -46,7 +46,7 @@ func TestServiceE2EWorkerDrainCompletesInFlightModelCall(t *testing.T) {
 	defer openai.Close()
 	defer release()
 
-	env.startAPI(t, ctx)
+	api := env.startAPI(t, ctx)
 	project := env.bootstrapProjectViaAPI(t, ctx, "worker-drain", "openai-prod", "service-e2e-local")
 	agentID := project.createAgent(t, ctx)
 	project.createInput(t, ctx, agentID, "finish this turn while the worker drains")
@@ -62,7 +62,7 @@ func TestServiceE2EWorkerDrainCompletesInFlightModelCall(t *testing.T) {
 		t.Fatalf("provider request did not start: %v", ctx.Err())
 	}
 
-	if err := worker.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+	if err := signalServiceProcess(worker.cmd, syscall.SIGTERM); err != nil {
 		t.Fatalf("signal worker: %v", err)
 	}
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
@@ -71,7 +71,7 @@ func TestServiceE2EWorkerDrainCompletesInFlightModelCall(t *testing.T) {
 			return true, ""
 		}
 		_ = response.Body.Close()
-		return false, "worker health endpoint still serving after SIGTERM"
+		return false, "worker health endpoint still serving after shutdown signal"
 	})
 	release()
 	select {
@@ -82,6 +82,7 @@ func TestServiceE2EWorkerDrainCompletesInFlightModelCall(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("worker did not exit after its in-flight model call finished: %v", ctx.Err())
 	}
+	waitForHTTP(t, ctx, env.apiMetricsURL+"/healthz", api.logs)
 
 	var outputs, succeededContexts, contexts, locks int
 	if err := env.db.QueryRow(ctx, `

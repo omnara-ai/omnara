@@ -1,0 +1,194 @@
+---
+title: Windows dependencies
+description: Optional native PostgreSQL, Garnet, and RustFS setup
+icon: "server"
+---
+
+Install only the dependencies you need. Each recipe is independent; if a suitable service already exists, use its endpoint in the [Windows application configuration](/self-hosting/windows#2-choose-dependencies-and-configure) instead. Omnara does not install, upgrade, or stop these external services.
+
+These recipes were tested with PostgreSQL 18.7, Garnet 2.2.14, and RustFS 1.0.4 on Windows Server 2022. PostgreSQL 18+ is required. Garnet supplies a native Redis-compatible server. RustFS is the S3 implementation used by Compose; its [Windows build is intended for development and debugging](https://docs.rustfs.com/en/installation/windows).
+
+For Garnet or RustFS, first download Omnara's bundle and the pinned WinSW executable from the [Windows setup page](/self-hosting/windows#1-download-omnara-and-its-tools). Offline, see `WINDOWS-SETUP.mdx` beside this file. Use an administrator PowerShell 5.1 session in `C:\Omnara` (or the checkout root for a source build). Use new, dedicated program and data directories on local NTFS; the commands replace program-directory permissions. Do not point them at an existing installation, a shared directory, or a junction. If a service or port already exists, reuse it or choose separate names, directories, and ports throughout that recipe.
+
+## Downloads
+
+Download only the components you need. These are the tested x64 versions, not a requirement to change an existing compatible service.
+
+| Download | Installation |
+| --- | --- |
+| [PostgreSQL 18.7-1](https://get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64.exe) | Run the Windows installer; it installs PostgreSQL as a service. |
+| [.NET runtime 10.0.15](https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.15/dotnet-runtime-10.0.15-win-x64.exe) | Install the x64 runtime if using Garnet. |
+| [Garnet 2.2.14](https://github.com/microsoft/garnet/releases/download/v2.2.14/win-x64-based-readytorun.zip) | Extract under `C:\Omnara\garnet`; use `net10.0` containing `GarnetServer.exe` and its DLLs. |
+| [RustFS 1.0.4](https://github.com/rustfs/rustfs/releases/download/1.0.4/rustfs-windows-x86_64-v1.0.4.zip) | Extract `rustfs.exe` into `C:\Omnara\rustfs`. |
+
+<Accordion title="Checksums for these downloads">
+
+Compare `Get-FileHash -Algorithm SHA256` against:
+
+```text
+90bf244854a6c7f6d204b26934a32bd571b9953963b6137bb46d2fcd3f1a313e  postgresql-18.7-1-windows-x64.exe
+8d7a99ab34fce4ecdb6c63b54db03407fd442ac083514c752fe98328897e384a  win-x64-based-readytorun.zip
+2e3af0b187dd70435dfdefe5f61aae7eede5a21fc9a2a2f07e289f727adbcfa6  rustfs-windows-x86_64-v1.0.4.zip
+```
+
+For `dotnet-runtime-10.0.15-win-x64.exe`, use `Get-FileHash -Algorithm SHA512`:
+
+```text
+c202a6721d66f49086e087a58e31c448062b0718fdd66b31807d7b2b31673adae5d3ccb36fc7451e113172ce59913d6c8034a35d5cc1cf6b079d5b544f1f425b
+```
+
+</Accordion>
+
+## PostgreSQL
+
+For a new local PostgreSQL installation, use port 5432 and set `listen_addresses = '127.0.0.1'` in `postgresql.conf`; restart its service after changing that setting. Do not change the listener configuration of a shared server. In SQL Shell (`psql`), connect as an administrator and create a dedicated owner and UTF-8 database, using unused names:
+
+```sql
+CREATE ROLE omnara LOGIN;
+\password omnara
+CREATE DATABASE omnara OWNER omnara TEMPLATE template0
+  ENCODING 'UTF8' LOCALE_PROVIDER builtin BUILTIN_LOCALE 'C.UTF-8';
+```
+
+Set `OMNARA_DATABASE_URL` to that database and role. The Omnara installer runs migrations, including creation of `pg_trgm`; on a managed PostgreSQL service, have its administrator make that extension available first. Existing PostgreSQL 18+ services use the same database requirements and do not need the Windows installer.
+
+## Redis: optional local Garnet
+
+If your Redis endpoint meets the [application requirements](/self-hosting/windows#2-choose-dependencies-and-configure), skip this section.
+
+For a new Garnet service, install .NET first, then run this block. It creates a random password in the private `config\garnet.json` file. The [Garnet settings](https://microsoft.github.io/garnet/docs/getting-started/configuration) keep Redis data in memory and enable the Lua scripts Omnara needs. They allocate 256 MiB for stored values; Garnet also uses memory for its other work. When that space fills, older keys can be discarded before they expire. Increase `LogMemorySize` if that happens too often.
+
+Restarting Garnet clears its data. Pending sign-ins may need to retry, rate limits reset, and connected daemons register again. Notifications sent while Garnet is down are not replayed. Conversations, sessions, and files remain in PostgreSQL, S3, and the shared memory directory.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    . .\deploy\windows\Common.ps1
+    $root = Resolve-LocalPath 'C:\ProgramData\Omnara\garnet'
+    $program = Resolve-LocalPath 'C:\Omnara\garnet\net10.0'
+    if (-not (Test-Path -LiteralPath "$program\GarnetServer.exe" -PathType Leaf)) { throw 'GarnetServer.exe was not found; check the extracted program directory' }
+    if (Get-Service omnara-garnet -ErrorAction SilentlyContinue) { throw 'Garnet service already exists' }
+    if (Get-NetTCPConnection -LocalPort 6379 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 6379 is in use' }
+    if ((Get-FileHash C:\Omnara\WinSW-x64.exe).Hash -ne $WinSWHash) { throw 'WinSW checksum mismatch' }
+    New-Item -ItemType Directory -Path $root | Out-Null
+    Set-PrivatePermissions $root
+    foreach ($child in @('config', 'logs', 'temp')) {
+        New-Item -ItemType Directory -Path "$root\$child" | Out-Null
+    }
+    $bytes = New-Object byte[] 32
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $password = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+    $config = [ordered]@{
+        Address = '127.0.0.1'; Port = 6379; AuthenticationMode = 'Password'; Password = $password
+        LogMemorySize = '256m'; PageSize = '1m'; IndexMemorySize = '16m'
+        DisableObjects = $true; EnableLua = $true; LuaTransactionMode = $true
+        EnableStorageTier = $false; EnableAOF = $false; Recover = $false
+    }
+    [IO.File]::WriteAllText("$root\config\garnet.json", ($config | ConvertTo-Json))
+    Copy-Item C:\Omnara\WinSW-x64.exe "$root\omnara-garnet.exe"
+    [IO.File]::WriteAllText("$root\omnara-garnet.xml", @"
+<service>
+  <id>omnara-garnet</id><name>Omnara Garnet</name>
+  <description>Native Garnet service for Omnara</description>
+  <executable>$program\GarnetServer.exe</executable>
+  <arguments>--config-import-path "$root\config\garnet.json"</arguments>
+  <workingdirectory>$program</workingdirectory>
+  <startmode>Automatic</startmode><delayedAutoStart>true</delayedAutoStart>
+  <stoptimeout>45 sec</stoptimeout><stopparentprocessfirst>true</stopparentprocessfirst>
+  <serviceaccount><domain>NT SERVICE</domain><user>omnara-garnet</user></serviceaccount>
+  <onfailure action="restart" delay="10 sec"/>
+  <logpath>$root\logs</logpath>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+  <env name="TEMP" value="$root\temp"/><env name="TMP" value="$root\temp"/>
+</service>
+"@)
+    & "$root\omnara-garnet.exe" install
+    if ($LASTEXITCODE -ne 0) { throw 'Garnet service installation failed; inspect its logs' }
+    $account = 'NT SERVICE\omnara-garnet'
+    Set-PrivatePermissions $root @($account)
+    foreach ($child in @('logs', 'temp')) {
+        Set-PrivatePermissions "$root\$child" @($account) 'Modify'
+    }
+    Protect-ProgramDirectory $program @($account)
+    Start-Service omnara-garnet
+}
+```
+
+Open `C:\ProgramData\Omnara\garnet\config\garnet.json` in an administrator's editor and copy its `Password` into `OMNARA_REDIS_URL=redis://:PASSWORD@127.0.0.1:6379/0`. Keep this file private. Logs are in `C:\ProgramData\Omnara\garnet\logs`.
+
+## S3: optional local RustFS
+
+If you already have a bucket, skip this section and supply its endpoint, region, bucket, and credentials using the [application configuration](/self-hosting/windows#2-choose-dependencies-and-configure). The application does not need bucket-creation privileges.
+
+For a new RustFS service, use a data path without spaces (a RustFS 1.0.4 limitation). This block creates private access-key and random secret-key files, and binds both S3 and its administration console to loopback:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    . .\deploy\windows\Common.ps1
+    $root = Resolve-LocalPath 'C:\ProgramData\Omnara\rustfs'
+    $program = Resolve-LocalPath 'C:\Omnara\rustfs'
+    if (-not (Test-Path -LiteralPath "$program\rustfs.exe" -PathType Leaf)) { throw 'rustfs.exe was not found; check the extracted program directory' }
+    if (Get-Service omnara-rustfs -ErrorAction SilentlyContinue) { throw 'RustFS service already exists' }
+    if (Get-NetTCPConnection -LocalPort 9000,9001 -State Listen -ErrorAction SilentlyContinue) { throw 'RustFS port is in use' }
+    if ((Get-FileHash C:\Omnara\WinSW-x64.exe).Hash -ne $WinSWHash) { throw 'WinSW checksum mismatch' }
+    New-Item -ItemType Directory -Path $root | Out-Null
+    Set-PrivatePermissions $root
+    foreach ($child in @('config', 'data', 'logs', 'temp')) {
+        New-Item -ItemType Directory -Path "$root\$child" | Out-Null
+    }
+    $bytes = New-Object byte[] 32
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    [IO.File]::WriteAllText("$root\config\access-key.txt", 'omnara')
+    [IO.File]::WriteAllText("$root\config\secret-key.txt", [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
+    Copy-Item C:\Omnara\WinSW-x64.exe "$root\omnara-rustfs.exe"
+    [IO.File]::WriteAllText("$root\omnara-rustfs.xml", @"
+<service>
+  <id>omnara-rustfs</id><name>Omnara RustFS</name>
+  <description>Native RustFS service for Omnara</description>
+  <executable>$program\rustfs.exe</executable>
+  <arguments>server --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 "$root\data"</arguments>
+  <workingdirectory>$program</workingdirectory>
+  <startmode>Automatic</startmode><delayedAutoStart>true</delayedAutoStart>
+  <stoptimeout>45 sec</stoptimeout><stopparentprocessfirst>true</stopparentprocessfirst>
+  <serviceaccount><domain>NT SERVICE</domain><user>omnara-rustfs</user></serviceaccount>
+  <onfailure action="restart" delay="10 sec"/>
+  <logpath>$root\logs</logpath>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+  <env name="TEMP" value="$root\temp"/><env name="TMP" value="$root\temp"/>
+  <env name="RUSTFS_ACCESS_KEY_FILE" value="$root\config\access-key.txt"/>
+  <env name="RUSTFS_SECRET_KEY_FILE" value="$root\config\secret-key.txt"/>
+  <env name="RUSTFS_CONSOLE_ENABLE" value="true"/>
+</service>
+"@)
+    & "$root\omnara-rustfs.exe" install
+    if ($LASTEXITCODE -ne 0) { throw 'RustFS service installation failed; inspect its logs' }
+    $account = 'NT SERVICE\omnara-rustfs'
+    Set-PrivatePermissions $root @($account)
+    foreach ($child in @('data', 'logs', 'temp')) {
+        Set-PrivatePermissions "$root\$child" @($account) 'Modify'
+    }
+    Protect-ProgramDirectory $program @($account)
+    Start-Service omnara-rustfs
+}
+```
+
+Open the two files in `C:\ProgramData\Omnara\rustfs\config` with an administrator's editor to obtain the credentials. Workstation forwarding requires [OpenSSH Server installed and running](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) with SSH access from your workstation. Forward the console separately from Omnara:
+
+```sh
+ssh -L 9001:127.0.0.1:9001 <user>@<server>
+```
+
+Open `http://localhost:9001`, sign in with those credentials, and create a private bucket named `omnara`. Upload and download a small test file to verify access. Keep anonymous/public access disabled. Logs are in `C:\ProgramData\Omnara\rustfs\logs`.
+
+Set Omnara's S3 endpoint to `http://127.0.0.1:9000`, bucket to `omnara`, region to `us-east-1`, path style to `1`, and access/secret keys to those credentials. The console address is not the S3 endpoint. The two Windows services are independent; either can be installed without the other.
+
+## Operations
+
+Each service starts automatically after boot. Check its logs and sign in to verify access. After installing Omnara, upload and download a file to check the S3 connection.
+
+If a service fails, fix its configuration or permissions and restart it. A failed installation leaves its files for inspection. Before repeating a setup block, uninstall the service it created and move its directory aside. Back up database and S3 data together with Omnara's memory directory, configuration, and encryption keys. Garnet has no saved data to back up.
+
+Before a planned reboot, stop Omnara first. Then stop only the local dependencies you installed here (`Stop-Service omnara-garnet` or `Stop-Service omnara-rustfs`) and follow PostgreSQL's shutdown procedure. The [WinSW stop caveat](/self-hosting/windows#4-operate-the-services) also applies here: wait 15 seconds and confirm the service remains `Stopped` before rebooting or uninstalling. Existing or shared services remain under their administrator's control. To remove one of these new wrappers, stop that service and run its renamed WinSW executable with `uninstall`; retain its data and credentials until they are no longer needed.

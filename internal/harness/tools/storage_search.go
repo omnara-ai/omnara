@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -175,6 +176,11 @@ func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPha
 		}
 		err = call.Executor.Store.Memories().VisitSearchStores(searchCtx, call.Turn.ProjectID, call.Turn.AgentID,
 			input.Path, func(store memorystore.SearchStore) error {
+				if runtime.GOOS == "windows" {
+					visited, err := output.searchStoreContents(searchCtx, store)
+					searched = searched || visited
+					return err
+				}
 				root, err := store.Root.Open(".")
 				if err != nil {
 					return err
@@ -212,7 +218,7 @@ func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPha
 		if output.result.IncompleteReason == "" {
 			output.result.IncompleteReason = "search result limit reached; narrow the search"
 		}
-	} else if errors.Is(err, context.DeadlineExceeded) {
+	} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, memorystore.ErrFileTraversalLimit) {
 		output.result.Truncated = true
 		if output.result.IncompleteReason == "" {
 			output.result.IncompleteReason = "search resource limit reached; narrow the search"
@@ -221,6 +227,20 @@ func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPha
 		return nil, err
 	}
 	return completeFileTool(output.result)
+}
+
+func (output *searchOutput) searchStoreContents(ctx context.Context, store memorystore.SearchStore) (bool, error) {
+	searched := false
+	input := output.input
+	err := store.VisitContents(ctx, input.Path, input.matcher, func(path string, content []byte) error {
+		// rg treats explicit stdin differently from recursive file search.
+		if strings.ContainsAny(input.Path, "*?") && bytes.IndexByte(content, 0) >= 0 {
+			return nil
+		}
+		searched = true
+		return output.search(ctx, searchSource{path: path, content: content})
+	})
+	return searched, err
 }
 
 type searchLine struct {
@@ -265,10 +285,11 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 			_ = os.RemoveAll(view.Name())
 		}()
 	}
-	command, err := newSearchCommand(commandCtx, output.input, source, view)
+	command, cleanup, err := newSearchCommand(commandCtx, output.input, source, view)
 	if err != nil {
 		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 	}
+	defer cleanup()
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
 	var stderr boundedStderrBuffer
@@ -326,7 +347,7 @@ func newSearchView(stores []searchStore) (_ *os.File, err error) {
 
 func newSearchCommand(
 	ctx context.Context, input storageSearchRequest, source searchSource, view *os.File,
-) (*exec.Cmd, error) {
+) (*exec.Cmd, func(), error) {
 	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
 		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}
 	args = append(args, input.Args...)
@@ -355,15 +376,16 @@ func newSearchCommand(
 	}
 	binary, err := exec.LookPath("rg")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	command := exec.CommandContext(ctx, "omnara-sandbox",
-		append([]string{strconv.Itoa(len(source.stores)), binary}, args...)...)
-	command.ExtraFiles = roots
+	command, cleanup, err := newFileSearchCommand(ctx, binary, args, roots, len(source.stores))
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(source.stores) == 0 {
 		command.Stdin = bytes.NewReader(source.content)
 	}
-	return command, nil
+	return command, cleanup, nil
 }
 
 type searchEvent struct {

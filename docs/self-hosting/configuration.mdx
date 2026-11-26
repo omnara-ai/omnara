@@ -301,13 +301,15 @@ on the bucket's `artifacts/*` and `skills/*` objects.
 | --- | --- | --- | --- |
 | `OMNARA_MEMORY_DIR` | Absolute directory on the same persistent filesystem for API, every worker, and maintenance | *dev:* `.local/memory`; Compose: `/var/lib/omnara/memory` | API, worker, and maintenance |
 
-The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. File search and scripted edits require a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
+The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
 
-Native workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
+The Linux worker image includes the required file tools. The host kernel must support their isolation; the worker's startup logs report missing support. Native Linux workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. On macOS, use Compose with its named volume.
 
-Workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
+Linux workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
 
-Scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the chroot helper acquires the capability; it drops it before running sed.
+On Windows, use the [Windows installer](/self-hosting/windows) with a local NTFS disk; network shares are not supported by this setup. The installer prepares the memory directory and file tools. Use valid Windows filenames. File searches and scripted edits run with the worker account's permissions, without the extra isolation used on Linux. If scripted edits are unavailable, fix the file-tool installation and retry. Ordinary memory reads and writes remain available.
+
+Linux scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the chroot helper acquires the capability; it drops it before running sed.
 
 ## Machine daemon and pools
 

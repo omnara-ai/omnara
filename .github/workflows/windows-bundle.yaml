@@ -1,0 +1,106 @@
+name: Build Windows bundle
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows Release Bundle
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version-file: .node-version
+
+      - name: Check checkout line endings
+        run: |
+          $files = & git ls-files --eol
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect checkout' }
+          if ($files | Select-String '\bw/(crlf|mixed)\b') { throw 'Release source must use LF line endings' }
+
+      - run: corepack enable
+
+      - name: Build native executables and embedded dashboard
+        shell: powershell
+        run: .\deploy\windows\Build-Windows.ps1 -OutputDirectory "$env:RUNNER_TEMP\omnara-windows-bundle\bin"
+
+      - name: Package download
+        # Current .NET writes portable ZIP paths; Windows PowerShell uses legacy backslashes.
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'omnara-windows-bundle'
+          $setup = Join-Path $bundle 'deploy\windows'
+          New-Item -ItemType Directory -Path $setup | Out-Null
+          foreach ($name in @('Common.ps1', 'Install-Services.ps1', 'control-plane.env.example')) {
+            Copy-Item -LiteralPath "deploy\windows\$name" -Destination $setup
+          }
+          Copy-Item -LiteralPath 'docs\self-hosting\windows.mdx' -Destination "$bundle\WINDOWS-SETUP.mdx"
+          Copy-Item -LiteralPath 'docs\self-hosting\windows-dependencies.mdx' -Destination "$bundle\WINDOWS-DEPENDENCIES.mdx"
+          Copy-Item -LiteralPath LICENSE -Destination $bundle
+          $commit = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify release source' }
+          [IO.File]::WriteAllText("$bundle\SOURCE.txt", "Commit: $commit`nRef: $env:GITHUB_REF`n")
+
+          $release = Join-Path $env:RUNNER_TEMP 'omnara-windows-release'
+          New-Item -ItemType Directory -Path $release | Out-Null
+          $archive = Join-Path $release 'omnara-windows-amd64.zip'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory($bundle, $archive)
+          $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            if ($zip.Entries.FullName -match '\\') { throw 'ZIP paths must use forward slashes' }
+          } finally { $zip.Dispose() }
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$archive.sha256", "$hash  omnara-windows-amd64.zip`n", [Text.Encoding]::ASCII)
+
+      - name: Verify download with Windows PowerShell
+        shell: powershell
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'omnara-windows-bundle'
+          $archive = Join-Path $env:RUNNER_TEMP 'omnara-windows-release\omnara-windows-amd64.zip'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'omnara-windows-unpacked'
+          Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+          foreach ($file in Get-ChildItem -LiteralPath $bundle -Recurse -File) {
+            $relative = $file.FullName.Substring($bundle.Length + 1)
+            if ((Get-FileHash -LiteralPath $file.FullName).Hash -ne
+                (Get-FileHash -LiteralPath (Join-Path $unpacked $relative)).Hash) {
+              throw "Archive round trip changed $relative"
+            }
+          }
+          $commit = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify release source' }
+          foreach ($name in @('api', 'worker', 'maintenance', 'migrate', 'sandbox')) {
+            $metadata = (& go version -m "$unpacked\bin\omnara-$name.exe") -join "`n"
+            if ($LASTEXITCODE -ne 0 -or $metadata -notmatch 'GOOS=windows' -or
+                $metadata -notmatch 'GOARCH=amd64' -or $metadata -notmatch 'CGO_ENABLED=0' -or
+                $metadata -notmatch "vcs.revision=$commit" -or $metadata -notmatch 'vcs.modified=false') {
+              throw "Invalid Windows executable: $name"
+            }
+            if ($name -eq 'api' -and $metadata -notmatch '-tags=requirespa') {
+              throw 'API was built without the required dashboard'
+            }
+          }
+          if (@(Get-ChildItem "$unpacked\bin\migrations\*.sql").Count -eq 0) { throw 'Missing migrations' }
+          $snapshot = Get-Content -LiteralPath "$unpacked\bin\mcp-registry.json" -Raw | ConvertFrom-Json
+          if (-not $snapshot.servers) { throw 'Missing MCP registry servers' }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: omnara-windows-amd64-bundle
+          path: ${{ runner.temp }}/omnara-windows-release/omnara-windows-amd64.zip*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

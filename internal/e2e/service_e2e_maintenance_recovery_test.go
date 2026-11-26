@@ -95,7 +95,7 @@ WHERE context.project_id = $1 AND context.agent_id = $2
 	if err := firstWorker.cmd.Process.Kill(); err != nil {
 		t.Fatalf("kill first worker during provider request: %v", err)
 	}
-	_ = firstWorker.cmd.Wait()
+	<-firstWorker.exited()
 	select {
 	case <-firstRequestStopped:
 	case <-ctx.Done():

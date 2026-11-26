@@ -14,10 +14,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 )
 
 func TestGlobFilesystem(t *testing.T) {
-	base := t.TempDir()
+	base := testfs.TempDir(t)
 	root, err := os.OpenRoot(base)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestGlobFilesystem(t *testing.T) {
 	if err := os.Symlink("dir", filepath.Join(base, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(t.TempDir(), filepath.Join(base, "escape")); err != nil {
+	if err := os.Symlink(testfs.TempDir(t), filepath.Join(base, "escape")); err != nil {
 		t.Fatal(err)
 	}
 	for _, pattern := range []string{"link/deep/*", "escape/**"} {
@@ -130,7 +131,7 @@ func TestGlobFilesystem(t *testing.T) {
 }
 
 func TestStoreFilesystem(t *testing.T) {
-	files, err := memoryops.OpenFilesystem(t.TempDir())
+	files, err := memoryops.OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +215,7 @@ func TestStoreFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := root.Symlink(t.TempDir(), "escape"); err != nil {
+	if err := root.Symlink(testfs.TempDir(t), "escape"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fs.ReadDir(&view, "memory/a/escape"); !errors.Is(err, storeerr.ErrConflict) {

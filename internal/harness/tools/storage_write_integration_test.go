@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -84,6 +85,11 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 			t.Fatalf("file = %q, %s, %v; want %q", content, digest, err, want)
 		}
 	}
+	if runtime.GOOS == "windows" {
+		setupSandbox(t)
+	}
+	toolPath := os.Getenv("PATH")
+	t.Setenv("PATH", t.TempDir())
 	first, err := write(map[string]any{"path": path, "content": "é😀", "append": true})
 	if err != nil || first != blobstore.ContentDigest([]byte("é😀")) {
 		t.Fatalf("create: %s, %v", first, err)
@@ -93,6 +99,12 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("é😀 tail")
+	_, err = write(map[string]any{"path": path, "script": "d", "force": true})
+	if !errors.Is(err, errFileToolUnavailable) {
+		t.Fatalf("disabled scripted edit: %v", err)
+	}
+	check("é😀 tail")
+	t.Setenv("PATH", toolPath)
 	for _, input := range []map[string]any{
 		{"path": path, "content": "unguarded"},
 		{"path": path, "content": "tail", "append": true},
@@ -128,7 +140,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	if err != nil || len(content) != len("é😀 tail")+wins || wins == 0 {
 		t.Fatalf("parallel append content: %q, %d wins, %v", content, wins, err)
 	}
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
 		if _, err := write(map[string]any{"path": path, "script": "s/tail[AB]+/done/", "force": true}); err != nil {
 			t.Fatal(err)
 		}
@@ -182,7 +194,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 
 func TestEditFileTextLimits(t *testing.T) {
 	setupSandbox(t)
-	if err := CheckFileToolSupport(t.Context()); err != nil {
+	if err := CheckScriptEditSupport(t.Context()); err != nil {
 		t.Fatalf("file tool support: %v", err)
 	}
 	for _, test := range []struct {
@@ -192,7 +204,7 @@ func TestEditFileTextLimits(t *testing.T) {
 		{name: "extended regex", script: "s/a+/é/g", input: "aaa\n", want: "é\n"},
 		{name: "empty input", script: "s/a/b/"},
 		{name: "delete", script: "d", input: "abc\n"},
-		{name: "syntax error", script: "s/a/b", input: "a", failure: "char 5: unterminated"},
+		{name: "syntax error", script: "s/a/b", input: "a", failure: "unterminated"},
 		{name: "empty diagnostic", script: "Q1", input: "a", failure: "script execution failed: exit status 1"},
 		{name: "reserved exit", script: "Q125", input: "a", failure: "script execution failed: exit status 125"},
 		{name: "sandbox read", script: "r /etc/passwd", input: "x", failure: "sandbox"},
@@ -240,7 +252,12 @@ func TestEditFileTextLimits(t *testing.T) {
 	ctx, stop := context.WithTimeout(t.Context(), 5*time.Second)
 	defer stop()
 	large := bytes.Repeat([]byte("x"), daemonprotocol.MaxFileTransferBytes)
-	output, err := editFileText(ctx, large, "s/x/y/g")
+	script := "s/x/y/g"
+	if runtime.GOOS == "windows" {
+		// Exercise the size boundary without ten million MSYS regex substitutions.
+		script = "y/x/y/"
+	}
+	output, err := editFileText(ctx, large, script)
 	if err != nil || !bytes.Equal(output, bytes.Repeat([]byte("y"), len(large))) {
 		t.Fatalf("maximum file transform: %v", err)
 	}

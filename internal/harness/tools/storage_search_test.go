@@ -30,19 +30,32 @@ func TestSearchStoreBatchSize(t *testing.T) {
 
 func setupSandbox(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("rg"); err != nil {
+			t.Fatalf("Windows search tests require rg on PATH: %v", err)
+		}
+	} else if runtime.GOOS != "linux" {
 		t.Skip("file search confinement requires Linux")
+	}
+	buildSandboxLauncher(t)
+}
+
+func buildSandboxLauncher(t *testing.T) {
+	t.Helper()
+	name := "omnara-sandbox"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
 	}
 	dir := t.TempDir()
 	build := exec.CommandContext(t.Context(), "go", "build",
-		"-o", filepath.Join(dir, "omnara-sandbox"), "../../../cmd/sandbox")
+		"-o", filepath.Join(dir, name), "../../../cmd/sandbox")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build sandbox launcher: %s, %v", output, err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func TestCheckFileToolSupportSearchFailure(t *testing.T) {
+func TestCheckFileSearchSupportFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses shell fixtures")
 	}
@@ -68,7 +81,7 @@ func TestCheckFileToolSupportSearchFailure(t *testing.T) {
 			t.Setenv("PATH", dir)
 			temp := t.TempDir()
 			t.Setenv("TMPDIR", temp)
-			if err := CheckFileToolSupport(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
+			if err := CheckFileSearchSupport(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("support check = %v, want %q", err, test.want)
 			}
 			if entries, err := os.ReadDir(temp); err != nil || len(entries) != 0 {
@@ -390,6 +403,9 @@ func TestStorageSearchCancellation(t *testing.T) {
 }
 
 func TestMemorySearchGlob(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("tests ripgrep filesystem traversal; Windows uses SearchStore.VisitContents")
+	}
 	root := t.TempDir()
 	names := []string{
 		"a.md", "é.md", "nested/a.md", "team/a.md", "[x]{y}.md", ".hidden.md", "a:b.md", "trailing ", "two words.md",

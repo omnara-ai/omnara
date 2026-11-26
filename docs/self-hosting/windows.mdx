@@ -1,0 +1,154 @@
+---
+title: Windows Server
+description: Run Omnara natively on Windows Server
+icon: "windows"
+---
+
+Run the API, worker, maintenance service, migrations, and dashboard natively on Windows Server, without Docker or a Linux VM. These steps were tested on Windows Server 2022 x64 and do not install the machine daemon (`omnarad`).
+
+PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. The API serves the dashboard too.
+
+## 1. Download Omnara and its tools
+
+Use a local NTFS disk and an administrator PowerShell 5.1 session. From a [`cluster-v*` GitHub release](https://github.com/omnara-ai/omnara/releases?q=cluster-v&expanded=true) that includes Windows assets, download `omnara-windows-amd64.zip` and `omnara-windows-amd64.zip.sha256` into the same directory. Verify and extract them:
+
+```powershell
+$expected = (Get-Content .\omnara-windows-amd64.zip.sha256 -Raw).Split(' ')[0]
+if ((Get-FileHash .\omnara-windows-amd64.zip -Algorithm SHA256).Hash -eq $expected) {
+    Unblock-File .\omnara-windows-amd64.zip
+    Expand-Archive .\omnara-windows-amd64.zip -DestinationPath C:\Omnara
+    Set-Location C:\Omnara
+} else {
+    throw 'Windows bundle checksum mismatch'
+}
+```
+
+The download includes the executables, dashboard, setup scripts, and these guides. Go, Node, and a source checkout are not required. The executables are unsigned. The scripts install new services; they do not upgrade existing ones.
+
+To verify that a tagged release ZIP was built by this repository's GitHub workflow, use the optional GitHub CLI: run `gh attestation verify .\omnara-windows-amd64.zip --repo omnara-ai/omnara` from the download directory.
+
+For builds ahead of a tagged release, download the `omnara-windows-amd64-bundle` artifact from a successful [push-to-main CI run](https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml?query=branch%3Amain+event%3Apush). GitHub login is required and these artifacts expire after 14 days. Extract the artifact download to obtain the same ZIP and checksum pair, then follow the commands above. Release assets remain available independently of CI artifact retention.
+
+<Accordion title="Alternative: build from source">
+
+Skip the bundle download and extraction above. Start from a separate Omnara checkout. Install Go matching `go.mod`, Node matching `.node-version`, and Corepack (`npm install --global corepack`, then `corepack enable`). From that checkout's root, build a fresh output directory:
+
+```powershell
+.\deploy\windows\Build-Windows.ps1 -OutputDirectory C:\Omnara\bin
+```
+
+Continue with the tools below. For a source build, run the configuration and service-install commands from the checkout root.
+
+</Accordion>
+
+Download these x64 tools. Keep the Omnara binaries and file tools in dedicated directories: the application installer replaces their ownership and permissions.
+
+| Download | Installation |
+| --- | --- |
+| [WinSW 2.14.0](https://github.com/winsw/winsw/releases/download/v2.14.0/WinSW-x64.exe) | Save as `C:\Omnara\WinSW-x64.exe`; the installers verify its SHA256. |
+| [ripgrep 16.0.0, MSVC](https://github.com/BurntSushi/ripgrep/releases/download/16.0.0/ripgrep-16.0.0-x86_64-pc-windows-msvc.zip) | Copy `rg.exe` into `C:\Omnara\file-tools`. |
+| [MSYS2 base 2026-11-20](https://github.com/msys2/msys2-installer/releases/download/2026-11-20/msys2-base-x86_64-20261120.sfx.exe) | Run `.\msys2-base-x86_64-20261120.sfx.exe -y -oC:\Omnara\`; copy `sed.exe` (GNU sed 4.10), `msys-2.0.dll`, `msys-intl-8.dll`, and `msys-iconv-2.dll` from `C:\Omnara\msys64\usr\bin` into the same file-tools directory. |
+
+<Accordion title="Checksums for these downloads">
+
+Compare `Get-FileHash -Algorithm SHA256` against these values:
+
+```text
+4ebd9dc3e817f80b2bd8c18f5bfe0d550241c1d08b57bd9694777a6e56a7b24f  WinSW-x64.exe
+f418ae83e63046a94a7b5f3a44bf3a169f66e689164856ecee02547131c73931  ripgrep-16.0.0-x86_64-pc-windows-msvc.zip
+4f6dadfdb2c9be5fc1938e30b635cb72bb4344c35e8b6fd225bc3250fcab5897  msys2-base-x86_64-20261120.sfx.exe
+```
+
+</Accordion>
+
+## 2. Choose dependencies and configure
+
+Supply each service independently; installing a local Redis server does not require a local S3 server. Skip installation for any dependency you already have.
+
+| Dependency | What Omnara needs |
+| --- | --- |
+| PostgreSQL | Version 18+, a dedicated UTF-8 database owned by the application role, and `pg_trgm` available for migrations. SQL Server cannot replace it. |
+| Redis | One Redis-compatible endpoint with atomic Lua scripts (`EVAL`, `cjson`, and `TIME`), expiring keys, and Pub/Sub. Cluster and Sentinel connections are unsupported. Omnara uses Redis for temporary data; it does not need to survive restarts. Losing keys resets pending sign-ins, rate limits, and presence. |
+| S3 | An existing bucket and credentials with object Get/Put/Delete access to `artifacts/*` and `skills/*`. Omnara does not create buckets. |
+
+For a dependency you need to install, follow its separate [native Windows recipe](/self-hosting/windows-dependencies) (`WINDOWS-DEPENDENCIES.mdx` in the download). The tested choices are PostgreSQL's Windows installer, Garnet, and RustFS. An existing service may be local or remote; allow connections from the Windows server and configure TLS for remote endpoints. Certificates and credentials must be accessible to the service accounts, not just your interactive login.
+
+Run the remaining commands from `C:\Omnara`, where the bundle was extracted, or from the checkout root for a source build.
+
+Create a private application configuration and fresh encryption/signing keys. Run this only for a new installation; retain these keys with your backups.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    . .\deploy\windows\Common.ps1
+    $setup = 'C:\ProgramData\Omnara\setup'
+    New-Item -ItemType Directory -Path $setup -ErrorAction Stop | Out-Null
+    Set-PrivatePermissions $setup
+    function New-Key {
+        $bytes = New-Object byte[] 32
+        $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+        [Convert]::ToBase64String($bytes)
+    }
+    $configuration = [IO.File]::ReadAllText("$PWD\deploy\windows\control-plane.env.example")
+    $configuration = $configuration.Replace('REPLACE_ENCRYPTION_KEY', (New-Key)).Replace('REPLACE_SIGNING_KEY', (New-Key))
+    [IO.File]::WriteAllText("$setup\control-plane.env", $configuration)
+    notepad.exe "$setup\control-plane.env"
+}
+```
+
+Replace all remaining `REPLACE_` values with your chosen endpoints and credentials. URL-encode reserved characters in database and Redis credentials. For example, local connections can use `postgres://omnara:PASSWORD@127.0.0.1:5432/omnara?sslmode=disable` and `redis://:PASSWORD@127.0.0.1:6379/0`.
+
+Set the S3 bucket, region, access key and secret key. For local RustFS, use endpoint `http://127.0.0.1:9000`, region `us-east-1`, and path style `1`. For AWS S3, leave the custom endpoint empty and use path style `0`. If using the AWS default credential chain instead of static keys, leave both key fields empty and make those credentials available to the API and worker service accounts.
+
+Keep `OMNARA_PUBLIC_URL=http://localhost:8088` when using the SSH forward below. The file uses literal `KEY=VALUE`, without quotes or shell expansion. The sample writes signup links to private API logs and enables development settings, including access from `web_fetch` to local services. Keep this configuration private.
+
+## 3. Install services
+
+The installer uses loopback ports 8080-8083 by default. To choose different ports, pass `-ApiPort`, `-ApiMetricsPort`, `-WorkerMetricsPort`, and `-MaintenanceMetricsPort` to `Install-Services.ps1`; all four must be distinct and free. These parameters set the installed service listeners, overriding addresses in the environment file.
+
+For example, add `-ApiPort 8090 -ApiMetricsPort 8091 -WorkerMetricsPort 8092 -MaintenanceMetricsPort 8093` to the install command below.
+
+```powershell
+.\deploy\windows\Install-Services.ps1 `
+  -BinaryDirectory C:\Omnara\bin `
+  -FileToolsDirectory C:\Omnara\file-tools `
+  -EnvironmentFile C:\ProgramData\Omnara\setup\control-plane.env `
+  -WinSWPath C:\Omnara\WinSW-x64.exe
+```
+
+The installer updates the database, creates a separate Windows account for each service, prepares permissions and storage, and starts the services. They start automatically after a reboot; allow a few minutes. The dashboard and API listen on `127.0.0.1:8080` by default. Omnara accepts connections only from this machine, and no firewall rules are opened.
+
+These scripts are for new installations. If services were installed but a dependency connection fails, fix the installed `config\control-plane.env`, then run `Restart-Service omnara-api, omnara-worker, omnara-maintenance`; do not reinstall them. Inspect other failures before retrying. Database migrations are not rolled back.
+
+For workstation access, [install and start OpenSSH Server](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse) on Windows and allow SSH connections from your workstation. Forward the API and open `http://localhost:8088`:
+
+```sh
+ssh -L 8088:127.0.0.1:8080 <user>@<server>
+```
+
+For `-ApiPort 8090`, use `8088:127.0.0.1:8090` instead. The first port is on your workstation; keep it consistent with `OMNARA_PUBLIC_URL`.
+
+Sign up using the verification link in the protected API logs under `C:\ProgramData\Omnara\control-plane\api\logs`. Add a model provider and API key in the dashboard, create an agent, send a conversation that uses tools, and upload a file. Check that the conversation and file remain after restarting the services.
+
+## 4. Operate the services
+
+Edit `C:\ProgramData\Omnara\control-plane\config\control-plane.env` for subsequent configuration changes, then restart the affected services. Logs are under each service's `logs` directory. Coordinate database and S3 backups with their owners, and retain the entire memory directory and configuration containing encryption keys with them.
+
+Memory search and scripted edits use ripgrep and GNU sed. On Windows, these tools run with the worker account's file permissions, without the extra isolation used on Linux. Time, memory, and output limits still apply. If scripted edits are unavailable, check the worker logs, fix the file-tool installation, and retry. Ordinary memory reads and writes remain available.
+
+Before rebooting Windows, stop Omnara so the worker can shut down cleanly:
+
+```powershell
+Stop-Service omnara-worker, omnara-api, omnara-maintenance
+```
+
+WinSW 2.14 can fail a stop after the process exits and then restart the service. Wait 15 seconds and confirm these services still report `Stopped` with `Get-Service omnara-worker, omnara-api, omnara-maintenance`. If one restarted after a failed stop, stop it again and recheck before proceeding. The [upstream fix](https://github.com/winsw/winsw/pull/1544) has not shipped in a release binary.
+
+Then follow the shutdown procedure for dependencies hosted on this machine before restarting Windows. Leave shared or remote services running.
+
+These steps keep Omnara private. Before exposing it publicly, configure HTTPS and email delivery, set `OMNARA_PUBLIC_URL` to the public address, and turn off development defaults. See the [configuration reference](/self-hosting/configuration).
+
+To use your own reverse proxy on this server, send all paths to `127.0.0.1` at your chosen `-ApiPort` and preserve the public `Host` header. Enable WebSocket upgrades and unbuffered responses, allow long-lived connections, and allow request bodies up to 100 MiB; the API still enforces its own limits.
+
+Leave `OMNARA_TRUSTED_PROXY_CIDRS` unset for direct or SSH access. Only trust a proxy address if clients cannot also connect from that address and the proxy removes or safely replaces client-supplied forwarding headers. A local proxy and an SSH forward both connect from loopback, so trusting loopback would also trust those direct clients' headers.

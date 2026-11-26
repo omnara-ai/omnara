@@ -11,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +23,8 @@ const (
 	stagingDir = ".staging"
 	locksDir   = ".locks"
 )
+
+var ErrParentNotDirectory = fmt.Errorf("memory parent is a file: %w", storeerr.ErrConflict)
 
 type Filesystem struct{ root *os.Root }
 
@@ -56,6 +57,10 @@ func OpenFilesystem(dir string) (*Filesystem, error) {
 		return nil, err
 	}
 	root := files.root
+	if err := checkFilesystem(root); err != nil {
+		_ = root.Close()
+		return nil, fmt.Errorf("check memory filesystem: %w", err)
+	}
 	for _, name := range []string{stagingDir, locksDir} {
 		if err = root.MkdirAll(name, 0700); err == nil {
 			err = CheckPath(root, name)
@@ -127,7 +132,8 @@ func (f *Filesystem) OpenStore(ref StoreRef) (*os.Root, error) {
 func CheckPath(root *os.Root, name string) error {
 	parts := strings.Split(name, "/")
 	for i := range parts {
-		info, err := root.Lstat(strings.Join(parts[:i+1], "/"))
+		component := strings.Join(parts[:i+1], "/")
+		info, err := root.Lstat(component)
 		if err != nil {
 			return err
 		}
@@ -135,7 +141,10 @@ func CheckPath(root *os.Root, name string) error {
 			return fmt.Errorf("unsupported memory file type: %w", storeerr.ErrConflict)
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return fmt.Errorf("memory parent is a file: %w: %w", storeerr.ErrConflict, syscall.ENOTDIR)
+			return ErrParentNotDirectory
+		}
+		if err := checkNativePath(root, component, info); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -334,7 +343,7 @@ func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, n
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := CheckPath(root, path.Dir(name)); err != nil {
+	if err := CheckPath(root, name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if err := CheckPath(f.root, ref.staging); err != nil {
@@ -360,11 +369,14 @@ func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, n
 }
 
 func (f *Filesystem) Sync(ref StoreRef, root *os.Root, name string) error {
+	if err := CheckPath(root, name); err != nil {
+		return err
+	}
 	file, err := root.Open(name)
 	if err != nil {
 		return err
 	}
-	err = errors.Join(file.Sync(), file.Close())
+	err = errors.Join(syncFile(file), file.Close())
 	if err != nil {
 		return err
 	}
@@ -384,7 +396,7 @@ func syncParents(root *os.Root, name string) error {
 		if err != nil {
 			return err
 		}
-		err = errors.Join(dir.Sync(), dir.Close())
+		err = errors.Join(syncFile(dir), dir.Close())
 		if err != nil {
 			return err
 		}
@@ -438,13 +450,16 @@ func (f *Filesystem) remove(paths ...string) error {
 }
 
 func (f *Filesystem) RemoveFile(ref StoreRef, root *os.Root, name string) error {
+	if err := CheckPath(root, name); err != nil {
+		return err
+	}
 	if err := root.Remove(name); err != nil {
 		return err
 	}
 	dir := path.Dir(name)
 	for dir != "." {
 		if err := root.Remove(dir); err != nil {
-			if errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+			if errors.Is(err, fs.ErrExist) {
 				break
 			}
 			return err

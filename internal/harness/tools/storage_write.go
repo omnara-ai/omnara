@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -65,6 +65,14 @@ func runStorageWriteAsync(ctx context.Context, call asyncToolContext) (asyncPhas
 	input, err := resolveStorageWriteRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if input.Script != nil && runtime.GOOS == "windows" {
+		if err := CheckScriptEditSupport(ctx); err != nil {
+			if errors.Is(err, errFileToolUnavailable) {
+				return nil, err
+			}
+			return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
+		}
 	}
 	ctx, cancel := context.WithTimeoutCause(ctx, 10*time.Second, errors.New("simplify the script and retry"))
 	defer cancel()
@@ -153,11 +161,14 @@ func checkMemoryFileSeen(ctx context.Context, call asyncToolContext, path string
 }
 
 func editFileText(ctx context.Context, content []byte, script string) ([]byte, error) {
-	ctx, cancel := context.WithCancel(ctx)
+	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	command := exec.CommandContext(ctx, "omnara-chroot-sandbox", script)
+	command, cleanup, err := newScriptEditCommand(commandCtx, script)
+	if err != nil {
+		return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
+	}
+	defer cleanup()
 	command.Stdin = bytes.NewReader(content)
-	command.Env = []string{}
 	command.WaitDelay = time.Second
 	var stderr boundedStderrBuffer
 	command.Stderr = &stderr
@@ -168,6 +179,8 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 	if err := command.Start(); err != nil {
 		return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
 	}
+	stopClose := context.AfterFunc(commandCtx, func() { _ = stdout.Close() })
+	defer stopClose()
 	output, err := io.ReadAll(io.LimitReader(stdout, daemonprotocol.MaxFileTransferBytes+1))
 	if err == nil && len(output) > daemonprotocol.MaxFileTransferBytes {
 		err = errors.New("memory content must be at most 10 MiB")
@@ -177,20 +190,20 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 		_ = stdout.Close()
 	}
 	waitErr := command.Wait()
-	if err != nil {
-		return nil, err
-	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, fmt.Errorf("script execution timed out: %w", context.Cause(ctx))
 	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("script execution canceled: %w", ctx.Err())
 	}
+	if err != nil {
+		return nil, err
+	}
 	if waitErr != nil {
 		if sandboxSetupFailed(waitErr, stderr.data) {
 			return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, fmt.Errorf("%s: %w", stderr.data, waitErr))
 		}
-		if diagnostic := strings.TrimSpace(string(stderr.data)); diagnostic != "" {
+		if diagnostic := scriptEditDiagnostic(command, strings.TrimSpace(string(stderr.data))); diagnostic != "" {
 			return nil, fmt.Errorf("script execution failed: %s (%w)", diagnostic, waitErr)
 		}
 		return nil, fmt.Errorf("script execution failed: %w", waitErr)

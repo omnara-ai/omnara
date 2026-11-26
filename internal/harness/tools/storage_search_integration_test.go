@@ -80,8 +80,8 @@ func TestSearchArtifactLoadTimeout(t *testing.T) {
 }
 
 func TestSearchMemoryScopesAndLimits(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("memory search confinement requires Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("memory search requires Linux or Windows")
 	}
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
@@ -234,6 +234,18 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 			t.Fatalf("recursive store selection %s: %+v, %v", pattern, result, err)
 		}
 	}
+	if _, err := search("/memory/engineering/binary*.md", []string{"-e", "["}, 100, 0); err == nil {
+		t.Fatal("all-binary search accepted an invalid regular expression")
+	}
+	// Windows reads bounded files before launching rg, so a NUL anywhere in a
+	// glob-matched file excludes the entire file, including earlier matches.
+	if runtime.GOOS == "windows" {
+		write(engineering.ID, "binary-late.md", "TARGET\n"+strings.Repeat("a", 64*1024)+"\x00")
+		result, err := search("/memory/engineering/binary*.md", []string{"-e", "TARGET"}, 100, 0)
+		if err != nil || result.MatchCount != 0 || result.Truncated {
+			t.Fatalf("binary glob search: %+v, %v", result, err)
+		}
+	}
 	result, err = search("/memory/**", []string{"-e", "TARGET"}, 1, 0)
 	if err != nil || result.MatchCount != 1 || !result.Truncated {
 		t.Fatalf("recursive root search: %+v, %v", result, err)
@@ -316,11 +328,13 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if err != nil || result.MatchCount != 1 || result.Lines[0].LineNumber != 2 || result.Truncated {
 		t.Fatalf("long-path offset: %+v, %v", result, err)
 	}
-	write(engineering.ID, "a:b.md", "TARGET\nTARGET\n")
-	result, err = search("/memory/engineering/a:b.md", []string{"-c", "-e", "TARGET"}, 1, 0)
-	if err != nil || len(result.Files) != 1 || result.Files[0].Path != "/memory/engineering/a:b.md" ||
-		result.Files[0].Count == nil || *result.Files[0].Count != 2 {
-		t.Fatalf("count path containing colon: %+v, %v", result, err)
+	if runtime.GOOS != "windows" {
+		write(engineering.ID, "a:b.md", "TARGET\nTARGET\n")
+		result, err = search("/memory/engineering/a:b.md", []string{"-c", "-e", "TARGET"}, 1, 0)
+		if err != nil || len(result.Files) != 1 || result.Files[0].Path != "/memory/engineering/a:b.md" ||
+			result.Files[0].Count == nil || *result.Files[0].Count != 2 {
+			t.Fatalf("count path containing colon: %+v, %v", result, err)
+		}
 	}
 	write(engineering.ID, "é.md", "TARGET\n")
 	result, err = search("/memory/engineering/?.md", []string{"-l", "-e", "TARGET"}, 100, 0)

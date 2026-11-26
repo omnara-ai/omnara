@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationlock"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 )
 
 type serviceE2EEnvironment struct {
@@ -59,18 +61,26 @@ func newServiceE2EEnvironmentWithOptions(
 	requireDocker bool,
 ) *serviceE2EEnvironment {
 	t.Helper()
+	if requireDocker && runtime.GOOS == "windows" {
+		t.Skip("Linux machine-daemon containers are outside the native Windows control-plane suite")
+	}
 	integrationlock.Acquire(t)
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	uniqueSeed := fmt.Sprintf("%s-%d", seed, time.Now().UnixNano())
+	tempBase := "/tmp"
+	if runtime.GOOS == "windows" {
+		tempBase = ""
+	}
 	//nolint:usetesting // t.TempDir cleanup fails on Docker's root-owned files.
-	root, err := os.MkdirTemp("/tmp", "omnara-service-e2e-"+uniqueSeed+"-")
+	root, err := os.MkdirTemp(tempBase, "omnara-service-e2e-"+uniqueSeed+"-")
 	if err != nil {
 		t.Fatalf("create service e2e root: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	testfs.Prepare(t, root)
 	if requireDocker {
 		output, err := exec.CommandContext(ctx, "docker", "version").CombinedOutput()
 		if err != nil {

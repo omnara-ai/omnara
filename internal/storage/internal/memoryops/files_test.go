@@ -17,10 +17,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/testfs"
 )
 
 func TestFileDigest(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -64,12 +65,19 @@ func TestFileDigest(t *testing.T) {
 			if name == "missing" && !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("missing file: %v", err)
 			}
+			if name == "binary/child" {
+				for _, err := range []error{readErr, err} {
+					if !errors.Is(err, ErrParentNotDirectory) || errors.Is(err, fs.ErrNotExist) {
+						t.Fatalf("parent is a file: %v", err)
+					}
+				}
+			}
 		})
 	}
 }
 
 func TestFilePublication(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +156,7 @@ func TestFilePublication(t *testing.T) {
 	if err := write("link/file.bin", []byte("x")); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("symlink write: %v", err)
 	}
-	outside := t.TempDir()
+	outside := testfs.TempDir(t)
 	outsidePath := filepath.Join(outside, "file.bin")
 	if err := os.WriteFile(outsidePath, content, 0600); err != nil {
 		t.Fatal(err)
@@ -167,6 +175,45 @@ func TestFilePublication(t *testing.T) {
 	}
 }
 
+func TestRemoveFile(t *testing.T) {
+	files, err := OpenFilesystem(testfs.TempDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	ref := testStoreRef(t, "engineering")
+	content := []byte{0, 255, 1, 2}
+	for _, name := range []string{"nested/deep/target", "nested/sibling"} {
+		staged, err := files.Stage(ref, content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := files.Publish(t.Context(), ref, nil, name, staged); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := files.OpenStore(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := files.RemoveFile(ref, root, "nested/deep/target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.Stat("nested/deep"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("empty parent was not pruned: %v", err)
+	}
+	if body, err := Read(root, "nested/sibling"); err != nil || !bytes.Equal(body, content) {
+		t.Fatalf("sibling changed: %v, %v", body, err)
+	}
+	if err := files.RemoveFile(ref, root, "nested/sibling"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.Stat("nested"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("last sibling's parent was not pruned: %v", err)
+	}
+}
+
 func TestSharedLock(t *testing.T) {
 	ref := testStoreRef(t, "shared")
 	if dir := os.Getenv("OMNARA_TEST_MEMORY_LOCK_DIR"); dir != "" {
@@ -179,38 +226,35 @@ func TestSharedLock(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = lock.Close(); _ = files.Close() }()
-		ready := os.NewFile(3, "ready")
-		if _, err := ready.Write([]byte{1}); err != nil {
+		if _, err := os.Stdout.Write([]byte{1}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ready.Close(); err != nil {
-			t.Fatal(err)
-		}
-		select {}
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
 	}
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = files.Close() }()
-	readReady, writeReady, err := os.Pipe()
+	command := exec.Command(os.Args[0], "-test.run=^TestSharedLock$")
+	command.Env = append(os.Environ(), "OMNARA_TEST_MEMORY_LOCK_DIR="+dir)
+	readReady, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = readReady.Close(); _ = writeReady.Close() }()
-	command := exec.Command(os.Args[0], "-test.run=^TestSharedLock$")
-	command.ExtraFiles = []*os.File{writeReady}
-	command.Env = append(os.Environ(), "OMNARA_TEST_MEMORY_LOCK_DIR="+dir)
+	lifetime, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lifetime.Close() }()
 	var output bytes.Buffer
-	command.Stdout, command.Stderr = &output, &output
+	command.Stderr = &output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = command.Process.Kill(); _ = command.Wait() }()
-	if err := writeReady.Close(); err != nil {
-		t.Fatal(err)
-	}
 	ready := make(chan error, 1)
 	go func() { _, err := io.ReadFull(readReady, make([]byte, 1)); ready <- err }()
 	select {
@@ -242,7 +286,7 @@ func TestSharedLock(t *testing.T) {
 }
 
 func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +328,7 @@ func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
 }
 
 func TestPublicationUsesOpenedStore(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +396,7 @@ func testStoreRef(t *testing.T, name string) StoreRef {
 }
 
 func TestStoreLayoutAndIsolation(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +472,7 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 }
 
 func TestRemoveScopeIsolation(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +611,7 @@ func TestNFSMissingPaths(t *testing.T) {
 }
 
 func TestOpenUnpreparedFilesystem(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "memory")
+	dir := filepath.Join(testfs.TempDir(t), "memory")
 	files, err := OpenUnpreparedFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -595,7 +639,7 @@ func TestOpenUnpreparedFilesystem(t *testing.T) {
 }
 
 func TestDiscardStagedFile(t *testing.T) {
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +680,7 @@ func TestDiscardStagedFile(t *testing.T) {
 }
 
 func TestDiscardStagedBefore(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -669,7 +713,7 @@ func TestDiscardStagedBefore(t *testing.T) {
 }
 
 func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
-	dir := t.TempDir()
+	dir := testfs.TempDir(t)
 	files, err := OpenFilesystem(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -704,10 +748,7 @@ func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
 }
 
 func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("requires filesystem permission enforcement")
-	}
-	files, err := OpenFilesystem(t.TempDir())
+	files, err := OpenFilesystem(testfs.TempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,14 +764,33 @@ func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
 	if _, err := files.Stage(ref, []byte("pending")); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.root.Chmod(ref.path, 0500); err != nil {
+	lock, err := files.Lock(t.Context(), ref)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = files.root.Chmod(ref.path, 0700) }()
-	if err := files.RemoveStore(ref); !errors.Is(err, fs.ErrPermission) {
-		t.Fatalf("expected content cleanup permission error, got %v", err)
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := files.root.Stat(ref.staging); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("staging cleanup skipped after content cleanup failed: %v", err)
+	release, wantError := blockStoreRemoval(t, files, ref)
+	defer release()
+	if err := files.RemoveStore(ref); !errors.Is(err, wantError) {
+		t.Fatalf("expected blocked content cleanup, got %v", err)
+	}
+	if content, err := files.root.ReadFile(ref.path + "/note.txt"); err != nil || string(content) != "published" {
+		t.Fatalf("blocked file changed: %q, %v", content, err)
+	}
+	for _, name := range []string{ref.staging, locksDir + "/" + ref.path} {
+		if _, err := files.root.Stat(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("cleanup skipped %s after content cleanup failed: %v", name, err)
+		}
+	}
+	release()
+	if err := files.RemoveStore(ref); err != nil {
+		t.Fatalf("retry blocked removal: %v", err)
+	}
+	for _, name := range []string{ref.path, ref.staging, locksDir + "/" + ref.path} {
+		if _, err := files.root.Stat(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("retry left %s: %v", name, err)
+		}
 	}
 }

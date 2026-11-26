@@ -31,7 +31,7 @@ func ValidatePath(value string) error {
 			return errors.New("memory path contains an unsupported character")
 		}
 	}
-	return nil
+	return validateNativePath(value)
 }
 
 func ParsePath(value string) (string, string, error) {

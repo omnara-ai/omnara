@@ -16,8 +16,18 @@ func TestClientBucketUsesForwardedHeadersOnlyFromTrustedProxy(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "198.51.100.44, 10.0.0.12")
 	req.Header.Set("X-Real-IP", "198.51.100.45")
 
-	if got := (&Handler{}).clientBucket(req); got != "10.0.0.12" {
-		t.Fatalf("untrusted proxy client bucket=%q, want remote address", got)
+	for _, host := range []string{"10.0.0.12", "127.0.0.1", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			direct := req.Clone(t.Context())
+			direct.RemoteAddr = net.JoinHostPort(host, "4321")
+			if got := (&Handler{}).clientBucket(direct); got != host {
+				t.Fatalf("untrusted proxy client bucket=%q, want %q", got, host)
+			}
+			direct.Header.Del("X-Forwarded-For")
+			if got := (&Handler{}).clientBucket(direct); got != host {
+				t.Fatalf("untrusted proxy x-real-ip bucket=%q, want %q", got, host)
+			}
+		})
 	}
 	_, trustedProxy, err := net.ParseCIDR("10.0.0.0/24")
 	if err != nil {

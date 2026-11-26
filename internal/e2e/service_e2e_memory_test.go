@@ -1,4 +1,4 @@
-//go:build integration && servicee2e
+//go:build integration && servicee2e && (linux || windows)
 
 package e2e
 
