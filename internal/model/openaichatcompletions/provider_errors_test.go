@@ -180,7 +180,9 @@ func TestRespondClassifiesCompleteMid200OpenRouterError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -204,7 +206,9 @@ func TestRespondClassifiesOpenRouterKeyLimitAsBilling(t *testing.T) {
 		))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -270,12 +274,12 @@ func TestClassifyOpenRouterLimitErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			got := classifyProviderError(
 				"test-provider",
-				compatFor(model.ProviderRoute{APIVariant: test.variant}),
+				test.variant,
 				test.status,
 				nil,
 				chatProviderError{
 					Message:  test.message,
-					Metadata: chatProviderErrorMetadata{LimitSource: test.limitSource},
+					Metadata: openRouterMetadataFixture(t, map[string]any{"limit_source": test.limitSource}),
 				},
 				"",
 			)
@@ -299,7 +303,9 @@ func TestRespondClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
 		))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -320,7 +326,9 @@ func TestRespondClassifiesOpenRouterWrappedPayloadOverflow(t *testing.T) {
 		))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -343,7 +351,9 @@ func TestRespondClassifiesOpenRouterWrappedImmutableThinkingError(t *testing.T) 
 		))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -392,31 +402,6 @@ func TestRespondClassifiesOpenRouterRawReplayError(t *testing.T) {
 	}
 }
 
-func TestOpenRouterRawErrorMessageShapes(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		raw  json.RawMessage
-		want string
-	}{
-		{name: "plain string", raw: json.RawMessage(`"plain failure"`), want: "plain failure"},
-		{name: "malformed-looking string", raw: json.RawMessage(`"{"`), want: "{"},
-		{name: "JSON string", raw: json.RawMessage(`"{\"msg\":\"encoded failure\"}"`), want: "encoded failure"},
-		{name: "message", raw: json.RawMessage(`{"message":"message failure"}`), want: "message failure"},
-		{name: "error string", raw: json.RawMessage(`{"error":"error failure"}`), want: "error failure"},
-		{name: "detail", raw: json.RawMessage(`{"detail":"detail failure"}`), want: "detail failure"},
-		{name: "details", raw: json.RawMessage(`{"details":"details failure"}`), want: "details failure"},
-		{name: "msg", raw: json.RawMessage(`{"msg":"msg failure"}`), want: "msg failure"},
-		{name: "nested", raw: json.RawMessage(`{"error":{"detail":"nested failure"}}`), want: "nested failure"},
-		{name: "unrecognized", raw: json.RawMessage(`{"status":"failed"}`)},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := openRouterRawErrorMessage(test.raw); got != test.want {
-				t.Fatalf("raw provider message = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 func TestRespondOnlyUsesRawProviderErrorsForOpenRouter(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"error": map[string]any{
@@ -454,7 +439,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal nested error: %v", err)
 	}
-	oversized, err := json.Marshal(strings.Repeat("x", maxNestedProviderErrorBytes+1))
+	oversized, err := json.Marshal(strings.Repeat("x", 64*1024+1))
 	if err != nil {
 		t.Fatalf("marshal oversized nested error: %v", err)
 	}
@@ -471,7 +456,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			providerErr: chatProviderError{
 				Message:  "API key is invalid",
 				Type:     "invalid_api_key",
-				Metadata: chatProviderErrorMetadata{Raw: nested},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": nested}),
 			},
 			wantKind:    model.ErrorKindAuth,
 			wantCode:    "invalid_api_key",
@@ -482,7 +467,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			providerErr: chatProviderError{
 				Message:  "Provider returned error",
 				Type:     "invalid_api_key",
-				Metadata: chatProviderErrorMetadata{Raw: nested},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": nested}),
 			},
 			wantKind:    model.ErrorKindAuth,
 			wantCode:    "invalid_api_key",
@@ -494,7 +479,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 				Message:  "Provider returned error",
 				Type:     "invalid_api_key",
 				Code:     400,
-				Metadata: chatProviderErrorMetadata{Raw: nested},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": nested}),
 			},
 			wantKind:    model.ErrorKindAuth,
 			wantCode:    "400",
@@ -506,7 +491,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 				Message:  "Provider returned error",
 				Type:     "permission_denied",
 				Code:     400,
-				Metadata: chatProviderErrorMetadata{Raw: nested},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": nested}),
 			},
 			wantKind:    model.ErrorKindAuth,
 			wantCode:    "400",
@@ -518,7 +503,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			providerErr: chatProviderError{
 				Message:  "Provider returned error",
 				Code:     502,
-				Metadata: chatProviderErrorMetadata{Raw: nested},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": nested}),
 			},
 			wantKind:    model.ErrorKindProviderUnavailable,
 			wantCode:    "502",
@@ -529,7 +514,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			providerErr: chatProviderError{
 				Message:  "Provider returned error",
 				Type:     "provider_error",
-				Metadata: chatProviderErrorMetadata{Raw: json.RawMessage(`{`)},
+				Metadata: json.RawMessage(`{`),
 			},
 			wantKind:    model.ErrorKindProviderUnavailable,
 			wantMessage: "Provider returned error",
@@ -539,7 +524,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			providerErr: chatProviderError{
 				Message:  "Provider returned error",
 				Type:     "provider_error",
-				Metadata: chatProviderErrorMetadata{Raw: oversized},
+				Metadata: openRouterMetadataFixture(t, map[string]any{"raw": oversized}),
 			},
 			wantKind:    model.ErrorKindProviderUnavailable,
 			wantMessage: "Provider returned error",
@@ -552,7 +537,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			}
 			got := classifyProviderError(
 				"test-provider",
-				compatFor(model.ProviderRoute{APIVariant: modelprotocol.APIVariantOpenRouter}),
+				modelprotocol.APIVariantOpenRouter,
 				statusCode,
 				nil,
 				test.providerErr,
@@ -602,7 +587,9 @@ func TestRespondClassifiesOpenRouterNumericErrors(t *testing.T) {
 		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -628,7 +615,9 @@ func TestRespondClassifiesOpenRouterChoiceErrors(t *testing.T) {
 		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"anthropic/claude-sonnet-4"}`)},
 	)
@@ -652,7 +641,9 @@ func TestRespondClassifiesOpenRouterMetadataErrorType(t *testing.T) {
 		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
@@ -663,4 +654,13 @@ func TestRespondClassifiesOpenRouterMetadataErrorType(t *testing.T) {
 	if providerErr.Kind != model.ErrorKindContextWindow || providerErr.Code != "context_length_exceeded" {
 		t.Fatalf("unexpected provider error: %+v", providerErr)
 	}
+}
+
+func openRouterMetadataFixture(t *testing.T, fields map[string]any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

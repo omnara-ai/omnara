@@ -18,7 +18,9 @@ import (
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return model.Response{}, classifyHTTPError(p.errorSource(), resp.StatusCode, resp.Header, body)
+		return model.Response{}, classifyHTTPError(
+			p.errorSource(), p.client.ModelAPIVariant(), resp.StatusCode, resp.Header, body,
+		)
 	}
 	if err := model.ValidateProviderJSON(body); err != nil {
 		return model.Response{}, p.invalidResponseError(resp, responsesResponse{}, err)
@@ -31,11 +33,15 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		logent.ModelResponseProviderCostInvalid(ctx)
 	}
 	if decoded.Status == "" && decoded.Error.present() {
-		return responseEvidence(decoded), responseFailureError(p.errorSource(), decoded, resp.StatusCode, resp.Header)
+		return responseEvidence(decoded), responseFailureError(
+			p.errorSource(), p.client.ModelAPIVariant(), decoded, resp.StatusCode, resp.Header,
+		)
 	}
 	switch decoded.Status {
 	case "failed":
-		return responseEvidence(decoded), responseFailureError(p.errorSource(), decoded, resp.StatusCode, resp.Header)
+		return responseEvidence(decoded), responseFailureError(
+			p.errorSource(), p.client.ModelAPIVariant(), decoded, resp.StatusCode, resp.Header,
+		)
 	case "queued", "in_progress":
 		out := responseEvidence(decoded)
 		out.Usage.Incomplete = out.Usage != (model.Usage{})
@@ -237,7 +243,7 @@ type responsesResponse struct {
 	ID                string                     `json:"id"`
 	Model             string                     `json:"model"`
 	Status            string                     `json:"status"`
-	ErrorType         string                     `json:"error_type"`
+	ErrorType         json.RawMessage            `json:"error_type"`
 	Error             responsesError             `json:"error"`
 	IncompleteDetails responsesIncompleteDetails `json:"incomplete_details"`
 	Output            []json.RawMessage          `json:"output"`
