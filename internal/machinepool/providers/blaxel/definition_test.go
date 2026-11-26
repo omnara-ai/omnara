@@ -157,3 +157,34 @@ func TestDefinitionCreatesBlaxel(t *testing.T) {
 		t.Fatalf("provider = %#v", runtimeProvider)
 	}
 }
+
+func TestBlaxelInternetAllowlistValidation(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		domains           []string
+		wantErrorContains string
+	}{
+		{name: "patterns", domains: []string{
+			"docs.example.com", "*.example.com", "GET:github.com/acme/repo*", "!POST:api.example.com/v1/",
+		}},
+		{name: "empty list", domains: []string{}},
+		{name: "padded entry", domains: []string{" docs.example.com "}},
+		{name: "blank entry", domains: []string{" "}, wantErrorContains: "internet_allowlist[0] is empty"},
+		{name: "padded allow all", domains: []string{" * "}, wantErrorContains: "allows every domain"},
+		{name: "allow all", domains: []string{"*"}, wantErrorContains: "internet_allowlist[0] allows every domain"},
+		{name: "allow all with method", domains: []string{"GET:*"}, wantErrorContains: "allows every domain"},
+		{name: "allow all with path", domains: []string{"*/v1"}, wantErrorContains: "allows every domain"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machine := testMachineProvisioning(t, map[string]any{"internet_allowlist": test.domains})
+			err := validateProvisioningForTest(machine, machine, json.RawMessage(`{"workspace":"omnara"}`))
+			if test.wantErrorContains == "" && err != nil {
+				t.Fatalf("validate internet_allowlist: %v", err)
+			}
+			if test.wantErrorContains != "" &&
+				(err == nil || !strings.Contains(err.Error(), test.wantErrorContains)) {
+				t.Fatalf("validation error = %v, want %q", err, test.wantErrorContains)
+			}
+		})
+	}
+}

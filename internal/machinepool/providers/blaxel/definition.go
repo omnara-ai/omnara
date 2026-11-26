@@ -19,10 +19,11 @@ type providerConfig struct {
 }
 
 type providerOptions struct {
-	Image         string `json:"image"`
-	Region        string `json:"region"`
-	StartupScript string `json:"startup_script"`
-	SleepAfterMS  int    `json:"sleep_after_ms"`
+	Image             string   `json:"image"`
+	Region            string   `json:"region"`
+	StartupScript     string   `json:"startup_script"`
+	SleepAfterMS      int      `json:"sleep_after_ms"`
+	InternetAllowlist []string `json:"internet_allowlist"`
 }
 
 type Definition struct{}
@@ -70,10 +71,11 @@ func newProvider(
 		return nil, errors.New("blaxel provider auth token is required")
 	}
 	return &provider{
-		workspace:    config.Workspace,
-		apiToken:     runtimeConfig.ProviderAuthToken,
-		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
-		httpRecorder: runtimeConfig.HTTPRecorder,
+		workspace:        config.Workspace,
+		apiToken:         runtimeConfig.ProviderAuthToken,
+		omnaraAPIURL:     runtimeConfig.OmnaraAPIURL,
+		daemonReleaseURL: runtimeConfig.DaemonReleaseURL,
+		httpRecorder:     runtimeConfig.HTTPRecorder,
 	}, nil
 }
 
@@ -244,6 +246,18 @@ func parseProviderOptions(
 	if options.SleepAfterMS != 0 {
 		if _, err := daemonprotocol.SleepAfterDuration(options.SleepAfterMS); err != nil {
 			return providerOptions{}, fmt.Errorf("blaxel machine config sleep_after_ms %w", err)
+		}
+	}
+	for i, domain := range options.InternetAllowlist {
+		domain = strings.TrimSpace(domain)
+		options.InternetAllowlist[i] = domain
+		if domain == "" {
+			return providerOptions{}, fmt.Errorf("blaxel machine config internet_allowlist[%d] is empty", i)
+		}
+		if host, _, _ := strings.Cut(domain, "/"); host[strings.LastIndex(host, ":")+1:] == "*" {
+			return providerOptions{}, fmt.Errorf(
+				"blaxel machine config internet_allowlist[%d] allows every domain; omit internet_allowlist instead", i,
+			)
 		}
 	}
 	return options, nil

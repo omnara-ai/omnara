@@ -450,5 +450,6 @@ func applyRuntimeEnvironment(runtimeConfig *machinedaemon.Config) error {
 		runtimeConfig.WakeListenAddr = ":" + strconv.Itoa(daemonprotocol.WakeListenerPort)
 	}
 	runtimeConfig.SleepPlatform = os.Getenv(daemonprotocol.SleepPlatformEnvVar)
+	runtimeConfig.Firewalled = os.Getenv(daemonprotocol.FirewalledEnvVar) == "1"
 	return nil
 }

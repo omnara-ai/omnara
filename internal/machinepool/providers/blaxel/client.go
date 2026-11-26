@@ -51,11 +51,17 @@ type sandboxSpec struct {
 }
 
 type sandboxNetwork struct {
-	Proxy sandboxProxy `json:"proxy"`
+	Firewall *sandboxFirewall `json:"firewall,omitempty"`
+	Proxy    sandboxProxy     `json:"proxy"`
+}
+
+type sandboxFirewall struct {
+	Rulesets []string `json:"rulesets"`
 }
 
 type sandboxProxy struct {
-	Routing []sandboxProxyRoute `json:"routing"`
+	AllowedDomains []string            `json:"allowedDomains,omitempty"`
+	Routing        []sandboxProxyRoute `json:"routing"`
 }
 
 type sandboxProxyRoute struct {

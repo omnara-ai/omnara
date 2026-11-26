@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,11 +53,12 @@ type sandboxRuntimeState string
 type sandboxProcessStatus string
 
 type provider struct {
-	api          apiClient
-	workspace    string
-	apiToken     string
-	omnaraAPIURL string
-	httpRecorder *metrics.HTTPClientRecorder
+	api              apiClient
+	workspace        string
+	apiToken         string
+	omnaraAPIURL     string
+	daemonReleaseURL string
+	httpRecorder     *metrics.HTTPClientRecorder
 }
 
 func (p *provider) apiClient() apiClient {
@@ -108,18 +111,26 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	network, err := machineTokenNetwork(p.omnaraAPIURL, machineToken)
+	network, err := machineNetwork(p.omnaraAPIURL, p.daemonReleaseURL, machineToken, options.InternetAllowlist)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
+	}
+	firewalled := network.Firewall != nil
+	startupScript := providers.StartupScriptWithoutProxyEnv(options.StartupScript)
+	if firewalled {
+		startupScript = options.StartupScript
 	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		daemonprotocol.ProviderInjectedMachineToken,
-		providers.StartupScriptWithoutProxyEnv(options.StartupScript),
+		startupScript,
 		machineEnv,
 	)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
+	}
+	if firewalled {
+		env[daemonprotocol.FirewalledEnvVar] = "1"
 	}
 	if options.SleepAfterMS > 0 {
 		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
@@ -237,7 +248,7 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-func machineTokenNetwork(apiURL, machineToken string) (*sandboxNetwork, error) {
+func machineNetwork(apiURL, releaseURL, machineToken string, internetAllowlist []string) (*sandboxNetwork, error) {
 	host, err := providers.MachineTokenProxyHost(apiURL)
 	if err != nil {
 		return nil, err
@@ -246,11 +257,38 @@ func machineTokenNetwork(apiURL, machineToken string) (*sandboxNetwork, error) {
 	// to keep that code from pulling the real token into a body.
 	// See https://docs.blaxel.ai/Sandboxes/Proxy-secrets-injection#secret-interpolation.
 	secretName := "omnara-machine-token-" + strings.ToLower(cryptorand.Text())
-	return &sandboxNetwork{Proxy: sandboxProxy{Routing: []sandboxProxyRoute{{
+	secret := "{{SECRET:" + secretName + "}}"
+	network := &sandboxNetwork{}
+	headers := map[string]string{daemonprotocol.MachineTokenHeader: secret}
+	if internetAllowlist != nil {
+		api, err := url.Parse(apiURL)
+		if err != nil {
+			return nil, err
+		}
+		release, err := url.Parse(releaseURL)
+		if err != nil || release.Hostname() == "" || (release.Port() != "" && release.Port() != "443") {
+			return nil, fmt.Errorf(
+				"blaxel internet_allowlist needs the daemon release URL on port 443: %w", providers.ErrPermanent,
+			)
+		}
+		network.Firewall = &sandboxFirewall{Rulesets: []string{"proxy"}}
+		network.Proxy.AllowedDomains = []string{
+			host + strings.TrimRight(api.Path, "/") + "/daemon/",
+			"GET:" + host + "/install/",
+			"GET:" + release.Hostname() + strings.TrimSuffix(path.Dir("/"+strings.Trim(release.Path, "/")), "/") + "/",
+		}
+		if strings.EqualFold(release.Hostname(), "github.com") {
+			network.Proxy.AllowedDomains = append(network.Proxy.AllowedDomains, "GET:release-assets.githubusercontent.com")
+		}
+		network.Proxy.AllowedDomains = append(network.Proxy.AllowedDomains, internetAllowlist...)
+		headers["Authorization"] = "Bearer " + secret
+	}
+	network.Proxy.Routing = []sandboxProxyRoute{{
 		Destinations: []string{host},
-		Headers:      map[string]string{daemonprotocol.MachineTokenHeader: "{{SECRET:" + secretName + "}}"},
+		Headers:      headers,
 		Secrets:      map[string]string{secretName: machineToken},
-	}}}}, nil
+	}}
+	return network, nil
 }
 
 func ensureDaemonProcess(

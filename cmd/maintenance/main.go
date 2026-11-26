@@ -145,7 +145,8 @@ func main() {
 	}
 
 	machinePools := machinepool.NewManager(
-		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, cfg.DaemonReleaseURL, httpRecorder,
+		cfg.EndpointAllowlist,
 	)
 	jobsDone := make(chan struct{})
 	go func() {

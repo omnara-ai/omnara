@@ -1670,3 +1670,45 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 		t.Fatalf("stalled PTY registration claim = %+v", startup.Claims)
 	}
 }
+
+func TestFirewalledPassesNetworkEnvToWorkloadsOnlyWhenEnabled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell")
+	}
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+	}
+	t.Setenv("https_proxy", "http://localhost:49152")
+	t.Setenv("HTTP_PROXY", "http://localhost:49152")
+	t.Setenv("no_proxy", "localhost")
+	t.Setenv("STALE_SECRET", "revoked")
+	for _, enabled := range []bool{true, false} {
+		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx, Config{Firewalled: enabled}, ProcessAssignment{
+				ID: "prc_firewalled_" + strconv.FormatBool(enabled),
+				Process: Process{
+					ExecutionSpec: processcmd.ForShell(
+						`printf 'https_proxy=%s HTTPS_PROXY=%s http_proxy=%s HTTP_PROXY=%s no_proxy=%s NO_PROXY=%s `+
+							`STALE_SECRET=%s\n' "${https_proxy:-unset}" "${HTTPS_PROXY:-unset}" "${http_proxy:-unset}" `+
+							`"${HTTP_PROXY:-unset}" "${no_proxy:-unset}" "${NO_PROXY:-unset}" "${STALE_SECRET:-unset}"`,
+						"default", "pipe",
+					),
+					Cwd: t.TempDir(),
+				},
+				Env: map[string]string{"http_proxy": "configured", "NO_PROXY": "configured"},
+			})
+			fixture.acceptAndStart(t, ctx)
+			inherited := "https_proxy=unset"
+			if enabled {
+				inherited = "https_proxy=http://localhost:49152"
+			}
+			fixture.waitForOutput(t, ctx, inherited+" HTTPS_PROXY=unset http_proxy=configured HTTP_PROXY=unset "+
+				"no_proxy=unset NO_PROXY=configured STALE_SECRET=unset")
+		})
+	}
+}

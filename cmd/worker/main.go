@@ -189,7 +189,8 @@ func main() {
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
 	machinePoolManager := machinepool.NewManager(
-		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, cfg.DaemonReleaseURL, httpRecorder,
+		cfg.EndpointAllowlist,
 	)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
 		executionCtx,

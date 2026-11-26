@@ -75,6 +75,9 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, err
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
+	if c.cfg.Firewalled {
+		assignment.Env = fillNetworkEnv(assignment.Env)
+	}
 	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
 		connection, err := c.fileTransferConnection()
 		if err != nil {
@@ -418,6 +421,26 @@ func supervisorIdentityBootstrapFileName(
 	}
 	return supervisorIdentityBootstrapPrefix +
 		processID + "-" + supervisorInstanceID + ".json", nil
+}
+
+var networkEnvNames = []string{
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+	"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+}
+
+func fillNetworkEnv(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env)+len(networkEnvNames))
+	configured := make(map[string]bool, len(env))
+	for name, value := range env {
+		out[name] = value
+		configured[strings.ToUpper(name)] = true
+	}
+	for _, name := range networkEnvNames {
+		if value, found := os.LookupEnv(name); found && !configured[strings.ToUpper(name)] {
+			out[name] = value
+		}
+	}
+	return out
 }
 
 func sanitizedRunnerEnv(

@@ -253,6 +253,103 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 	}
 }
 
+func TestBlaxelProviderProvisionWithInternetAllowlistTurnsOnFirewall(t *testing.T) {
+	api := newFakeAPI()
+	provider := newTestProvider(api)
+	provider.daemonReleaseURL = "https://releases.omnara.test/omnarad/latest"
+	startupScript := "git clone https://github.com/acme/repo\n"
+
+	_, err := provider.ProvisionMachine(
+		context.Background(),
+		testInstallationID(),
+		uuid.New(),
+		testMachineProvisioning(t, map[string]any{
+			"internet_allowlist": []string{" GET:docs.example.com"},
+			"startup_script":     startupScript,
+		}),
+		"machine-token",
+		nil,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("provision blaxel machine: %v", err)
+	}
+	network := api.createRequests[0].Spec.Network
+	if network == nil || network.Firewall == nil || !slices.Equal(network.Firewall.Rulesets, []string{"proxy"}) {
+		t.Fatalf("firewall = %+v, want proxy ruleset", network)
+	}
+	wantDomains := []string{
+		"api.omnara.test/v1/daemon/",
+		"GET:api.omnara.test/install/",
+		"GET:releases.omnara.test/omnarad/",
+		"GET:docs.example.com",
+	}
+	if !slices.Equal(network.Proxy.AllowedDomains, wantDomains) {
+		t.Fatalf("allowed domains = %q, want %q", network.Proxy.AllowedDomains, wantDomains)
+	}
+	route := network.Proxy.Routing[0]
+	if len(route.Secrets) != 1 {
+		t.Fatalf("proxy route secrets = %d, want 1", len(route.Secrets))
+	}
+	for secretName := range route.Secrets {
+		secret := "{{SECRET:" + secretName + "}}"
+		if len(route.Headers) != 2 || route.Headers["Authorization"] != "Bearer "+secret ||
+			route.Headers[daemonprotocol.MachineTokenHeader] != secret {
+			t.Fatalf("proxy route headers = %+v, want injected Authorization and machine token", route.Headers)
+		}
+	}
+	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
+	if env[daemonprotocol.FirewalledEnvVar] != "1" {
+		t.Fatalf("sandbox env = %+v, want firewalled flag", env)
+	}
+	if env[testStartupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) {
+		t.Fatalf("startup payload = %q, want the script without the proxy unset", env[testStartupScriptEnvVar])
+	}
+	if api.processRequests[0].Command != providers.ManagedBootScript() {
+		t.Fatalf("process command = %q, want the daemon launcher", api.processRequests[0].Command)
+	}
+
+	for releaseURL, wantReleaseDomains := range map[string][]string{
+		"https://github.com/omnara-ai/omnara/releases/download/omnarad-stable": {
+			"GET:github.com/omnara-ai/omnara/releases/download/", "GET:release-assets.githubusercontent.com",
+		},
+		"https://releases.example.test": {"GET:releases.example.test/"},
+	} {
+		provider.daemonReleaseURL = releaseURL
+		if _, err := provider.ProvisionMachine(
+			context.Background(),
+			testInstallationID(),
+			uuid.New(),
+			testMachineProvisioning(t, map[string]any{"internet_allowlist": []string{}}),
+			"machine-token",
+			nil,
+			true,
+		); err != nil {
+			t.Fatalf("provision with release URL %q: %v", releaseURL, err)
+		}
+		domains := api.createRequests[len(api.createRequests)-1].Spec.Network.Proxy.AllowedDomains
+		if !slices.Equal(domains[2:], wantReleaseDomains) {
+			t.Fatalf("release domains for %q = %q, want %q", releaseURL, domains[2:], wantReleaseDomains)
+		}
+	}
+
+	for _, releaseURL := range []string{"", "https://releases.example.test:8443/omnarad/latest"} {
+		provider.daemonReleaseURL = releaseURL
+		_, err = provider.ProvisionMachine(
+			context.Background(),
+			testInstallationID(),
+			uuid.New(),
+			testMachineProvisioning(t, map[string]any{"internet_allowlist": []string{}}),
+			"machine-token",
+			nil,
+			true,
+		)
+		if !errors.Is(err, providers.ErrPermanent) || !strings.Contains(err.Error(), "daemon release URL") {
+			t.Fatalf("provision with release URL %q error = %v, want permanent release URL error", releaseURL, err)
+		}
+	}
+}
+
 func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 	api := newFakeAPI()
 	provider := newTestProvider(api)

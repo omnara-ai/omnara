@@ -34,6 +34,7 @@ const (
 
 type RuntimeConfig struct {
 	OmnaraAPIURL      string
+	DaemonReleaseURL  string
 	ProviderAuthToken string
 	HTTPRecorder      *metrics.HTTPClientRecorder
 	HTTPClient        *http.Client
