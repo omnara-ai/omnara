@@ -151,7 +151,10 @@ function pageActionHost(around: Surroundings): PageActionHost {
 }
 
 interface Viewer {
-  /** The assistant is the viewer's own. No other agent is given their dashboard. */
+  /**
+   * The assistant is the viewer's own, and its configuration is known. No other agent is
+   * given their dashboard.
+   */
   enabled: boolean
   actorId: string | undefined
   /** The assistant's tools as configured, which say how long each waits for an answer. */

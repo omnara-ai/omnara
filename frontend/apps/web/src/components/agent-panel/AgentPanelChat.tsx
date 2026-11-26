@@ -50,7 +50,8 @@ export function AgentPanelChat({
   const archived = panelArchived || agentQuery.data?.agent.state === 'archived'
   const canOperate = selection.can_operate && !archived && agentQuery.isSuccess
   usePageActions(scope, chat, {
-    enabled: selection.own_assistant,
+    // Without its configuration there is no telling how long a call may take.
+    enabled: selection.own_assistant && config.data != null,
     actorId: currentActorId,
     tools: config.data?.compiled_definition.tools,
   })
