@@ -213,7 +213,6 @@ jobs:
             if (-not $failure -or $failure -notlike $Message) { throw "Expected '$Message', got '$failure'" }
           }
           $installer = '.\deploy\windows\Install-Services.ps1'
-          $iis = '.\deploy\windows\Configure-IIS.ps1'
           $parameters = @{
             BinaryDirectory = 'unused'; FileToolsDirectory = 'unused'
             EnvironmentFile = 'unused'; WinSWPath = 'unused'
@@ -226,15 +225,9 @@ jobs:
               Assert-Rejected $installer $case "Cannot validate argument on parameter '$port'.*"
             }
           }
-          foreach ($port in @('Port', 'BackendPort')) {
-            foreach ($value in @(0, 65536)) {
-              Assert-Rejected $iis @{ $port = $value } "Cannot validate argument on parameter '$port'.*"
-            }
-          }
           $case = $parameters.Clone()
           $case.ApiPort = 8081
           Assert-Rejected $installer $case '*must be distinct.*'
-          Assert-Rejected $iis @{ Port = 8090; BackendPort = 8090 } 'Port and BackendPort must be different.'
           $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, 0)
           try {
             $listener.Start()
@@ -242,11 +235,6 @@ jobs:
             $case = $parameters.Clone()
             $case.WorkerMetricsPort = $port
             Assert-Rejected $installer $case "Required Omnara ports are already in use:*$port*"
-            Assert-Rejected $iis @{ Port = $port } "IIS port $port is already in use.*"
-            $listener.Stop()
-            $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
-            $listener.Start()
-            Assert-Rejected $iis @{ BackendPort = $listener.LocalEndpoint.Port } 'omnara-api must be listening on*'
           } finally {
             $listener.Stop()
           }

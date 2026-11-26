@@ -44,8 +44,7 @@ jobs:
           $bundle = Join-Path $env:RUNNER_TEMP 'omnara-windows-bundle'
           $setup = Join-Path $bundle 'deploy\windows'
           New-Item -ItemType Directory -Path $setup | Out-Null
-          foreach ($name in @('Common.ps1', 'Install-Services.ps1',
-              'Configure-IIS.ps1', 'control-plane.env.example', 'web.config')) {
+          foreach ($name in @('Common.ps1', 'Install-Services.ps1', 'control-plane.env.example')) {
             Copy-Item -LiteralPath "deploy\windows\$name" -Destination $setup
           }
           Copy-Item -LiteralPath 'docs\self-hosting\windows.mdx' -Destination "$bundle\WINDOWS-SETUP.mdx"

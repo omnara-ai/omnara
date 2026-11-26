@@ -6,7 +6,7 @@ icon: "windows"
 
 Run the API, worker, maintenance service, migrations, and dashboard natively on Windows Server, without Docker or a Linux VM. These steps were tested on Windows Server 2022 x64 and do not install the machine daemon (`omnarad`).
 
-PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. The API serves the dashboard too; IIS is optional.
+PostgreSQL, Redis, and S3 storage are independent external services. Use existing endpoints or install each dependency separately. Omnara's installer manages only its own services. The API serves the dashboard too.
 
 ## 1. Download Omnara and its tools
 
@@ -131,32 +131,6 @@ For `-ApiPort 8090`, use `8088:127.0.0.1:8090` instead. The first port is on you
 
 Sign up using the verification link in the protected API logs under `C:\ProgramData\Omnara\control-plane\api\logs`. Add a model provider and API key in the dashboard, create an agent, send a conversation that uses tools, and upload a file. Check that the conversation and file remain after restarting the services.
 
-<Accordion title="Optional: serve Omnara through IIS">
-
-Use this recipe if you want IIS in front of Omnara. It creates a separate site and application pool without changing other sites' proxy settings.
-
-```powershell
-Install-WindowsFeature Web-Server, Web-WebSockets -IncludeManagementTools
-```
-
-Install [URL Rewrite 2.1](https://www.iis.net/downloads/microsoft/url-rewrite), then [Application Request Routing 3](https://www.iis.net/downloads/microsoft/application-request-routing), using their x64 installers.
-
-IIS `-BackendPort` defaults to 8080 and must match the installer's `-ApiPort`. For example, use `.\deploy\windows\Configure-IIS.ps1 -BackendPort 8090` after installing with `-ApiPort 8090`. IIS `-Port` defaults to 8088 and must be free and differ from all four service ports.
-
-```powershell
-.\deploy\windows\Configure-IIS.ps1
-```
-
-The IIS site listens on loopback only. To access it privately, replace the direct API forward above with this command:
-
-```sh
-ssh -L 8088:127.0.0.1:8088 <user>@<server>
-```
-
-If you choose a different IIS `-Port`, use that as the SSH destination port. The browser address and `OMNARA_PUBLIC_URL` remain `http://localhost:8088`.
-
-</Accordion>
-
 ## 4. Operate the services
 
 Edit `C:\ProgramData\Omnara\control-plane\config\control-plane.env` for subsequent configuration changes, then restart the affected services. Logs are under each service's `logs` directory. Coordinate database and S3 backups with their owners, and retain the entire memory directory and configuration containing encryption keys with them.
@@ -174,3 +148,7 @@ WinSW 2.14 can fail a stop after the process exits and then restart the service.
 Then follow the shutdown procedure for dependencies hosted on this machine before restarting Windows. Leave shared or remote services running.
 
 These steps keep Omnara private. Before exposing it publicly, configure HTTPS and email delivery, set `OMNARA_PUBLIC_URL` to the public address, and turn off development defaults. See the [configuration reference](/self-hosting/configuration).
+
+To use your own reverse proxy on this server, send all paths to `127.0.0.1` at your chosen `-ApiPort` and preserve the public `Host` header. Enable WebSocket upgrades and unbuffered responses, allow long-lived connections, and allow request bodies up to 100 MiB; the API still enforces its own limits.
+
+Leave `OMNARA_TRUSTED_PROXY_CIDRS` unset for direct or SSH access. Only trust a proxy address if clients cannot also connect from that address and the proxy removes or safely replaces client-supplied forwarding headers. A local proxy and an SSH forward both connect from loopback, so trusting loopback would also trust those direct clients' headers.
