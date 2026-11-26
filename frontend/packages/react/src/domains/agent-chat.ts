@@ -39,6 +39,7 @@ import type {
   UseAgentChatResult,
 } from './agent-chat-types'
 import {
+  agentInputBacklogControls,
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
   invalidateBacklogOnEvent,
@@ -85,6 +86,7 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
+  private sent = new Set<string>()
   // `hinted` is set once the hint was resolved, so a retry sends the same one.
   private lastFailedSend: (LocalAgentInput & { hinted?: { hint: string | undefined } }) | null =
     null
@@ -155,6 +157,7 @@ export class AgentChatSession {
     const previous = this.lastFailedSend
     const retry = previous != null && sameMessage(previous, normalized) ? previous : null
     const id = retry?.id ?? crypto.randomUUID()
+    this.sent.add(id)
     let hinted = retry?.hinted
     this.lastFailedSend = null
     this.error = undefined
@@ -228,6 +231,9 @@ export class AgentChatSession {
     if (!this.localInputs.delete(id)) return
     this.notify()
   }
+
+  sentInput = (idempotencyKey: string | undefined): boolean =>
+    idempotencyKey != null && this.sent.has(idempotencyKey)
 
   beginBacklogInputCancellation = (inputIDs: string[]): (() => void) => {
     const ids = new Set(inputIDs)
@@ -331,6 +337,7 @@ export class AgentChatSession {
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       invalidateOpenInteractions(this.queryClient, this.client, this.scope)
     }
+    if (event.event_kind === 'tool_result') this.toolCallUpdates.completed(event)
     const hasEvent = this.hasLoadedEvent.bind(this)
     invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
     void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
@@ -507,27 +514,11 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     loadOlderMessages: () => void history.fetchNextPage(),
     sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
     subscribeToolCallUpdates: session.toolCallUpdates.subscribe,
-    inputBacklog: {
-      inputs: projected.backlogInputs,
-      actionPending:
-        inputBacklog.cancel.isPending ||
-        inputBacklog.promote.isPending ||
-        inputBacklog.move.isPending,
-      beginCancellation: (inputIDs) =>
-        inputBacklog.beginCancellation(inputIDs, () =>
-          session.beginBacklogInputCancellation(inputIDs),
-        ),
-      cancel: async (inputID) => {
-        const rollback = session.beginBacklogInputCancellation([inputID])
-        try {
-          return await inputBacklog.cancel.mutateAsync(inputID)
-        } catch (error) {
-          rollback()
-          throw error
-        }
-      },
-      promote: inputBacklog.promote.mutateAsync,
-      move: inputBacklog.move.mutateAsync,
-    },
+    sentInput: session.sentInput,
+    inputBacklog: agentInputBacklogControls(
+      inputBacklog,
+      projected.backlogInputs,
+      session.beginBacklogInputCancellation,
+    ),
   }
 }

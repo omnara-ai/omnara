@@ -1,5 +1,5 @@
 import { type UseAgentChatResult, useOmnaraClient } from '@omnara/react'
-import { type CompiledTool, createCustomToolWorker } from '@omnara/sdk'
+import { createCustomToolWorker, sdk } from '@omnara/sdk'
 import { useRouter } from '@tanstack/react-router'
 import { useContext, useEffect, useEffectEvent } from 'react'
 
@@ -7,13 +7,19 @@ import { isDashboardPage, type PageRouter } from '@/lib/dashboard-page'
 
 import { AssistantContext } from './assistant-context'
 import {
-  clickWithCursor,
+  approachWithCursor,
   cursorClickMs,
   pointWithCursor,
   press,
+  pressWithCursor,
   releaseCursor,
 } from './assistant-cursor'
-import { createPageTools, type PageActionHost, type PagePointer, startedTurn } from './page-actions'
+import {
+  askedFromHere,
+  createPageTools,
+  type PageActionHost,
+  type PagePointer,
+} from './page-actions'
 import {
   describeOnPage,
   matchClickableOnPage,
@@ -58,8 +64,8 @@ interface Surroundings {
   router: PageRouter | undefined
   /** Aborts when the conversation leaves the screen. */
   onScreen: AbortSignal
-  startedTurn: (turnID: string) => boolean
-  timeoutMs: (tool: string) => number | undefined
+  ours: PageActionHost['ours']
+  read: PageActionHost['read']
   point: (pointer: PagePointer) => void
   follow: () => void
 }
@@ -68,19 +74,8 @@ function pageActionHost(around: Surroundings): PageActionHost {
   const { router, follow } = around
   return {
     visible: () => document.visibilityState === 'visible',
-    startedTurn: around.startedTurn,
-    timeoutMs: around.timeoutMs,
-    claim: async (id, act) => {
-      let done: Awaited<ReturnType<typeof act>> | undefined
-      await navigator.locks.request(
-        `omnara-assistant-call-${id}`,
-        { ifAvailable: true },
-        async (lock) => {
-          if (lock != null) done = await act()
-        },
-      )
-      return done
-    },
+    ours: around.ours,
+    read: around.read,
     find: async (target, how, { signal, deadline }) => {
       const match = how === 'click' ? matchClickableOnPage : matchOnPage
       const wait = Math.min(findMs, deadline - Date.now() - (how === 'click' ? cursorClickMs : 0))
@@ -94,7 +89,7 @@ function pageActionHost(around: Surroundings): PageActionHost {
       )
       return found ?? { kind: 'none' }
     },
-    click: async (element, { signal, deadline }) => {
+    click: async (element, { signal, deadline, stillWaiting }) => {
       const what = describeOnPage(element)
       if (router == null) return { outcome: 'refused', why: 'Nothing can be clicked here.' }
       if (element.matches(':disabled,[aria-disabled="true"]')) {
@@ -114,8 +109,15 @@ function pageActionHost(around: Surroundings): PageActionHost {
       }
       const from = window.location.pathname
       try {
-        // Throws if the call is called off, so the press below never follows a stale call.
-        await clickWithCursor(element, signal)
+        await approachWithCursor(element, signal)
+        // Omnara is asked while the cursor presses: as late as possible, and at no cost in
+        // time. Either step throws if the call is called off, so nothing below follows one.
+        const [waiting] = await Promise.all([stillWaiting(), pressWithCursor(signal)])
+        signal.throwIfAborted()
+        if (!waiting) {
+          const why = `Omnara had stopped waiting before ${what} could be clicked, so it was not clicked.`
+          return { outcome: 'refused', why }
+        }
         if (link == null) {
           press(element)
         } else {
@@ -151,14 +153,9 @@ function pageActionHost(around: Surroundings): PageActionHost {
 }
 
 interface Viewer {
-  /**
-   * The assistant is the viewer's own, and its configuration is known. No other agent is
-   * given their dashboard.
-   */
+  /** The assistant is the viewer's own. No other agent is given their dashboard. */
   enabled: boolean
   actorId: string | undefined
-  /** The assistant's tools as configured, which say how long each waits for an answer. */
-  tools: Record<string, CompiledTool> | undefined
 }
 
 /**
@@ -166,11 +163,14 @@ interface Viewer {
  * something and reporting what the screen shows afterwards, or pointing at something and
  * reporting whether it was there. A call is taken up when the live conversation says it
  * became ready, so nothing from before this conversation was on screen ever runs, and
- * everything under way stops when the conversation leaves the screen.
+ * everything under way stops when the call ends or the conversation leaves the screen.
  */
 export function usePageActions(
   scope: { orgID: string; projectID: string; agentID: string },
-  chat: Pick<UseAgentChatResult, 'events' | 'hasOlderMessages' | 'subscribeToolCallUpdates'>,
+  chat: Pick<
+    UseAgentChatResult,
+    'events' | 'hasOlderMessages' | 'sentInput' | 'subscribeToolCallUpdates'
+  >,
   viewer: Viewer,
 ) {
   const client = useOmnaraClient()
@@ -179,13 +179,14 @@ export function usePageActions(
   const router = useRouter({ warn: false }) as PageRouter | undefined
   const surface = useContext(AssistantContext)
   const { orgID, projectID, agentID } = scope
-  const startedTurnNow = useEffectEvent((turnID: string) =>
-    startedTurn(chat.events, turnID, viewer.actorId, chat.hasOlderMessages),
+  const oursNow = useEffectEvent((call: { turnID: string; toolCallID: string }) =>
+    askedFromHere(
+      chat.events,
+      call,
+      { actorID: viewer.actorId, sent: chat.sentInput },
+      chat.hasOlderMessages,
+    ),
   )
-  const timeoutNow = useEffectEvent((tool: string) => {
-    const seconds = viewer.tools?.[tool]?.timeout_seconds
-    return seconds == null ? undefined : seconds * 1000
-  })
   const point = useEffectEvent(surface.point)
   const follow = useEffectEvent(surface.follow)
 
@@ -200,8 +201,15 @@ export function usePageActions(
         pageActionHost({
           router,
           onScreen: onScreen.signal,
-          startedTurn: (turnID) => startedTurnNow(turnID),
-          timeoutMs: (tool) => timeoutNow(tool),
+          ours: (call) => oursNow(call),
+          read: async (call) => {
+            const { data } = await sdk.getToolCall({
+              client,
+              path: { orgID, projectID, agentID: call.agentID, toolCallID: call.toolCallID },
+              signal: onScreen.signal,
+            })
+            return { ready: data.state === 'ready', leftMs: data.expires_in_ms }
+          },
           point: (pointer) => {
             point(pointer)
           },

@@ -43,6 +43,7 @@ function Composer({
     isLoadingOlderMessages: false,
     loadOlderMessages: vi.fn(),
     subscribeToolCallUpdates: () => () => undefined,
+    sentInput: () => false,
     inputBacklog: {
       inputs: [],
       actionPending: false,

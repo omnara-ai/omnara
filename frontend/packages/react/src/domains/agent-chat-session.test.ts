@@ -128,6 +128,22 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
+  it('reports a durable tool result to tool call listeners as the call completing', async () => {
+    const session = startSession()
+    const updates = vi.fn()
+    session.toolCallUpdates.subscribe(updates)
+    const stream = await connection(0)
+
+    stream.push({ event: 'tool_result', data: toolResultEvent({ tool_call_id: 'tcl_456' }) })
+
+    await vi.waitFor(() => {
+      expect(updates).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ agent_id: 'agent', tool_call_id: 'tcl_456', state: 'completed' }),
+      )
+    })
+    session.disconnect()
+  })
+
   it('refreshes the backlog and schedules when a scheduling tool completes', async () => {
     const queryClient = new QueryClient()
     const sessionClient = client()
@@ -239,6 +255,8 @@ describe('AgentChatSession input lifecycle', () => {
     const accepted = read(session)
     expect(accepted.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
     expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    expect(session.sentInput(sentIdempotencyKey())).toBe(true)
+    expect(session.sentInput('sent-from-another-window')).toBe(false)
 
     const stream = await connection(0)
     stream.push({

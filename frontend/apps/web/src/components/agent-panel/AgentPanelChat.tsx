@@ -49,12 +49,7 @@ export function AgentPanelChat({
   const currentActorId = useCurrentActorId(orgID, projectID, me.user.id)
   const archived = panelArchived || agentQuery.data?.agent.state === 'archived'
   const canOperate = selection.can_operate && !archived && agentQuery.isSuccess
-  usePageActions(scope, chat, {
-    // Without its configuration there is no telling how long a call may take.
-    enabled: selection.own_assistant && config.data != null,
-    actorId: currentActorId,
-    tools: config.data?.compiled_definition.tools,
-  })
+  usePageActions(scope, chat, { enabled: selection.own_assistant, actorId: currentActorId })
   const canSendNow =
     canOperate &&
     interactions.data != null &&

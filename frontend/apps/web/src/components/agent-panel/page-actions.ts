@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   CustomToolCall,
+  CustomToolCallRef,
   CustomToolHandler,
   CustomToolHandlerResult,
   SubmitToolCallResultRequest,
@@ -12,15 +13,16 @@ import type { PageMatch } from './page-snapshot'
 // The assistant's two page tools, both carried out with its own cursor in the browser of the
 // person who asked. Clicking is how it acts on the screen and the only way it moves the
 // user; the answer is what the screen shows afterwards. Pointing marks something; the answer
-// says whether it was found. A call is carried out only once Omnara says it is ready, and
-// only within the time its tool waits for an answer.
+// says whether it was found. A call is carried out only once Omnara says it is ready, only
+// in the window whose message the assistant was answering, and only within the time the call
+// itself has left.
 export const clickTool = 'dashboard_click'
 export const pointAtTool = 'dashboard_point_at'
 
 const clickInput = z.object({ target: z.string().min(1) })
 const pointInput = z.object({ target: z.string().min(1), note: z.string().optional() })
 
-// What a call keeps back from its tool's timeout for the answer to reach Omnara.
+// What a call keeps back from the time it has left for the answer to reach Omnara.
 const answerMs = 500
 
 /** What a click came to. `what` words the element the way the page outline does. */
@@ -37,40 +39,61 @@ export interface PageActionLimits {
   signal: AbortSignal
   /** Epoch milliseconds by which the answer has to be on its way. */
   deadline: number
+  /**
+   * Asks Omnara whether the call still wants an answer and has time for one. Asked at the
+   * last moment before something that cannot be taken back.
+   */
+  stillWaiting: () => Promise<boolean>
+}
+
+/** Who is at this dashboard: the actor they act as, and the messages this window sent. */
+export interface Asker {
+  actorID: string | undefined
+  sent: (idempotencyKey: string | undefined) => boolean
 }
 
 /**
- * Whether this person, and nobody else, gave the assistant everything it was told in a turn.
+ * Whether a call is this window's to carry out. This person, and nobody else, gave the
+ * assistant everything it was told in the call's turn, and the message it was answering when
+ * it made the call was sent from this window. The outline that went with that message, and
+ * so every ref the call can name, belongs to this window and to no other.
+ *
  * A turn's events sit together in the conversation, so all of its inputs are on hand once
  * something older than the turn is loaded or nothing older exists; until then the answer is no.
  */
-export function startedTurn(
+export function askedFromHere(
   events: AgentEvent[],
-  turnID: string,
-  actorID: string | undefined,
+  call: { turnID: string; toolCallID: string },
+  asker: Asker,
   olderEventsExist: boolean,
 ): boolean {
-  if (actorID == null) return false
-  const first = events.findIndex((event) => event.turn_id === turnID)
+  if (asker.actorID == null) return false
+  const first = events.findIndex((event) => event.turn_id === call.turnID)
   if (first === -1 || (first === 0 && olderEventsExist)) return false
-  const inputs = events.flatMap((event) =>
-    event.turn_id === turnID && event.event_kind === 'agent_input' ? [event] : [],
+  const turn = events.filter((event) => event.turn_id === call.turnID)
+  const inputs = turn.flatMap((event) => (event.event_kind === 'agent_input' ? [event] : []))
+  if (inputs.length === 0 || inputs.some((input) => input.actor_id !== asker.actorID)) return false
+  const made = turn.find(
+    (event) =>
+      event.event_kind === 'model_output' &&
+      event.content_blocks.some(
+        (block) => block.type === 'tool_call' && block.tool_call_id === call.toolCallID,
+      ),
   )
-  return inputs.length > 0 && inputs.every((input) => input.actor_id === actorID)
+  if (made == null) return false
+  const answering = inputs
+    .filter((input) => input.input_kind === 'content' && input.sequence < made.sequence)
+    .at(-1)
+  return answering != null && asker.sent(answering.input_idempotency_key)
 }
 
 export interface PageActionHost {
   /** Whether the user is looking at this tab. */
   visible: () => boolean
-  /** Whether the person at this dashboard, alone, started the turn. */
-  startedTurn: (turnID: string) => boolean
-  /** How long the tool waits for an answer, if it stops waiting at all. */
-  timeoutMs: (tool: string) => number | undefined
-  /**
-   * Carries out a call unless another window of this browser already has it: with the
-   * dashboard open in two windows, a click must still happen once.
-   */
-  claim: <T>(id: string, act: () => Promise<T>) => Promise<T | undefined>
+  /** Whether the call is this window's to carry out; see `askedFromHere`. */
+  ours: (call: { turnID: string; toolCallID: string }) => boolean
+  /** The call as Omnara has it now: whether it is still ready, and the time it has left. */
+  read: (call: CustomToolCallRef) => Promise<{ ready: boolean; leftMs: number | undefined }>
   /** What the target is on the page, giving it a moment to appear. */
   find: (target: string, how: 'click' | 'point', limits: PageActionLimits) => Promise<PageMatch>
   click: (element: Element, limits: PageActionLimits) => Promise<PageClick>
@@ -150,28 +173,27 @@ export function createPageTools(host: PageActionHost) {
 
   const tool =
     (
-      name: string,
       carryOut: (call: CustomToolCall, limits: PageActionLimits) => Promise<Carried>,
     ): CustomToolHandler =>
-    async (call): Promise<CustomToolHandlerResult> => {
-      if (!host.visible() || !host.startedTurn(call.turnID)) return { outcome: 'deferred' }
-      const timeoutMs = host.timeoutMs(name)
-      const limits = {
+    (call): Promise<CustomToolHandlerResult> => {
+      if (!host.visible() || !host.ours(call)) return Promise.resolve({ outcome: 'deferred' })
+      const limits: PageActionLimits = {
         signal: call.signal,
-        deadline: timeoutMs == null ? Infinity : Date.now() + timeoutMs - answerMs,
+        deadline: call.answerBy == null ? Infinity : call.answerBy - answerMs,
+        stillWaiting: async () => {
+          const now = await host.read(call).catch(() => null)
+          return now != null && now.ready && (now.leftMs == null || now.leftMs > answerMs)
+        },
       }
-      const result = await host.claim(call.toolCallID, () =>
-        inOrder(() => {
-          // Waiting for an earlier call may have outlasted this one.
-          call.signal.throwIfAborted()
-          return carryOut(call, limits)
-        }),
-      )
-      return result ?? { outcome: 'deferred' }
+      return inOrder(() => {
+        // Waiting for an earlier call may have outlasted this one.
+        call.signal.throwIfAborted()
+        return carryOut(call, limits)
+      })
     }
 
   return {
-    [clickTool]: tool(clickTool, click),
-    [pointAtTool]: tool(pointAtTool, pointAt),
+    [clickTool]: tool(click),
+    [pointAtTool]: tool(pointAt),
   } satisfies Record<string, CustomToolHandler>
 }

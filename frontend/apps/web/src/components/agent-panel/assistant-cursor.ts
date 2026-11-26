@@ -119,16 +119,22 @@ async function moving(move: (cursor: HTMLElement) => Promise<void>): Promise<voi
   }
 }
 
-/**
- * Shows the cursor going to the element and clicking it. The caller does what the click
- * stands for, unless the signal aborts first: then this throws and nothing is to be clicked.
- */
-export function clickWithCursor(target: Element, signal: AbortSignal): Promise<void> {
+/** Shows the cursor going to the element it is about to click and coming to rest on it. */
+export function approachWithCursor(target: Element, signal: AbortSignal): Promise<void> {
   return moving(async (cursor) => {
     if (!inViewport(target)) target.scrollIntoView({ block: 'center' })
     const to = target.getBoundingClientRect()
     await travel(cursor, to.left + Math.min(to.width / 2, 40), to.top + to.height / 2, signal)
     await wait(restMs, signal)
+  })
+}
+
+/**
+ * Shows the cursor pressing where it rests. The caller does what the click stands for once
+ * this is over, and nothing at all if it throws because the signal aborted first.
+ */
+export function pressWithCursor(signal: AbortSignal): Promise<void> {
+  return moving(async (cursor) => {
     cursor.dataset.state = 'pressing'
     await wait(pressMs, signal)
     cursor.dataset.state = 'moving'

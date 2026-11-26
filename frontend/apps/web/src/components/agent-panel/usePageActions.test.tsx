@@ -40,12 +40,13 @@ function Actions({
     {
       events: [],
       hasOlderMessages: false,
+      sentInput: () => false,
       subscribeToolCallUpdates: (listener) => {
         listen(listener)
         return () => undefined
       },
     },
-    { enabled, actorId: fakeId('act'), tools: undefined },
+    { enabled, actorId: fakeId('act') },
   )
   return null
 }
