@@ -4,7 +4,6 @@ import type { ComponentType, SVGProps } from 'react'
 import {
   CheckCircleIcon,
   CircleHelp,
-  CircleIcon,
   HandRaisedIcon,
   NoSymbolIcon,
   XCircleIcon,
@@ -39,13 +38,6 @@ export function permissionModeOptions(
       description: mode.description,
       icon: modeIcons.get(mode.name) ?? CircleHelp,
     }))
-}
-
-export const inheritPermissionOption: PermissionModeOption = {
-  value: 'inherit',
-  label: 'Inherit',
-  description: 'Follow the default permission.',
-  icon: CircleIcon,
 }
 
 export const disabledPermissionOption: PermissionModeOption = {

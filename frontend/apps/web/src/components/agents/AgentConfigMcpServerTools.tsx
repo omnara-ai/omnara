@@ -1,4 +1,3 @@
-import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox'
 import { useMcpServerTools } from '@omnara/react'
 import {
   ApiError,
@@ -14,7 +13,11 @@ import {
   type UnexposableMcpTool,
   unexposableMcpTools,
 } from '@/components/agents/agentConfigMcp'
-import { AgentConfigMcpToolOverrideList } from '@/components/agents/AgentConfigMcpToolOverrideList'
+import {
+  AgentConfigMcpToolList,
+  type McpToolPatch,
+  type McpToolRow,
+} from '@/components/agents/AgentConfigMcpToolList'
 import { mcpServerAvailability } from '@/components/agents/mcpAvailability'
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
 import {
@@ -24,15 +27,8 @@ import {
 } from '@/components/agents/useAgentBuilderForm'
 import { SearchIcon, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxLoading,
-} from '@/components/ui/combobox'
 import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { useDebouncedValue } from '@/hooks/use-resource-list'
 
 export function AgentConfigMcpServerTools({
@@ -52,6 +48,7 @@ export function AgentConfigMcpServerTools({
   onToolsChange: (tools: BasicMcpTool[]) => void
   onAuthTypeChange: (authType: McpAuthType) => void
 }) {
+  const [query, setQuery] = useState('')
   const request = parseRequestKey(useDebouncedValue(JSON.stringify(mcpServerToolsRequest(server))))
   const discovery = useMcpServerTools(orgId, projectId, request, {
     onError: (error) => {
@@ -60,36 +57,111 @@ export function AgentConfigMcpServerTools({
     },
   })
   const discovered = discovery.data?.tools ?? []
-  const overriddenNames = new Set(server.tools.map((tool) => tool.name))
+  const discovering = discovery.isPending && request != null
   const unexposableTools = unexposableMcpTools(
     server,
     discovered.map((tool) => tool.name),
   )
   const discoveryFailure = visibleDiscoveryFailure(discovery, server.authType)
 
+  const rows = toolRows(server.tools, discovered)
+  const visibleRows = rows.filter((row) => matchesToolSearch(row, query))
+  const typedName = query.trim()
+  const typedNameAddable =
+    mcpToolNameAddable(typedName) && !rows.some((row) => row.name === typedName)
+  const inputId = `${server.id}-tool-search`
+
+  function addTool(name: string) {
+    onToolsChange([...server.tools, { name, enabled: null, permission: null }])
+    setQuery('')
+  }
+
+  function changeTool(name: string, patch: McpToolPatch) {
+    const current = server.tools.find((tool) => tool.name === name)
+    const next = { ...(current ?? { name, enabled: null, permission: null }), ...patch }
+    const matchesDefaults = next.enabled == null && next.permission == null && next.deferred == null
+    if (matchesDefaults && discovered.some((tool) => tool.name === name)) {
+      onToolsChange(server.tools.filter((tool) => tool.name !== name))
+    } else if (current == null) {
+      onToolsChange([...server.tools, next])
+    } else {
+      onToolsChange(server.tools.map((tool) => (tool.name === name ? next : tool)))
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:flex-nowrap">
         <Field className="min-w-0 flex-1 basis-full sm:basis-auto">
-          <FieldLabel htmlFor={`${server.id}-tool-override`}>Tool overrides</FieldLabel>
-          <ToolOverridePicker
-            inputId={`${server.id}-tool-override`}
-            discovered={discovered}
-            overriddenNames={overriddenNames}
-            discovering={discovery.isPending && request != null}
-            onAdd={(name) => {
-              onToolsChange([...server.tools, { name, enabled: null, permission: null }])
-            }}
-          />
+          <div className="flex items-baseline justify-between gap-2">
+            <FieldLabel htmlFor={inputId}>Tools</FieldLabel>
+            {rows.length > 0 && (
+              <span className="text-muted-foreground text-xs tabular-nums" aria-live="polite">
+                {typedName === ''
+                  ? `${rows.length} ${rows.length === 1 ? 'tool' : 'tools'}`
+                  : `${visibleRows.length} of ${rows.length}`}
+              </span>
+            )}
+          </div>
+          <div className="relative">
+            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              id={inputId}
+              type="search"
+              className="pl-9"
+              placeholder="Filter tools"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                if (typedNameAddable) addTool(typedName)
+              }}
+            />
+          </div>
         </Field>
         {defaults}
       </div>
-      <AgentConfigMcpToolOverrideList
-        tools={server.tools}
-        discovered={discovered}
+      <AgentConfigMcpToolList
+        rows={visibleRows}
+        showRemove={rows.some((row) => !row.discovered)}
         permissionProfile={permissionProfile}
+        defaultPermissionMode={
+          server.permission?.mode ?? permissionProfile?.default_permission.mode ?? ''
+        }
         serverAvailability={mcpServerAvailability(server)}
-        onToolsChange={onToolsChange}
+        onToolChange={changeTool}
+        onToolRemove={(name) => {
+          onToolsChange(server.tools.filter((tool) => tool.name !== name))
+        }}
+        empty={
+          typedName === '' ? (
+            discovering ? (
+              'Discovering tools…'
+            ) : (
+              'No tools discovered. Type a tool name above to configure it manually.'
+            )
+          ) : typedNameAddable ? (
+            <span className="inline-flex flex-wrap items-center justify-center gap-2">
+              No tools match.
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  addTool(typedName)
+                }}
+              >
+                Add “{typedName}”
+              </Button>
+            </span>
+          ) : (
+            'No tools match.'
+          )
+        }
       />
       {unexposableTools.length > 0 && <UnexposableTools tools={unexposableTools} />}
       {discoveryFailure && (
@@ -106,119 +178,31 @@ export function AgentConfigMcpServerTools({
   )
 }
 
-function ToolOverridePicker({
-  inputId,
-  discovered,
-  overriddenNames,
-  discovering,
-  onAdd,
-}: {
-  inputId: string
-  discovered: McpServerTool[]
-  overriddenNames: Set<string>
-  discovering: boolean
-  onAdd: (name: string) => void
-}) {
-  const [query, setQuery] = useState('')
-  const candidates = discovered.filter((tool) => !overriddenNames.has(tool.name))
-  const typedName = query.trim()
-  const typedNameAddable =
-    mcpToolNameAddable(typedName) &&
-    !overriddenNames.has(typedName) &&
-    !discovered.some((tool) => tool.name === typedName)
-
-  function addOverride(name: string) {
-    if (overriddenNames.has(name)) return
-    onAdd(name)
-    setQuery('')
-  }
-
-  return (
-    <Combobox
-      items={candidates}
-      inputValue={query}
-      onInputValueChange={(value, details) => {
-        if (details.reason === 'input-change' || details.reason === 'input-clear') {
-          setQuery(value)
-        }
-      }}
-      value={null}
-      onValueChange={(tool: McpServerTool | null) => {
-        if (tool) addOverride(tool.name)
-      }}
-      itemToStringLabel={(tool: McpServerTool) => tool.name}
-      itemToStringValue={(tool: McpServerTool) => tool.name}
-      isItemEqualToValue={(tool: McpServerTool, other: McpServerTool) => tool.name === other.name}
-      filter={matchesToolSearch}
-    >
-      <div className="relative">
-        <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-        <ComboboxPrimitive.Input
-          id={inputId}
-          className="placeholder:text-muted-foreground control-focus bg-background h-9 w-full rounded-md border pr-3 pl-9 text-base md:text-sm pointer-coarse:text-base"
-          placeholder="Add a tool override"
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && typedNameAddable) {
-              event.preventDefault()
-              addOverride(typedName)
-            }
-          }}
-        />
-      </div>
-      <ComboboxContent>
-        <ComboboxEmpty>
-          {discovering
-            ? null
-            : emptyMessage({
-                typedName: typedNameAddable ? typedName : null,
-                candidates,
-                discovered,
-              })}
-        </ComboboxEmpty>
-        <ComboboxList>
-          {(tool: McpServerTool) => (
-            <ComboboxItem key={tool.name} value={tool}>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-xs">{tool.name}</div>
-                {tool.description && (
-                  <div className="text-muted-foreground line-clamp-2 text-xs">
-                    {tool.description}
-                  </div>
-                )}
-              </div>
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-        {discovering && <ComboboxLoading label="Discovering tools…" />}
-      </ComboboxContent>
-    </Combobox>
-  )
+function toolRows(tools: BasicMcpTool[], discovered: McpServerTool[]): McpToolRow[] {
+  const configured = new Map(tools.map((tool) => [tool.name, tool]))
+  const discoveredNames = new Set(discovered.map((tool) => tool.name))
+  return [
+    ...discovered.map((tool) => ({
+      name: tool.name,
+      title: tool.title ?? undefined,
+      description: tool.description ?? undefined,
+      discovered: true,
+      tool: configured.get(tool.name),
+    })),
+    ...tools
+      .filter((tool) => !discoveredNames.has(tool.name))
+      .map((tool) => ({ name: tool.name, discovered: false, tool })),
+  ]
 }
 
-function matchesToolSearch(tool: McpServerTool, search: string) {
+function matchesToolSearch(row: McpToolRow, search: string) {
   const needle = search.trim().toLowerCase()
   return (
     needle === '' ||
-    tool.name.toLowerCase().includes(needle) ||
-    (tool.title?.toLowerCase().includes(needle) ?? false) ||
-    (tool.description?.toLowerCase().includes(needle) ?? false)
+    row.name.toLowerCase().includes(needle) ||
+    (row.title?.toLowerCase().includes(needle) ?? false) ||
+    (row.description?.toLowerCase().includes(needle) ?? false)
   )
-}
-
-function emptyMessage({
-  typedName,
-  candidates,
-  discovered,
-}: {
-  typedName: string | null
-  candidates: McpServerTool[]
-  discovered: McpServerTool[]
-}) {
-  if (typedName != null) return `Press Enter to add "${typedName}"`
-  if (candidates.length === 0 && discovered.length > 0) {
-    return 'Every discovered tool already has an override.'
-  }
-  return 'No tools match.'
 }
 
 function visibleDiscoveryFailure(
