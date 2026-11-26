@@ -2,6 +2,8 @@ import { type GitHubInstallations, type Integration, schemas, zJsonText } from '
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { expectClearOfAssistantLauncher } from './fixtures'
+
 export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   const origin = new URL(page.url()).origin
   const secretID = `sec_${'g'.repeat(26)}`
@@ -185,7 +187,9 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   ).toHaveAttribute('href', installations.install_url)
   await captureGitHubSetup(page, 'installation-selected')
   expect(connects).toBe(0)
-  await page.getByRole('button', { name: 'Connect integration', exact: true }).click()
+  const connect = page.getByRole('button', { name: 'Connect integration', exact: true })
+  await expectClearOfAssistantLauncher(page, connect, [390, 768])
+  await connect.click()
   await expect(page.getByText('Account connected.', { exact: false })).toBeVisible()
   expect(connects).toBe(1)
   const launch = page.getByRole('region', { name: 'Pull requests', exact: true })

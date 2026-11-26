@@ -1,5 +1,5 @@
 import { useModelProviders } from '@omnara/react'
-import { useState } from 'react'
+import { type ComponentProps, type ReactNode, useState } from 'react'
 
 import { CreateConfiguredModelDialog } from '@/components/org/CreateConfiguredModelDialog'
 import { CreateModelProviderDialog } from '@/components/org/CreateModelProviderDialog'
@@ -19,24 +19,39 @@ export function CreateModelButton() {
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const canCreate = canManageOrg(activeOrg.role) && (project?.access.can_manage_access ?? false)
-  // The provider picker only sees loaded items, so load every page before offering it.
-  const providersQuery = useModelProviders(activeOrg.id, { pageSize: 100, enabled: canCreate })
-  const { items: providers, hasCompleteItems } = useCompleteInfiniteQueryItems(
-    providersQuery,
-    canCreate,
+  if (!canCreate) return null
+  return (
+    <ProjectModelCreateButton orgId={activeOrg.id} projectId={projectId} size="sm">
+      New model
+    </ProjectModelCreateButton>
   )
+}
+
+/** The same trigger for any project the viewer can share org models with. */
+export function ProjectModelCreateButton({
+  orgId,
+  projectId,
+  children,
+  ...button
+}: {
+  orgId: string
+  projectId: string
+  children: ReactNode
+} & Pick<ComponentProps<typeof Button>, 'size' | 'variant' | 'className'>) {
+  // The provider picker only sees loaded items, so load every page before offering it.
+  const providersQuery = useModelProviders(orgId, { pageSize: 100 })
+  const { items: providers, hasCompleteItems } = useCompleteInfiniteQueryItems(providersQuery, true)
   const [open, setOpen] = useState(false)
   // Chosen on click and kept until the next one: creating the first provider refreshes the
   // provider list, which must not swap the open wizard for the model dialog.
   const [startWithProvider, setStartWithProvider] = useState(false)
-  if (!canCreate) return null
 
   const defaultProjectIds = [projectId]
   return (
     <>
       <Button
         type="button"
-        size="sm"
+        {...button}
         // A failed provider list would look empty and send an org that has providers through
         // the add-a-provider wizard.
         disabled={!hasCompleteItems}
@@ -46,7 +61,7 @@ export function CreateModelButton() {
           setOpen(true)
         }}
       >
-        New model
+        {children}
       </Button>
       {startWithProvider ? (
         <CreateModelProviderDialog
@@ -55,7 +70,7 @@ export function CreateModelButton() {
           key={projectId}
           open={open}
           onOpenChange={setOpen}
-          orgId={activeOrg.id}
+          orgId={orgId}
           defaultProjectIds={defaultProjectIds}
         />
       ) : (
@@ -63,7 +78,7 @@ export function CreateModelButton() {
           key={projectId}
           open={open}
           onOpenChange={setOpen}
-          orgId={activeOrg.id}
+          orgId={orgId}
           providers={providers}
           defaultProjectIds={defaultProjectIds}
         />

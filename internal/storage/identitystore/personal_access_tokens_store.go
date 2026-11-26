@@ -55,6 +55,22 @@ type preparedPersonalAccessToken struct {
 	token   string
 }
 
+// CreatePersonalAccessTokenTx retains browser-session validation and token
+// limits while participating in a caller-owned transaction.
+func (s *Store) CreatePersonalAccessTokenTx(
+	ctx context.Context, tx dbsqlc.DBTX, input CreatePersonalAccessTokenInput,
+) (CreatedPersonalAccessToken, error) {
+	prepared, err := preparePersonalAccessTokenInput(input)
+	if err != nil {
+		return CreatedPersonalAccessToken{}, err
+	}
+	row, err := createPersonalAccessTokenTx(ctx, dbsqlc.New(tx), prepared)
+	if err != nil {
+		return CreatedPersonalAccessToken{}, err
+	}
+	return CreatedPersonalAccessToken{Record: personalAccessTokenRecordFromSQLC(row), Token: prepared.token}, nil
+}
+
 func preparePersonalAccessTokenInput(input CreatePersonalAccessTokenInput) (preparedPersonalAccessToken, error) {
 	if input.Name == "" {
 		return preparedPersonalAccessToken{}, errors.New("personal access token name is required")

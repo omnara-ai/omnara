@@ -108,6 +108,7 @@ func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg In
 
 const readExecutionTool = `-- name: ReadExecutionTool :one
 SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+ c.timeout_seconds,COALESCE(c.expires_at<=statement_timestamp(),false)::boolean AS expired,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -133,6 +134,8 @@ type ReadExecutionToolRow struct {
 	Type           string
 	State          string
 	RuntimeLockID  *uuid.UUID
+	TimeoutSeconds *int32
+	Expired        bool
 	TurnID         uuid.UUID
 	ContextID      uuid.UUID
 	SourceEventID  uuid.UUID
@@ -157,6 +160,8 @@ func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecut
 		&i.Type,
 		&i.State,
 		&i.RuntimeLockID,
+		&i.TimeoutSeconds,
+		&i.Expired,
 		&i.TurnID,
 		&i.ContextID,
 		&i.SourceEventID,
@@ -187,7 +192,9 @@ func (q *Queries) ReadExecutionToolDispatch(ctx context.Context, db DBTX, arg Re
 }
 
 const transitionExecutionTool = `-- name: TransitionExecutionTool :execrows
-UPDATE tool_calls c SET state=$1,runtime_lock_id=$2
+UPDATE tool_calls c SET state=$1,runtime_lock_id=$2,
+ expires_at=CASE WHEN $1::text='ready' AND c.timeout_seconds>0 AND c.expires_at IS NULL
+ THEN statement_timestamp()+c.timeout_seconds*interval '1 second' ELSE c.expires_at END
 WHERE c.agent_id=$3 AND c.id=$4 AND c.state=$5
  AND c.runtime_lock_id IS NOT DISTINCT FROM $6::uuid
  AND ($7::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_runtime_locks r

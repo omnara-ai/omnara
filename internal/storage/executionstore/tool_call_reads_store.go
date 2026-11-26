@@ -79,6 +79,8 @@ func (s *Store) GetToolCallSummary(
 		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 		Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		TimeoutSeconds: row.TimeoutSeconds,
+		ExpiresIn:      toolCallExpiresIn(ToolCallState(row.State), row.ExpiresAt, row.ReadAt),
 	}, nil
 }
 
@@ -154,6 +156,8 @@ func (s *Store) ListToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			TimeoutSeconds: row.TimeoutSeconds,
+			ExpiresIn:      toolCallExpiresIn(ToolCallState(row.State), row.ExpiresAt, row.ReadAt),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil
@@ -199,6 +203,8 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			TimeoutSeconds: row.TimeoutSeconds,
+			ExpiresIn:      toolCallExpiresIn(ToolCallState(row.State), row.ExpiresAt, row.ReadAt),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil

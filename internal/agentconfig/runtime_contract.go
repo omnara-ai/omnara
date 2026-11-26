@@ -49,12 +49,13 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	Name        string
-	Type        string
-	Permission  toolpermission.Selection
-	Deferred    bool
-	Description string
-	InputSchema json.RawMessage
+	Name           string
+	Type           string
+	Permission     toolpermission.Selection
+	Deferred       bool
+	Description    string
+	InputSchema    json.RawMessage
+	TimeoutSeconds *int
 }
 
 type RuntimeMachine struct {
@@ -196,12 +197,13 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 		}
 		if tool.Type == toolcatalog.ToolTypeCustom {
 			out = append(out, RuntimeTool{
-				Name:        name,
-				Type:        toolcatalog.ToolTypeCustom,
-				Permission:  tool.Permission,
-				Deferred:    tool.Deferred,
-				Description: tool.Description,
-				InputSchema: tool.InputSchema,
+				Name:           name,
+				Type:           toolcatalog.ToolTypeCustom,
+				Permission:     tool.Permission,
+				Deferred:       tool.Deferred,
+				Description:    tool.Description,
+				InputSchema:    tool.InputSchema,
+				TimeoutSeconds: tool.TimeoutSeconds,
 			})
 			continue
 		}
@@ -253,7 +255,13 @@ func validateRuntimeTool(
 		); err != nil {
 			return fmt.Errorf("compiled custom tool %q permission: %w", name, err)
 		}
+		if tool.TimeoutSeconds != nil && (*tool.TimeoutSeconds < 0 || *tool.TimeoutSeconds > MaxCustomToolTimeoutSeconds) {
+			return fmt.Errorf("compiled custom tool %q timeout_seconds is out of range", name)
+		}
 		return nil
+	}
+	if tool.TimeoutSeconds != nil {
+		return fmt.Errorf("compiled tool %q cannot set timeout_seconds", name)
 	}
 	if !builtInName {
 		return fmt.Errorf("compiled tool %q is not registered", name)

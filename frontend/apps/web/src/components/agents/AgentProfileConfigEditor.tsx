@@ -100,21 +100,26 @@ export function AgentProfileConfigEditor({
           unchanged={editor.saveCheck.unchanged}
         />
         {canManage && (
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             {editor.dirty && !pending && (
-              <Button type="button" variant="ghost" onClick={onDiscard}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full sm:w-auto"
+                onClick={onDiscard}
+              >
                 Discard changes
               </Button>
             )}
             <Button
               type="button"
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive w-full sm:w-auto"
               onClick={onDelete}
             >
               Delete profile
             </Button>
-            <Button type="submit" disabled={pending} loading={pending}>
+            <Button type="submit" disabled={pending} loading={pending} className="w-full sm:w-auto">
               Save revision
             </Button>
           </div>

@@ -96,8 +96,10 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('keeps consuming the stream after a tool call update', async () => {
+  it('hands a tool call update to its listeners and keeps consuming the stream', async () => {
     const session = startSession()
+    const updates = vi.fn()
+    session.toolCallUpdates.subscribe(updates)
     const stream = await connection(0)
 
     stream.push({
@@ -120,6 +122,25 @@ describe('AgentChatSession input lifecycle', () => {
       (state) => state.messages.at(-1)?.id === 'input-event',
     )
     expect(snapshot.error).toBeUndefined()
+    expect(updates).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ tool_call_id: 'tcl_123', state: 'ready' }),
+    )
+    session.disconnect()
+  })
+
+  it('reports a durable tool result to tool call listeners as the call completing', async () => {
+    const session = startSession()
+    const updates = vi.fn()
+    session.toolCallUpdates.subscribe(updates)
+    const stream = await connection(0)
+
+    stream.push({ event: 'tool_result', data: toolResultEvent({ tool_call_id: 'tcl_456' }) })
+
+    await vi.waitFor(() => {
+      expect(updates).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ agent_id: 'agent', tool_call_id: 'tcl_456', state: 'completed' }),
+      )
+    })
     session.disconnect()
   })
 
@@ -234,6 +255,8 @@ describe('AgentChatSession input lifecycle', () => {
     const accepted = read(session)
     expect(accepted.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
     expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    expect(session.sentInput(sentIdempotencyKey())).toBe(true)
+    expect(session.sentInput('sent-from-another-window')).toBe(false)
 
     const stream = await connection(0)
     stream.push({
@@ -546,6 +569,107 @@ describe('AgentChatSession input lifecycle', () => {
       }
     },
   )
+
+  it('retries the exact hidden context after navigation and an ambiguous failure', async () => {
+    vi.useFakeTimers()
+    transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
+    const session = startSession([])
+    await connection(0)
+    const originalHint = 'Dashboard context: org-one, project-one'
+    const firstHint = vi.fn().mockResolvedValue(originalHint)
+    const changedHint = vi.fn().mockResolvedValue('Dashboard context: org-two, project-two')
+    try {
+      const rejected = expect(
+        session.sendMessage({ text: 'Create it here' }, 'conversation', firstHint),
+      ).rejects.toThrow('response lost')
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+      await session.sendMessage({ text: 'Create it here' }, 'conversation', changedHint)
+      expect(changedHint).not.toHaveBeenCalled()
+      expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+      const first = transport.createAgentInput.mock.calls[0]?.[0]
+      const second = transport.createAgentInput.mock.calls[1]?.[0]
+      expect(second?.body).toEqual(first?.body)
+      expect(second?.body.content_blocks[0]).toEqual({
+        type: 'text',
+        text: originalHint,
+        metadata: { omnara_hidden: 'true' },
+      })
+      expect(read(session).messages.flatMap(messageText)).not.toContain(originalHint)
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
+  })
+
+  it('preserves a failed send and its retry identity when the last subscriber leaves during confirmation', async () => {
+    vi.useFakeTimers()
+    transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    await connection(0)
+    const originalHint = vi.fn().mockResolvedValue('Original page context')
+    const changedHint = vi.fn().mockResolvedValue('Different page context')
+    try {
+      const rejected = expect(
+        session.sendMessage({ text: 'Keep this draft' }, 'conversation', originalHint),
+      ).rejects.toThrow('response lost')
+      await vi.advanceTimersByTimeAsync(0)
+      unsubscribe()
+      expect(transport.openAgentEventStream.mock.calls[0]?.[0].signal?.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+      expect(read(session).messages).toEqual([])
+      expect(read(session).error?.message).toBe('response lost')
+
+      const stop = session.subscribe(() => undefined)
+      await session.sendMessage({ text: 'Keep this draft' }, 'conversation', changedHint)
+      expect(changedHint).not.toHaveBeenCalled()
+      expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+      expect(transport.createAgentInput.mock.calls[1]?.[0].body).toEqual(
+        transport.createAgentInput.mock.calls[0]?.[0].body,
+      )
+      stop()
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
+  })
+
+  it('accepts an in-flight send while unsubscribed and reconciles one echo on resubscription', async () => {
+    let resolveSend!: (value: CreateAgentInputResult) => void
+    transport.createAgentInput.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSend = resolve
+      }),
+    )
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    await connection(0)
+    const send = session.sendMessage({ text: 'Hello' })
+    unsubscribe()
+    resolveSend(acceptedInput('input-1', 'Hello'))
+    await send
+    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+
+    const stop = session.subscribe(() => undefined)
+    try {
+      const stream = await connection(1)
+      stream.push({
+        event: 'agent_input',
+        data: userInputEvent({ input_idempotency_key: sentIdempotencyKey() }),
+      })
+      await waitForSnapshot(session, (state) => state.messages[0]?.id === 'input-event')
+      expect(read(session).messages.flatMap(messageText)).toEqual(['Hello'])
+      expect(read(session).error).toBeUndefined()
+      expect(session.getData().localInputs).toEqual([])
+      expect(transport.createAgentInput).toHaveBeenCalledOnce()
+    } finally {
+      stop()
+    }
+  })
 
   it('uses backlog confirmation when the event stream fails during the grace period', async () => {
     vi.useFakeTimers()

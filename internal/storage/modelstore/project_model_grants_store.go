@@ -252,6 +252,15 @@ func (s *Store) ListProjectModelGrants(
 	ctx context.Context,
 	input ListProjectModelGrantsInput,
 ) (ListProjectModelGrantsResult, error) {
+	return ListProjectModelGrants(ctx, s.q, input)
+}
+
+// ListProjectModelGrants also serves callers composing work within a transaction.
+func ListProjectModelGrants(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	input ListProjectModelGrantsInput,
+) (ListProjectModelGrantsResult, error) {
 	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil {
 		return ListProjectModelGrantsResult{}, errors.New("org and project are required")
 	}
@@ -271,7 +280,7 @@ func (s *Store) ListProjectModelGrants(
 	if input.List.After.Set {
 		params.CursorSet, params.CursorKey, params.CursorID = true, input.List.After.Key, input.List.After.ID
 	}
-	rows, err := s.q.ListProjectModelGrants(ctx, params)
+	rows, err := q.ListProjectModelGrants(ctx, params)
 	if err != nil {
 		return ListProjectModelGrantsResult{}, fmt.Errorf("list project model grants: %w", err)
 	}

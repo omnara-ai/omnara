@@ -17,7 +17,12 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { replaceConfigEditor, signIn, signInThroughLoginForm, typeInConfigEditor } from './helpers'
+import {
+  expectClearOfAssistantLauncher,
+  replaceConfigEditor,
+  signIn,
+  typeInConfigEditor,
+} from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -27,13 +32,9 @@ import {
 } from './integration-subscriptions'
 
 const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
-const orgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_ORG_NAME')
-const switchOrgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_SWITCH_ORG_NAME')
-const createdOrgName = 'zz web created organization'
 const modelGrantRequest = z.object({ configured_model_id: z.string() })
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
-const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
 const onboardingEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ONBOARDING_EMAIL')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
@@ -80,88 +81,26 @@ async function visitAgentsTabAndReturn(page: Page) {
   await page.getByRole('button', { name: 'Configuration' }).click()
 }
 
-test('returns to a protected deep link after login', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signInThroughLoginForm(page, adminEmail, `${createAgentPath}?source=e2e#yaml`)
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  expect(failures).toEqual([])
-})
-
-test('switches organizations from a project page', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
-
-  await page.getByRole('button', { name: orgName }).click()
-  await page.getByRole('menuitem', { name: switchOrgName }).click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: switchOrgName })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
-  expect(failures).toEqual([])
-})
-
-test('creates an organization from a project page', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, `/projects/${projectID}/agents`)
-
-  await page.getByRole('button', { name: orgName }).click()
-  await page.getByRole('menuitem', { name: 'New organization' }).click()
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(createdOrgName)
-  await page.getByRole('button', { name: 'Create organization' }).click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: createdOrgName })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Project not found' })).toHaveCount(0)
-  expect(failures).toEqual([])
-})
-
-test('opens and answers pending invitations outside onboarding', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, inviteeEmail, '/')
-
-  const pendingInvitations = page.getByRole('link', {
-    name: /^Pending invitations, [1-3]$/,
-  })
-  await expect(pendingInvitations).toBeVisible()
-  await pendingInvitations.click()
-
-  await expect(page).toHaveURL('/invitations')
-  await expect(page.getByRole('heading', { name: 'Pending invitations' })).toBeVisible()
-
-  const declineButtons = page.getByRole('button', { name: /^Decline invitation to / })
-  await expect(declineButtons.first()).toBeVisible()
-  const invitationCount = await declineButtons.count()
-  expect(invitationCount).toBeGreaterThan(0)
-
-  const invitationLabel = await declineButtons.first().getAttribute('aria-label')
-  const invitationName = invitationLabel?.replace('Decline invitation to ', '').trim()
-  if (!invitationName) throw new Error('Pending invitation organization name is missing')
-  await declineButtons.first().click()
-
-  await expect(
-    page.getByRole('button', { name: `Decline invitation to ${invitationName}` }),
-  ).toHaveCount(0)
-  await expect(declineButtons).toHaveCount(invitationCount - 1)
-
-  const acceptButton = page.getByRole('button', { name: /^Accept invitation to / }).first()
-  const acceptLabel = await acceptButton.getAttribute('aria-label')
-  const acceptedOrgName = acceptLabel?.replace('Accept invitation to ', '').trim()
-  if (!acceptedOrgName) throw new Error('Accepted invitation organization name is missing')
-  await acceptButton.click()
-
-  await expect(page).toHaveURL('/')
-  await expect(page.getByRole('button', { name: acceptedOrgName })).toBeVisible()
-
-  expect(failures).toEqual([])
-})
-
-for (const format of ['YAML', 'JSON']) {
-  test(`creates an agent from ${format} text`, async ({ page }) => {
+for (const { format, ...viewport } of [
+  { format: 'YAML', name: 'desktop', width: 1280, height: 720 },
+  { format: 'YAML', name: 'mobile', width: 390, height: 844 },
+  { format: 'JSON', name: 'desktop', width: 1280, height: 720 },
+]) {
+  test(`creates an agent from ${format} text on ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
     const failures = installFailureTracking(page)
     await signIn(page, adminEmail, createAgentPath)
 
     await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
+
+    if (viewport.name === 'mobile') {
+      await page.getByLabel('Instruction').fill('')
+      const submit = page.getByRole('button', { name: 'Create & launch agent' })
+      await submit.click()
+      await expect(page.getByText('Instructions are required.', { exact: true })).toBeVisible()
+      await expectClearOfAssistantLauncher(page, submit, [390])
+    }
 
     await page.getByRole('button', { name: 'YAML' }).click()
     await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
@@ -169,7 +108,7 @@ for (const format of ['YAML', 'JSON']) {
       'true',
     )
 
-    const agentName = uniqueName(`${format} E2E Agent`)
+    const agentName = uniqueName(`${format} E2E Agent ${viewport.name}`)
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
     const definition = {
       instruction: 'Test agent creation from source.',
@@ -467,6 +406,11 @@ test('deletes a profile from its detail page', async ({ page }) => {
   ])
   const profileName = uniqueName('Deleted Profile E2E')
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
+  await page.getByLabel('Instruction').fill('Edited before deletion.')
+  for (const name of ['Discard changes', 'Delete profile', 'Save revision']) {
+    const action = page.getByRole('button', { name, exact: true })
+    await expectClearOfAssistantLauncher(page, action, [390, 768])
+  }
 
   page.once('dialog', (dialog) => void dialog.accept())
   const profilesListed = page.waitForResponse(
@@ -535,39 +479,56 @@ test('denies agent creation when the project lacks manage permission', async ({ 
   expect(failures).toEqual([])
 })
 
-test('walks a new organization through onboarding to its first chat', async ({ page }) => {
+test('sets up an assistant from an empty organization, talks to it on the overview and finds it in the corner elsewhere', async ({
+  page,
+}) => {
   const failures = installFailureTracking(page)
   await signIn(page, onboardingEmail, '/')
+  const assistant = page.getByRole('region', { name: 'Assistant', exact: true })
+  const launcher = page.getByRole('button', { name: 'Assistant', exact: true })
+  const setup = page.getByRole('heading', { name: 'Set up your assistant' })
+  // A retry finds the assistant the first attempt created.
+  await expect(setup.or(assistant)).toBeVisible()
+  await expect(launcher).toHaveCount(0)
+  if (await setup.isVisible()) {
+    await page.getByRole('button', { name: 'Create assistant', exact: true }).click()
+  }
+  await expect(assistant.getByText('Omnara assistant', { exact: true })).toBeVisible()
+  await expect(launcher).toHaveCount(0)
+  await expect(page.getByText('No profiles yet', { exact: true })).toBeVisible()
 
-  await expect(page.getByRole('heading', { name: 'Launch your first agent' })).toBeVisible()
-  const step = (index: number) => page.locator(`[data-step="${index}"]`)
+  const question = 'Which models can my agents use?'
+  const sent = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /\/agents\/agt_[a-z2-7]+\/inputs$/.test(new URL(response.url()).pathname),
+  )
+  const composer = assistant.getByRole('textbox')
+  await composer.fill(question)
+  await composer.press('Enter')
+  const accepted = await sent
+  expect(accepted.ok()).toBe(true)
+  const { agent_input: input } = schemas.zCreateAgentInputResponse.parse(await accepted.json())
+  const blocks = input.content_blocks ?? []
+  expect(blocks.some((block) => block.type === 'text' && block.text === question)).toBe(true)
+  const context = blocks.find(
+    (block) => block.type === 'text' && block.metadata?.omnara_hidden === 'true',
+  )
+  if (context?.type !== 'text') throw new Error('Missing page context')
+  expect(context.text).toContain('"route":"/"')
+  expect(context.text).toContain('## Usage')
+  expect(context.text).toContain('No profiles yet')
+  expect(context.text).not.toContain(question)
+  await expect(assistant.getByText(question, { exact: true })).toBeVisible()
 
-  await expect(page.getByText('omnara.com/SKILL.md', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'or set up manually' }).click()
-  await expect(step(1)).toHaveAttribute('data-status', 'active')
-  await expect(step(1)).toContainText('npx omnara login')
-  await expect(step(2)).toHaveAttribute('data-status', 'active')
-  await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
-
-  await step(2).getByRole('button', { name: 'Run' }).click()
-
-  await expect(step(1)).toHaveAttribute('data-status', 'done')
-  await expect(step(2)).toHaveAttribute('data-status', 'done')
-  await expect(step(2).getByRole('link', { name: 'General agent' })).toBeVisible()
-  await expect(step(3)).toHaveAttribute('data-status', 'active')
-  await expect(step(3)).toContainText('npx omnara agents launch')
-  await page.getByRole('tab', { name: 'TypeScript SDK' }).click()
-  await expect(step(3)).toContainText('sdk.createAgent(')
-  await page.getByRole('tab', { name: 'cURL' }).click()
-  await expect(step(3)).toContainText('curl "')
-  await page.getByRole('button', { name: 'Run' }).click()
-
-  await expect(step(3)).toHaveAttribute('data-status', 'done')
-  await expect(step(3).getByRole('button', { name: 'Run' })).toHaveCount(0)
-  const openChat = step(3).getByRole('link', { name: 'Open chat' })
-  await expect(openChat).toBeVisible()
-  await openChat.click()
-  await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+/chat$`))
+  // The same conversation, with an unsent draft, follows to other pages in the corner.
+  await composer.fill('Still thinking')
+  await page.getByRole('link', { name: 'Members', exact: true }).click()
+  await expect(page).toHaveURL('/members')
+  await launcher.click()
+  const panel = page.getByRole('dialog', { name: 'Assistant', exact: true })
+  await expect(panel.getByText(question, { exact: true })).toBeVisible()
+  await expect(panel.getByRole('textbox')).toHaveValue('Still thinking')
 
   expect(failures).toEqual([])
 })

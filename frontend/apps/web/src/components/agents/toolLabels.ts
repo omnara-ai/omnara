@@ -16,6 +16,7 @@ export const toolInputSchema = z
     url: field,
     name: field,
     agent: field,
+    target: field,
   })
   .catch({})
 export type ToolInput = z.infer<typeof toolInputSchema>
@@ -46,6 +47,15 @@ const quoted = (value: string | undefined, fallback: string) =>
   str(value) ? `"${short(str(value))}"` : fallback
 const pathOr = (value: string | undefined, fallback: string) =>
   str(value) ? short(str(value)) : fallback
+
+/**
+ * The assistant may name something the way the page outline does, `button "New model" [e12]`,
+ * or by that ref alone, which means nothing to a reader.
+ */
+function outlineName(value: string | undefined) {
+  const named = /"([^"]+)"/.exec(str(value))?.[1]
+  return named ?? (/^\[?e\d+\]?$/.test(str(value)) ? undefined : value)
+}
 
 const files: [string, string] = ['file', 'files']
 
@@ -138,6 +148,16 @@ const toolDefs = {
   stop_agent: { verbs: stop, target: () => 'a subagent' },
   list_agents: { verbs: list, target: () => 'subagents' },
   tool_search: { verbs: search, target: (i) => `tools for ${quoted(i.pattern, 'a pattern')}` },
+
+  // The dashboard assistant's page actions
+  dashboard_click: {
+    verbs: ['click', 'Clicking', 'Clicked'],
+    target: (i) => quoted(outlineName(i.target), 'something on the page'),
+  },
+  dashboard_point_at: {
+    verbs: ['point at', 'Pointing at', 'Pointed at'],
+    target: (i) => quoted(outlineName(i.target), 'something on the page'),
+  },
 } satisfies Record<string, ToolDef>
 const tools = new Map<string, ToolDef>(Object.entries(toolDefs))
 

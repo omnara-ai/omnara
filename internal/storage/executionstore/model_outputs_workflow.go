@@ -22,6 +22,7 @@ type ToolCallBindingInput struct {
 	ID             uuid.UUID
 	ProviderCallID string
 	Type           string
+	TimeoutSeconds *int
 }
 
 type RecordToolCallSourceAndCompleteContextInput struct {
@@ -41,6 +42,9 @@ func executionOutput(
 	tools := make([]agentexecution.ToolProposal, len(bindings))
 	for i, b := range bindings {
 		tools[i] = agentexecution.ToolProposal{ID: b.ID, ProviderCallID: b.ProviderCallID, Type: b.Type}
+		if b.TimeoutSeconds != nil {
+			tools[i].TimeoutSeconds = new(int32(*b.TimeoutSeconds))
+		}
 	}
 	return agentexecution.AcceptOutputInput{
 		RuntimeLockID: input.RuntimeLockID,

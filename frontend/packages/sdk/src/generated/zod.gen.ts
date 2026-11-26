@@ -75,6 +75,7 @@ export const zAgentConfigDefinitionTool = z.object({
     enabled: z.boolean().nullish(),
     input_schema: zAgentConfigDefinitionToolInputSchema.optional(),
     permission: zAgentConfigDefinitionToolPermission.optional(),
+    timeout_seconds: z.int().gte(0).lte(86400).optional(),
     type: z.enum(['built_in', 'custom']).optional()
 });
 
@@ -886,7 +887,8 @@ export const zConfiguredModelSummary = z.object({
 export const zProjectModelGrantListItem = z.object({
     grant: zProjectModelGrant,
     model: zConfiguredModelSummary,
-    effective_reasoning: zProjectModelGrantEffectiveReasoning
+    effective_reasoning: zProjectModelGrantEffectiveReasoning,
+    supports_tools: z.boolean()
 });
 
 export const zListProjectModelGrantsResponse = z.object({
@@ -2027,7 +2029,9 @@ export const zToolCall = z.object({
     state: zToolCallState,
     outcome: zToolCallOutcome.optional(),
     completed_at: zTimestamp.optional(),
-    created_at: zTimestamp
+    created_at: zTimestamp,
+    timeout_seconds: z.int().gte(0).lte(86400).optional(),
+    expires_in_ms: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional()
 });
 
 export const zListToolCallsResponse = z.object({
@@ -3598,6 +3602,60 @@ export const zListOrganizationsResponse = z.object({
     data: z.array(zCurrentUserOrg)
 });
 
+export const zAgentPanelScope = z.object({
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    org_name: zResourceName,
+    project_name: zResourceName
+});
+
+export const zAgentPanelSelection = z.object({
+    can_operate: z.boolean(),
+    own_assistant: z.boolean(),
+    scope: zAgentPanelScope,
+    agent_id: zAgentId,
+    name: zAgentName
+});
+
+export const zAgentPanelSetup = z.object({
+    request_id: z.uuid(),
+    scope: zAgentPanelScope,
+    model: z.enum([
+        'available',
+        'provisioning',
+        'required'
+    ])
+});
+
+export const zAgentPanel = z.object({
+    revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    state: z.enum([
+        'empty',
+        'ready',
+        'archived',
+        'unavailable'
+    ]),
+    selection: zAgentPanelSelection.optional(),
+    setup: zAgentPanelSetup.optional()
+});
+
+export const zUpdateAgentPanelRequest = z.object({
+    agent_id: z.string().regex(/^agt_[a-z2-7]{26}$/).nullable()
+});
+
+export const zCreateAssistantAgentRequest = z.object({
+    project_id: zProjectId,
+    request_id: z.uuid(),
+    expected_revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    automatic: z.boolean(),
+    model_id: zConfiguredModelId.optional()
+});
+
+export const zCreateAssistantAgentResponse = z.object({
+    agent_id: zAgentId,
+    panel: zAgentPanel
+});
+
 export const zCurrentUser = z.object({
     user: zCurrentUserIdentity,
     orgs: z.array(zCurrentUserOrg)
@@ -3682,7 +3740,8 @@ export const zCompiledTool = z.object({
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
     description: z.string().optional(),
-    input_schema: z.record(z.string(), z.unknown()).optional()
+    input_schema: z.record(z.string(), z.unknown()).optional(),
+    timeout_seconds: z.int().gte(0).lte(86400).optional()
 });
 
 export const zCompiledIntegrationCapability = z.object({
@@ -4412,6 +4471,29 @@ export const zDeleteOrganizationPath = z.object({
  * Organization deleted.
  */
 export const zDeleteOrganizationResponse = z.void();
+
+/**
+ * Current panel preference and any pending first-organization setup.
+ */
+export const zGetAgentPanelResponse = zAgentPanel;
+
+export const zUpdateAgentPanelBody = zUpdateAgentPanelRequest;
+
+/**
+ * Updated preference.
+ */
+export const zUpdateAgentPanelResponse = zAgentPanel;
+
+export const zCreateAssistantAgentBody = zCreateAssistantAgentRequest;
+
+export const zCreateAssistantAgentPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Assistant created, or a replay of the same request.
+ */
+export const zCreateAssistantAgentResponse2 = zCreateAssistantAgentResponse;
 
 /**
  * Account deleted.

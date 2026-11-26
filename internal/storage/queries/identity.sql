@@ -311,17 +311,17 @@ ORDER BY p.created_at DESC, p.id DESC, roles.role;
 -- name: CreateUser :one
 INSERT INTO users(display_name, created_at, updated_at)
 VALUES (sqlc.arg(display_name), transaction_timestamp(), transaction_timestamp())
-RETURNING id, display_name, deleted_at, created_at, updated_at;
+RETURNING id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible;
 
 -- name: UpdateUserDisplayName :one
 UPDATE users
 SET display_name = sqlc.arg(display_name),
     updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id)
-RETURNING id, display_name, deleted_at, created_at, updated_at;
+RETURNING id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible;
 
 -- name: GetUser :one
-SELECT id, display_name, deleted_at, created_at, updated_at
+SELECT id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible
 FROM users
 WHERE id = $1 AND deleted_at IS NULL;
 

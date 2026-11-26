@@ -98,6 +98,34 @@ export interface AgentInputBacklogControls {
   move: (input: AgentInputBacklogMove) => Promise<OkResponse>
 }
 
+/**
+ * The backlog as a conversation offers it. Canceling an input also takes away the copy the
+ * conversation is still showing of it, through `dismissLocal`, which returns how to put it back.
+ */
+export function agentInputBacklogControls(
+  backlog: ReturnType<typeof useAgentInputBacklog>,
+  inputs: AgentInputBacklogItem[],
+  dismissLocal: (inputIDs: string[]) => () => void,
+): AgentInputBacklogControls {
+  return {
+    inputs,
+    actionPending: backlog.cancel.isPending || backlog.promote.isPending || backlog.move.isPending,
+    beginCancellation: (inputIDs) =>
+      backlog.beginCancellation(inputIDs, () => dismissLocal(inputIDs)),
+    cancel: async (inputID) => {
+      const rollback = dismissLocal([inputID])
+      try {
+        return await backlog.cancel.mutateAsync(inputID)
+      } catch (error) {
+        rollback()
+        throw error
+      }
+    },
+    promote: backlog.promote.mutateAsync,
+    move: backlog.move.mutateAsync,
+  }
+}
+
 export function agentInputBacklogQueryKey(client: OmnaraClient, path: AgentInputBacklogScope) {
   return listQueuedBacklogInputsQueryKey({ path, query: backlogQuery, client })
 }

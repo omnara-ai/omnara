@@ -1356,6 +1356,49 @@ tools:
 	}
 }
 
+func TestCompileYAMLCustomToolTimeout(t *testing.T) {
+	for name, test := range map[string]struct {
+		field string
+		want  *int
+	}{
+		"waits indefinitely": {},
+		"send only":          {field: ", timeout_seconds: 0", want: new(0)},
+		"bounded":            {field: ", timeout_seconds: 86400", want: new(86400)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(
+				"tools: {notify: {type: custom, description: Notify., input_schema: {type: object}"+test.field+"}}",
+			)), CompileOptions{})
+			require.NoError(t, err)
+			require.Equal(t, test.want, compiled.Compiled.Tools["notify"].TimeoutSeconds)
+			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
+			require.NoError(t, err)
+			tool, found := runtimeToolByName(contract, "notify")
+			require.True(t, found)
+			require.Equal(t, test.want, tool.TimeoutSeconds)
+		})
+	}
+}
+
+func TestCompileYAMLRejectsInvalidToolTimeout(t *testing.T) {
+	custom := "{type: custom, description: Notify., input_schema: {type: object}, timeout_seconds: %s}"
+	for name, test := range map[string]struct{ tool, source string }{
+		"negative":      {"notify", fmt.Sprintf(custom, "-1")},
+		"too long":      {"notify", fmt.Sprintf(custom, "86401")},
+		"fractional":    {"notify", fmt.Sprintf(custom, "1.5")},
+		"built-in tool": {"run_command", "{timeout_seconds: 30}"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Compile(SourceFormatYAML, []byte(validAgentSource(
+				"tools: {"+test.tool+": "+test.source+"}",
+			)), CompileOptions{})
+			var validation *ValidationError
+			require.ErrorAs(t, err, &validation)
+			require.Equal(t, "/tools/"+test.tool+"/timeout_seconds", validation.Issues[0].Path)
+		})
+	}
+}
+
 func TestCompileYAMLCustomToolMayUseDoubleUnderscore(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:

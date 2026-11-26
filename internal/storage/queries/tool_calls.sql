@@ -50,7 +50,8 @@ SELECT EXISTS (
 -- name: GetToolCallSummary :one
 SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM tool_calls call
 JOIN agent_events source_event ON source_event.agent_id = call.agent_id
   AND source_event.model_output_id = call.model_output_id
@@ -75,6 +76,15 @@ WHERE tool_call.project_id = sqlc.arg(project_id)
   AND tool_call.agent_id = sqlc.arg(agent_id)
   AND tool_call.id = sqlc.arg(id)
   AND tool_call.type = 'custom';
+
+-- name: ListExpiredCustomToolCalls :many
+SELECT tool_call.project_id, tool_call.agent_id, tool_call.id
+FROM tool_calls tool_call
+WHERE tool_call.state = 'ready'
+  AND tool_call.type = 'custom'
+  AND tool_call.expires_at <= transaction_timestamp()
+ORDER BY tool_call.expires_at, tool_call.id
+LIMIT sqlc.arg(limit_count);
 
 -- name: GetToolCallByProviderCall :one
 WITH selected_call AS MATERIALIZED (
@@ -122,7 +132,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   coalesce(result.outcome, '') AS outcome,
-  call.created_at, result.completed_at
+  call.created_at, result.completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -167,7 +178,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   ''::text AS outcome,
-  call.created_at, NULL::timestamptz AS completed_at
+  call.created_at, NULL::timestamptz AS completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
   AND call.id = page.id

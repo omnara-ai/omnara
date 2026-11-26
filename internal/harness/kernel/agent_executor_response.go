@@ -49,14 +49,19 @@ func toolCallBindings(
 		if toolcatalog.IsMCPRuntimeToolName(call.Name) {
 			toolType = toolcatalog.ToolTypeMCP
 		}
-		if spec, ok := toolsByName[call.Name]; ok && spec.Type != "" {
+		spec, ok := toolsByName[call.Name]
+		if ok && spec.Type != "" {
 			toolType = spec.Type
 		}
-		bindings = append(bindings, executionstore.ToolCallBindingInput{
+		binding := executionstore.ToolCallBindingInput{
 			ID:             streamedToolCallIDs[call.ID],
 			ProviderCallID: call.ID,
 			Type:           toolType,
-		})
+		}
+		if toolType == toolcatalog.ToolTypeCustom {
+			binding.TimeoutSeconds = spec.TimeoutSeconds
+		}
+		bindings = append(bindings, binding)
 	}
 	return bindings
 }

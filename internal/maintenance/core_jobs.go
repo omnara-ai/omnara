@@ -16,6 +16,7 @@ import (
 const (
 	runtimeLockReapBatchSize     int32 = 100
 	daemonRuntimeExpiryBatchSize int32 = 100
+	customToolExpiryBatchSize    int32 = 100
 	deliveryCleanupBatchSize     int32 = 500
 	deliveryCleanupTimeout             = 5 * time.Second
 )
@@ -49,6 +50,18 @@ func expireProcessTools(
 	return func(ctx context.Context) maintenanceResult {
 		count, err := expire(ctx, executionstore.ProcessToolMachineUnreachableGrace)
 		return reportMaintenanceCount(ctx, log, "expire process tool calls", "expired process tool calls", count, err)
+	}
+}
+
+func expireCustomTools(
+	log *slog.Logger,
+	expire func(context.Context, int32) (int64, bool, error),
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
+		count, more, err := expire(ctx, customToolExpiryBatchSize)
+		result := reportMaintenanceCount(ctx, log, "expire custom tool calls", "expired custom tool calls", count, err)
+		result.more = more
+		return result
 	}
 }
 

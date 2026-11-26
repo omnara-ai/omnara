@@ -83,7 +83,7 @@ export function AgentConfigPanel({
               Retry
             </Button>
           </div>
-          <div className="mt-auto flex border-t py-3">
+          <div className="pinned-actions mt-auto flex border-t py-3">
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel editing
             </Button>
@@ -186,7 +186,7 @@ function AgentConfigPanelEditor({
         void submit(event)
       }}
     >
-      <FieldGroup className="pb-6">
+      <FieldGroup className="before-pinned-actions:floating-launcher:pb-20 pb-6">
         <AgentConfigEditorFields
           editor={editor}
           orgId={orgId}
@@ -198,7 +198,7 @@ function AgentConfigPanelEditor({
         />
         {editor.mode.mode === 'yaml' && <AgentCompiledConfig definition={compiledDefinition} />}
       </FieldGroup>
-      <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3">
+      <div className="bg-background pinned-actions sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3">
         <SubmitCheckFeedback
           problems={editor.saveCheck.problems}
           unchanged={editor.saveCheck.unchanged}

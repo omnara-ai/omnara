@@ -149,7 +149,7 @@ const SECRET_QUERY_OPERATIONS = new Set([
   'listSecretGrants',
 ])
 
-function invalidateSecretQueries(queryClient: QueryClient, orgID: string) {
+export function invalidateSecretQueries(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
       const entry = generatedQueryKey(query)

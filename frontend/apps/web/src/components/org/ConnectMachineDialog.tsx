@@ -15,6 +15,7 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { SecretText } from '@/components/ui/secret-text'
 import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 import { useWebConfig } from '@/lib/web-config'
@@ -204,9 +205,7 @@ export function ConnectMachineDialog({
               <div id={`${idPrefix}-token`} className="type-label">
                 Machine token
               </div>
-              <pre className="bg-muted min-w-0 overflow-y-auto rounded-md p-3 font-mono text-xs break-all whitespace-pre-wrap">
-                {state.machineToken}
-              </pre>
+              <SecretText>{state.machineToken}</SecretText>
               <FieldDescription>Shown once.</FieldDescription>
               <Button
                 type="button"

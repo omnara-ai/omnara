@@ -45,6 +45,7 @@ export function UsageTimeseriesPanel({
   filters,
   summary,
   showControls = true,
+  compact = false,
   selection,
   onSelectionChange,
 }: {
@@ -53,6 +54,8 @@ export function UsageTimeseriesPanel({
   summary?: (timeseries: UsageTimeseries) => ReactNode
   /** Measure and breakdown toggles; without them the chart shows tokens by model. */
   showControls?: boolean
+  /** A shorter chart, for a narrow column. */
+  compact?: boolean
   /** Controls the measure and breakdown from outside, so they outlive this panel. */
   selection?: UsageChartSelection
   onSelectionChange?: (patch: Partial<UsageChartSelection>) => void
@@ -76,7 +79,7 @@ export function UsageTimeseriesPanel({
   if (query.isPending) {
     return (
       <div className="flex flex-col gap-4">
-        <Skeleton className="h-56 sm:h-72" />
+        <Skeleton className={compact ? 'h-44' : 'h-56 sm:h-72'} />
         {summary && <UsageStatsSkeleton />}
       </div>
     )
@@ -124,6 +127,7 @@ export function UsageTimeseriesPanel({
           <UsageChart
             data={usageChartData(timeseries, shownMeasure)}
             label={`${measureLabel} per ${timeseries.interval} by ${shownBreakdown}`}
+            compact={compact}
           />
         </div>
       </div>

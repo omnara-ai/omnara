@@ -186,6 +186,8 @@ A custom tool describes an operation that your system performs. Its `description
 
 The full example above defines `create_ticket` as a custom tool. When the agent calls it, Omnara waits for your system to submit the result. [Custom tools](/tools/custom) walks through that workflow.
 
+`timeout_seconds` (0 to 86400) limits that wait. After that many seconds without a result, the call fails and the agent continues. `0` makes the tool send-only: the call completes immediately and the agent never waits. Leave it out to wait indefinitely. See [Timeouts and send-only tools](/tools/custom#timeouts-and-send-only-tools).
+
 ## MCP servers
 
 `mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.

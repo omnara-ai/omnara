@@ -1,6 +1,5 @@
 import {
   isAgentActive,
-  isScheduledBacklogInput,
   useAgent,
   useAgentChat,
   useAgentConfig,
@@ -26,6 +25,7 @@ import {
   AgentSidebarToggle,
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
+import { cancelAgentChatTurn } from '@/components/agents/cancel-agent-chat-turn'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { AgentTraces } from '@/components/agents/traces/AgentTraces'
@@ -172,22 +172,6 @@ export function AgentView() {
     closeConfig()
   }
 
-  async function cancelCurrent() {
-    const steeringInputIDs: string[] = []
-    for (const input of chat.inputBacklog.inputs) {
-      if (input.delivery_mode === 'steering' && !isScheduledBacklogInput(input)) {
-        steeringInputIDs.push(input.id)
-      }
-    }
-    const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
-    try {
-      await cancelAgent.mutateAsync()
-    } catch (error) {
-      rollback()
-      throw error
-    }
-  }
-
   return (
     <SidebarProvider className="h-full min-h-0 overflow-hidden" style={agentSidebarStyle}>
       <MessageScrollerProvider key={agentId} autoScroll>
@@ -305,7 +289,7 @@ export function AgentView() {
             agentID={agentId}
             cancelPending={cancelAgent.isPending}
             cancelError={cancelAgent.error}
-            onCancel={cancelCurrent}
+            onCancel={() => cancelAgentChatTurn(chat, () => cancelAgent.mutateAsync())}
           />
         </div>
       </MessageScrollerProvider>
@@ -382,7 +366,12 @@ function AgentDock({
 }) {
   const composerHidden = !composer || configOpen
   return (
-    <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
+    <div
+      className={cn(
+        'mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3',
+        !configOpen && 'pinned-actions',
+      )}
+    >
       {!archived && !configOpen && (
         <AgentInteractions
           orgID={orgID}

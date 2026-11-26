@@ -30,7 +30,17 @@ const axisTitles = {
   calls: 'Model calls',
 } satisfies Record<UsageMeasure, string>
 
-export function UsageChart({ data, label }: { data: UsageChartData; label: string }) {
+export function UsageChart({
+  data,
+  label,
+  compact = false,
+}: {
+  data: UsageChartData
+  label: string
+  /** A shorter plot with fewer axis labels, for a narrow column. */
+  compact?: boolean
+}) {
+  const plotHeight = compact ? 'h-36' : plotHeightClass
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
   const [now] = useState(Date.now)
   const count = data.columns.length
@@ -65,12 +75,12 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
 
   return (
     <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-3">
-      <div aria-hidden="true" className={cn('flex items-center justify-center', plotHeightClass)}>
+      <div aria-hidden="true" className={cn('flex items-center justify-center', plotHeight)}>
         <span className="text-muted-foreground rotate-180 text-xs whitespace-nowrap [writing-mode:vertical-rl]">
           {axisTitles[data.measure]}
         </span>
       </div>
-      <div aria-hidden="true" className={cn('relative w-11', plotHeightClass)}>
+      <div aria-hidden="true" className={cn('relative w-11', plotHeight)}>
         {ticks
           .filter((tick) => tick > 0)
           .map((tick) => (
@@ -93,7 +103,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
         tabIndex={0}
         className={cn(
           'focus-visible:ring-ring/50 border-muted-foreground/35 relative border-b border-l outline-none focus-visible:ring-2',
-          plotHeightClass,
+          plotHeight,
         )}
         onKeyDown={moveFocus}
         onFocus={() => {
@@ -150,8 +160,8 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
               className={cn(
                 'text-muted-foreground absolute top-3 text-xs leading-none whitespace-nowrap tabular-nums',
                 index === count - 1 ? '-translate-x-full' : '-translate-x-1/2',
-                !compactLabelled.has(index) && 'max-sm:hidden',
-                !labelled.has(index) && 'sm:hidden',
+                !compactLabelled.has(index) && (compact ? 'hidden' : 'max-sm:hidden'),
+                !labelled.has(index) && !compact && 'sm:hidden',
               )}
               style={{
                 left: index === count - 1 ? '100%' : `${((index + 0.5) / count) * 100}%`,

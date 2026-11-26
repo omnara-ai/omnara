@@ -102,6 +102,21 @@ func TestAPIMCPRoute(t *testing.T) {
 			t.Fatalf("agents_list page missing data: %v", page)
 		}
 
+		for name, field := range map[string]string{"usage_org": "totals", "usage_timeseries": "series"} {
+			usage, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: map[string]any{
+				"orgID": project.OrgID,
+			}})
+			if err != nil {
+				t.Fatalf("call %s: %v", name, err)
+			}
+			if usage.IsError {
+				t.Fatalf("%s returned error: %s", name, testutil.RequireType[*mcp.TextContent](t, usage.Content[0]).Text)
+			}
+			if report := testutil.RequireType[map[string]any](t, usage.StructuredContent); report[field] == nil {
+				t.Fatalf("%s result missing %s: %v", name, field, report)
+			}
+		}
+
 		forbidden, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "agents_list", Arguments: map[string]any{
 			"orgID":     "org_00000000000000000000000000",
 			"projectID": project.ProjectID,

@@ -164,7 +164,7 @@ export function AgentEventLog({
       <MessageScrollerViewport>
         <MessageScrollerContent
           className={cn(
-            'mx-auto w-full max-w-5xl gap-0 px-4 pt-2 pb-6 sm:px-6',
+            'before-pinned-actions:floating-launcher:pb-20 mx-auto w-full max-w-5xl gap-0 px-4 pt-2 pb-6 sm:px-6',
             showSendInputGuide && 'justify-center',
           )}
         >

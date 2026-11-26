@@ -2,7 +2,11 @@ import { type Cookie, expect, type Page } from '@playwright/test'
 
 import { requiredEnvironmentVariable } from './fixtures'
 
-export { installFailureTracking, requiredEnvironmentVariable } from './fixtures'
+export {
+  expectClearOfAssistantLauncher,
+  installFailureTracking,
+  requiredEnvironmentVariable,
+} from './fixtures'
 
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 

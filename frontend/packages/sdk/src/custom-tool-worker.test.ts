@@ -35,9 +35,16 @@ describe('finite custom tool handling', () => {
     const handler = vi.fn<CustomToolHandler>(() => pending.promise)
     const { client, requests, submitted } = api(
       (_request, body) => accepted(body ?? found),
-      () => Response.json({ ...toolCall(), input: { authoritative: true } }),
+      () =>
+        Response.json({
+          ...toolCall(),
+          input: { authoritative: true },
+          timeout_seconds: 30,
+          expires_in_ms: 12_000,
+        }),
     )
     const worker = createCustomToolWorker({ client, path, tools: { lookup_customer: handler } })
+    const asked = Date.now()
     const first = worker.handle(ready)
     const duplicate = worker.handle(ready)
     await vi.waitFor(() => {
@@ -46,8 +53,13 @@ describe('finite custom tool handling', () => {
     expect(handler.mock.calls[0]?.[0]).toMatchObject({
       agentID: ready.agent_id,
       toolCallID,
+      turnID: toolCall().turn_id,
       input: { authoritative: true },
     })
+    // What the call has left, counted from before its read was sent.
+    const answerBy = handler.mock.calls[0]?.[0].answerBy ?? 0
+    expect(answerBy).toBeGreaterThanOrEqual(asked + 12_000)
+    expect(answerBy).toBeLessThanOrEqual(Date.now() + 12_000)
     pending.resolve(found)
     await expect(first).resolves.toEqual({ status: 'completed' })
     await expect(duplicate).resolves.toEqual({ status: 'completed' })

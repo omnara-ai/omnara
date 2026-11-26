@@ -79,6 +79,7 @@ const reasoningByModel = new Map<string, ProjectModelGrantEffectiveReasoning>([
 function modelGrant(model: ConfiguredModelSummary) {
   return {
     effective_reasoning: reasoningByModel.get(model.id) ?? noReasoning,
+    supports_tools: true,
     grant: {
       id: model.id.replace('mdl_', 'pmog_'),
       org_id: activeOrg.id,

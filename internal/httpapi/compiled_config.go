@@ -70,6 +70,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		projected := openapi.CompiledTool{
 			Enabled: tool.Enabled, Type: openapi.CompiledToolType(tool.Type), Permission: tool.Permission,
 			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
+			TimeoutSeconds: tool.TimeoutSeconds,
 		}
 		if tool.IntegrationID != uuid.Nil {
 			projected.IntegrationId, err = publicCompiledID(publicid.KindIntegration, tool.IntegrationID)

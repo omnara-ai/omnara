@@ -1,4 +1,5 @@
 import type { UseAgentChatResult } from '@omnara/react'
+import type { ReactNode } from 'react'
 
 import { AgentChatMessage } from '@/components/agents/AgentChatMessage'
 import { Bot } from '@/components/icons'
@@ -18,13 +19,17 @@ export function AgentConversation({
   orgID,
   projectID,
   agentID,
+  intro,
 }: {
   chat: UseAgentChatResult
   currentActorId?: string
   orgID: string
   projectID: string
   agentID: string
+  /** Shown until someone has sent this agent a message. */
+  intro?: ReactNode
 }) {
+  const started = chat.messages.some((message) => message.role === 'user')
   return (
     <MessageScroller>
       <MessageScrollerViewport
@@ -32,7 +37,7 @@ export function AgentConversation({
           if (event.deltaY >= 0) event.stopPropagation()
         }}
       >
-        <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 pt-6 pb-2 sm:px-6">
+        <MessageScrollerContent className="before-pinned-actions:floating-launcher:pb-20 mx-auto w-full max-w-3xl px-4 pt-6 pb-2 sm:px-6">
           {chat.historyStatus === 'pending' ? (
             <div className="space-y-6 py-4">
               <Skeleton className="h-20 w-2/3" />
@@ -50,15 +55,17 @@ export function AgentConversation({
               </Button>
             </div>
           ) : chat.messages.length === 0 ? (
-            <div className="m-auto flex max-w-sm flex-col items-center py-16 text-center">
-              <div className="bg-muted mb-4 flex size-10 items-center justify-center rounded-full">
-                <Bot className="size-5" />
+            (intro ?? (
+              <div className="m-auto flex max-w-sm flex-col items-center py-16 text-center">
+                <div className="bg-muted mb-4 flex size-10 items-center justify-center rounded-full">
+                  <Bot className="size-5" />
+                </div>
+                <p className="font-medium">Start a conversation</p>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  Send a message to give this agent its next task.
+                </p>
               </div>
-              <p className="font-medium">Start a conversation</p>
-              <p className="text-muted-foreground mt-1 text-sm">
-                Send a message to give this agent its next task.
-              </p>
-            </div>
+            ))
           ) : (
             <>
               {chat.hasOlderMessages && (
@@ -85,6 +92,7 @@ export function AgentConversation({
                   />
                 </MessageScrollerItem>
               ))}
+              {!started && intro}
             </>
           )}
         </MessageScrollerContent>

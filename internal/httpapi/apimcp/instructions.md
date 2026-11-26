@@ -8,4 +8,6 @@ Typical flow:
 3. Start an agent with agents_launch from an agent profile (profiles_list), a saved config (configs_create), or an inline config_source.
 4. Follow progress with agents_events_list, send follow-up messages with agents_input, and answer questions or approvals with agents_interactions_list and agents_interactions_resolve.
 
+Usage: usage_org, usage_project, usage_profile and usage_agent return token and cost totals by model for that scope; usage_timeseries buckets one metric over time for the organization, optionally per model or agent profile.
+
 Pagination: agents_events_list pages by sequence; pass next_after_sequence as after_sequence for newer events, or next_before_sequence as before_sequence for older ones. Other list tools that return next_cursor take it back as cursor. Tools marked destructive (cancel, archive, delete, config updates) change or remove state, so confirm with the user first.

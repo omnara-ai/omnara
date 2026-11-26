@@ -647,6 +647,12 @@
           "$ref": "#/$defs/AgentConfigDefinitionToolPermission",
           "description": "Overrides the tool's default permission. GET /tool-catalog lists defaults and modes."
         },
+        "timeout_seconds": {
+          "description": "Custom tools only. Seconds a ready call waits for a result before Omnara completes it as failed. 0 completes the call immediately without waiting for a result. Omit to wait indefinitely.",
+          "maximum": 86400,
+          "minimum": 0,
+          "type": "integer"
+        },
         "type": {
           "description": "built_in for an Omnara tool, custom for a tool your system runs.",
           "enum": [

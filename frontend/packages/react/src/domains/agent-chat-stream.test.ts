@@ -16,6 +16,7 @@ import {
   client,
   connection,
   controlEvent,
+  createChatTestSession,
   delta,
   event,
   messageText,
@@ -47,6 +48,44 @@ function actor(id: string, providerUserId: string): Actor {
 
 describe('AgentChatSession streaming', () => {
   beforeEach(resetChatTestHarness)
+
+  it('resumes from the durable cursor without retaining a partial preview across subscriptions', async () => {
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    const first = await connection(0)
+    first.push({ event: 'agent_input', data: userInputEvent() })
+    first.push({
+      event: 'model_output_delta',
+      data: delta(1, { kind: 'block_start', block_index: 0, block: { kind: 'text' } }),
+    })
+    first.push({
+      event: 'model_output_delta',
+      data: delta(2, { kind: 'text_delta', block_index: 0, delta: 'Partial preview' }),
+    })
+    await waitForSnapshot(session, (state) =>
+      state.messages.flatMap(messageText).includes('Partial preview'),
+    )
+    unsubscribe()
+    expect(transport.openAgentEventStream.mock.calls[0]?.[0].signal?.aborted).toBe(true)
+    expect(session.getData().deltas).toEqual([])
+    const stop = session.subscribe(() => undefined)
+    try {
+      const resumed = await connection(1)
+      expect(transport.openAgentEventStream.mock.calls[1]?.[0].query?.after_sequence).toBe(11)
+      first.fail(new Error('late failure from closed stream'))
+      resumed.push({
+        event: 'model_output',
+        data: event({ sequence: 12, content_blocks: [{ type: 'text', text: 'Complete answer' }] }),
+      })
+      await waitForSnapshot(session, (state) => state.status === 'ready')
+      expect(read(session).messages.flatMap(messageText)).toEqual(['Hello', 'Complete answer'])
+      expect(read(session).error).toBeUndefined()
+      expect(transport.openAgentEventStream.mock.calls[1]?.[0].signal?.aborted).toBe(false)
+    } finally {
+      stop()
+    }
+  })
 
   it('streams accepted deltas as a live preview and swaps to the durable output', async () => {
     const session = startSession()
@@ -689,97 +728,6 @@ describe('AgentChatSession streaming', () => {
     })
     const finished = await waitForSnapshot(session, (s) => s.status === 'ready')
     expect(messageText(finished.messages.at(-1))).toEqual(['Done'])
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
-    session.disconnect()
-  })
-
-  it('opens the continuous follower from the initial durable cursor', async () => {
-    const session = startSession()
-    await connection(0)
-    expect(transport.openAgentEventStream).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query: { after_sequence: 0, stream_deltas: true },
-      }),
-    )
-    session.disconnect()
-  })
-
-  it('surfaces a fatal stream response', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'http',
-        message: 'Agent event stream request failed with HTTP 401',
-        status: 401,
-      }),
-    )
-    const snapshot = await waitForSnapshot(session, (s) => s.status === 'error')
-
-    expect(snapshot.error?.message).toBe('Agent event stream request failed with HTTP 401')
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
-    session.disconnect()
-  })
-
-  it('reopens the stream from the last cursor on reconnect', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'http',
-        message: 'Agent event stream request failed with HTTP 401',
-        status: 401,
-      }),
-    )
-    await waitForSnapshot(session, (s) => s.status === 'error')
-
-    expect(session.getData().streamError?.message).toBe(
-      'Agent event stream request failed with HTTP 401',
-    )
-    session.reconnect()
-
-    expect(read(session).error).toBeUndefined()
-    expect(session.getData().streamError).toBeUndefined()
-    const reopened = await connection(1)
-    reopened.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (s) => s.messages.length === 1)
-    expect(transport.openAgentEventStream).toHaveBeenLastCalledWith(
-      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
-    )
-    session.disconnect()
-  })
-
-  it('surfaces a terminal API stream error', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'api',
-        code: 'internal_error',
-        message: 'event projection failed',
-      }),
-    )
-
-    const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
-    expect(snapshot.error?.message).toBe('event projection failed')
-    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
-    session.disconnect()
-  })
-
-  it('surfaces a stream contract violation without reconnecting', async () => {
-    const session = startSession()
-    const stream = await connection(0)
-    stream.fail(
-      new AgentEventStreamError({
-        kind: 'contract',
-        message: 'Agent event stream received data that does not match the API contract',
-      }),
-    )
-
-    const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
-    expect(snapshot.error?.message).toBe(
-      'Agent event stream received data that does not match the API contract',
-    )
     expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })

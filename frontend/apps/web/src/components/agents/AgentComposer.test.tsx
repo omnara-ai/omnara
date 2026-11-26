@@ -2,7 +2,7 @@
 
 import type { UseAgentChatResult } from '@omnara/react'
 import { ApiError } from '@omnara/sdk'
-import { act, useState } from 'react'
+import { act, Activity, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 
@@ -20,7 +20,13 @@ interface InFlightSend {
   settle?: (failure?: Error) => void
 }
 
-function Composer({ send }: { send: Send }) {
+function Composer({
+  send,
+  onAskable,
+}: {
+  send: Send
+  onAskable?: (send: ((text: string) => Promise<void>) | null) => void
+}) {
   const [error, setError] = useState<Error>()
   const chat: UseAgentChatResult = {
     events: [],
@@ -36,6 +42,8 @@ function Composer({ send }: { send: Send }) {
     hasOlderMessages: false,
     isLoadingOlderMessages: false,
     loadOlderMessages: vi.fn(),
+    subscribeToolCallUpdates: () => () => undefined,
+    sentInput: () => false,
     inputBacklog: {
       inputs: [],
       actionPending: false,
@@ -55,7 +63,14 @@ function Composer({ send }: { send: Send }) {
     },
   }
   return (
-    <AgentComposer chat={chat} onCancel={vi.fn()} cancelPending={false} canOperate hidden={false} />
+    <AgentComposer
+      chat={chat}
+      onCancel={vi.fn()}
+      cancelPending={false}
+      canOperate
+      hidden={false}
+      onAskable={onAskable}
+    />
   )
 }
 
@@ -65,24 +80,30 @@ async function withComposer(
     textarea: HTMLTextAreaElement,
     form: HTMLFormElement,
     container: HTMLElement,
+    setVisible: (visible: boolean) => void,
   ) => Promise<void>,
 ) {
   const restore = enableReactActEnvironment()
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
-  try {
+  function setVisible(visible: boolean) {
     act(() => {
       root.render(
-        <MessageScrollerProvider>
-          <Composer send={send} />
-        </MessageScrollerProvider>,
+        <Activity mode={visible ? 'visible' : 'hidden'}>
+          <MessageScrollerProvider>
+            <Composer send={send} />
+          </MessageScrollerProvider>
+        </Activity>,
       )
     })
+  }
+  try {
+    setVisible(true)
     const textarea = container.querySelector('textarea')
     const form = container.querySelector('form')
     if (textarea == null || form == null) throw new Error('missing composer')
-    await run(textarea, form, container)
+    await run(textarea, form, container, setVisible)
   } finally {
     act(() => {
       root.unmount()
@@ -118,6 +139,42 @@ async function pressEnter(textarea: HTMLTextAreaElement, keyCode: number) {
   })
 }
 
+it('offers to send a message asked elsewhere and puts it in the draft when sending fails', async () => {
+  const send = vi.fn<Send>().mockRejectedValueOnce(new Error('offline'))
+  const restore = enableReactActEnvironment()
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  let sendAsked: ((text: string) => Promise<void>) | null = null
+  try {
+    act(() => {
+      root.render(
+        <MessageScrollerProvider>
+          <Composer
+            send={send}
+            onAskable={(next) => {
+              sendAsked = next
+            }}
+          />
+        </MessageScrollerProvider>,
+      )
+    })
+    await act(async () => {
+      await sendAsked?.('What is Omnara?')
+    })
+    expect(send.mock.calls.map(([input]) => input.text)).toEqual(['What is Omnara?'])
+    expect(container.querySelector('textarea')?.value).toBe('What is Omnara?')
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('offline')
+    act(() => {
+      root.unmount()
+    })
+    expect(sendAsked).toBeNull()
+  } finally {
+    container.remove()
+    restore()
+  }
+})
+
 it('shows the backlog error and restores the exact draft', async () => {
   const send = vi.fn<Send>().mockRejectedValueOnce(new ApiError(409, message, 'agent_backlog_full'))
   send.mockResolvedValueOnce(undefined)
@@ -134,6 +191,39 @@ it('shows the backlog error and restores the exact draft', async () => {
     expect(container.querySelector('[role="alert"]')).toBeNull()
   })
 })
+
+it.each(['success', 'failure'] as const)(
+  'preserves the result of an in-flight %s while the composer is hidden',
+  async (outcome) => {
+    let settle!: (failure?: Error) => void
+    const send = vi.fn<Send>(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = (failure) => {
+            if (failure == null) resolve()
+            else reject(failure)
+          }
+        }),
+    )
+    await withComposer(send, async (textarea, form, container, setVisible) => {
+      const draft = '  Keep my draft.\n'
+      type(textarea, draft)
+      await submit(form)
+      setVisible(false)
+      await act(async () => {
+        settle(outcome === 'success' ? undefined : new Error('Response lost'))
+        await Promise.resolve()
+      })
+      setVisible(true)
+      expect(container.querySelector('textarea')).toBe(textarea)
+      expect(textarea.value).toBe(outcome === 'success' ? '' : draft)
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        outcome === 'success' ? undefined : 'Response lost',
+      )
+      expect(send).toHaveBeenCalledOnce()
+    })
+  },
+)
 
 it('keeps text typed while a send is in flight', async () => {
   const pending: InFlightSend = {}

@@ -9,12 +9,19 @@ import type {
 export interface CustomToolCall {
   agentID: string
   toolCallID: string
+  /** The turn the call was made in. That turn's input events say who asked for it. */
+  turnID: string
   name: string
   input: ToolInput
+  /**
+   * When the call's tool has a timeout: the time on this machine's clock, in epoch
+   * milliseconds, by which Omnara must have the result. A later result is refused.
+   */
+  answerBy?: number
   signal: AbortSignal
 }
 
-export type CustomToolCallRef = Omit<CustomToolCall, 'input' | 'signal'>
+export type CustomToolCallRef = Pick<CustomToolCall, 'agentID' | 'toolCallID' | 'name'>
 export type CustomToolHandlerResult = SubmitToolCallResultRequest | { outcome: 'deferred' }
 export type CustomToolHandler = (call: CustomToolCall) => Promise<CustomToolHandlerResult>
 export interface CustomToolOutcome {

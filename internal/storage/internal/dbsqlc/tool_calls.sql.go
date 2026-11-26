@@ -256,7 +256,8 @@ func (q *Queries) GetToolCallStatus(ctx context.Context, arg GetToolCallStatusPa
 const getToolCallSummary = `-- name: GetToolCallSummary :one
 SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM tool_calls call
 JOIN agent_events source_event ON source_event.agent_id = call.agent_id
   AND source_event.model_output_id = call.model_output_id
@@ -286,6 +287,9 @@ type GetToolCallSummaryRow struct {
 	Outcome        string
 	CreatedAt      time.Time
 	CompletedAt    *time.Time
+	TimeoutSeconds *int32
+	ExpiresAt      *time.Time
+	ReadAt         time.Time
 }
 
 func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummaryParams) (GetToolCallSummaryRow, error) {
@@ -303,6 +307,9 @@ func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummary
 		&i.Outcome,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.TimeoutSeconds,
+		&i.ExpiresAt,
+		&i.ReadAt,
 	)
 	return i, err
 }
@@ -469,12 +476,53 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listExpiredCustomToolCalls = `-- name: ListExpiredCustomToolCalls :many
+SELECT tool_call.project_id, tool_call.agent_id, tool_call.id
+FROM tool_calls tool_call
+WHERE tool_call.state = 'ready'
+  AND tool_call.type = 'custom'
+  AND tool_call.expires_at <= transaction_timestamp()
+ORDER BY tool_call.expires_at, tool_call.id
+LIMIT $1
+`
+
+type ListExpiredCustomToolCallsParams struct {
+	LimitCount int32
+}
+
+type ListExpiredCustomToolCallsRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) ListExpiredCustomToolCalls(ctx context.Context, arg ListExpiredCustomToolCallsParams) ([]ListExpiredCustomToolCallsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiredCustomToolCalls, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredCustomToolCallsRow{}
+	for rows.Next() {
+		var i ListExpiredCustomToolCallsRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   coalesce(result.outcome, '') AS outcome,
-  call.created_at, result.completed_at
+  call.created_at, result.completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -515,6 +563,9 @@ type ListToolCallsForAgentRow struct {
 	Outcome        string
 	CreatedAt      time.Time
 	CompletedAt    *time.Time
+	TimeoutSeconds *int32
+	ExpiresAt      *time.Time
+	ReadAt         time.Time
 }
 
 func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsForAgentParams) ([]ListToolCallsForAgentRow, error) {
@@ -546,6 +597,9 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 			&i.Outcome,
 			&i.CreatedAt,
 			&i.CompletedAt,
+			&i.TimeoutSeconds,
+			&i.ExpiresAt,
+			&i.ReadAt,
 		); err != nil {
 			return nil, err
 		}
@@ -584,7 +638,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   ''::text AS outcome,
-  call.created_at, NULL::timestamptz AS completed_at
+  call.created_at, NULL::timestamptz AS completed_at,
+  call.timeout_seconds, call.expires_at, statement_timestamp()::timestamptz AS read_at
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
   AND call.id = page.id
@@ -614,6 +669,9 @@ type ListUnfinishedToolCallsForProjectRow struct {
 	Outcome        string
 	CreatedAt      time.Time
 	CompletedAt    *time.Time
+	TimeoutSeconds *int32
+	ExpiresAt      *time.Time
+	ReadAt         time.Time
 }
 
 func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg ListUnfinishedToolCallsForProjectParams) ([]ListUnfinishedToolCallsForProjectRow, error) {
@@ -646,6 +704,9 @@ func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg Lis
 			&i.Outcome,
 			&i.CreatedAt,
 			&i.CompletedAt,
+			&i.TimeoutSeconds,
+			&i.ExpiresAt,
+			&i.ReadAt,
 		); err != nil {
 			return nil, err
 		}

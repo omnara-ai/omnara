@@ -967,6 +967,9 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 	if err := q.RevokePersonalAccessTokensForUser(ctx, dbsqlc.RevokePersonalAccessTokensForUserParams{UserID: userID}); err != nil {
 		return fmt.Errorf("revoke user access tokens: %w", err)
 	}
+	if err := q.DeleteUserAgentPanelPreferences(ctx, dbsqlc.DeleteUserAgentPanelPreferencesParams{UserID: userID}); err != nil {
+		return fmt.Errorf("delete user panel preference: %w", err)
+	}
 	if err := q.RevokeBrowserSessionsForUser(ctx, dbsqlc.RevokeBrowserSessionsForUserParams{UserID: userID}); err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}

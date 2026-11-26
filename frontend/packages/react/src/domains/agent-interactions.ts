@@ -31,6 +31,14 @@ export function openAgentInteractionsQueryKey(
   return listAgentInteractionsQueryKey({ path, query: openInteractionsQuery, client })
 }
 
+export function invalidateOpenInteractions(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  path: { orgID: string; projectID: string; agentID: string },
+): void {
+  void queryClient.invalidateQueries({ queryKey: openAgentInteractionsQueryKey(client, path) })
+}
+
 /**
  * Open interactions for an agent and its subagents. The chat session refreshes
  * this query from stream frames: tool-call events and tool_call_update frames,

@@ -119,10 +119,19 @@ development prints the verification link in `docker compose logs api`, so no
 email provider is needed. To build from source instead of using published
 images, run `docker compose --profile app up -d --build`.
 
-A new instance has no models or machines yet. In the console, add a model
-provider and a model, connect this computer under **Machines**, and share both
-with your project. Sandboxes also work once your instance has a
-[public URL](https://docs.omnara.com/self-hosting/deployment#exposing-the-deployment-publicly).
+A new instance has no models or machines yet. Before sharing a tool-capable model
+with your first project, set `OMNARA_PUBLIC_URL` to an origin reachable from
+workers: an [HTTPS domain or tunnel](https://docs.omnara.com/self-hosting/deployment#exposing-the-deployment-publicly),
+or a [private origin allowed by `OMNARA_PRIVATE_ENDPOINT_CIDRS`](https://docs.omnara.com/self-hosting/configuration#dashboard-assistant-connectivity).
+Sharing the model creates your dashboard assistant automatically. Its Omnara
+tools connect from the worker container, where `localhost:8000` points to the
+worker, not the API.
+If you already created one, update its Omnara MCP URL to the reachable origin's
+`/mcp` endpoint in the agent configuration.
+
+In the console, add a model provider and a model, connect this computer under
+**Machines**, and share both with your project. Sandboxes also work once your
+instance has a public URL.
 
 Point the CLI at your instance and log in:
 

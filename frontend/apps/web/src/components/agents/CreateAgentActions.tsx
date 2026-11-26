@@ -29,7 +29,7 @@ export function CreateAgentActions({
   const errorMessage = statusError(status)
 
   return (
-    <div className="bg-sidebar -mx-4 -mt-3 -mb-4 flex flex-col gap-3 px-4 pt-[1.625rem] pb-3.5 sm:-mx-6 sm:-mb-6 sm:px-8">
+    <div className="bg-sidebar pinned-actions -mx-4 -mt-3 -mb-4 flex flex-col gap-3 px-4 pt-[1.625rem] pb-3.5 sm:-mx-6 sm:-mb-6 sm:px-8">
       <SubmitCheckFeedback problems={problems} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <Button

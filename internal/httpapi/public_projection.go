@@ -191,6 +191,14 @@ func publicToolCallFromSummary(
 		response.Outcome = &outcome
 	}
 	response.CompletedAt = record.CompletedAt
+	if record.TimeoutSeconds != nil {
+		seconds := int(*record.TimeoutSeconds)
+		response.TimeoutSeconds = &seconds
+	}
+	if record.ExpiresIn != nil {
+		left := record.ExpiresIn.Milliseconds()
+		response.ExpiresInMs = &left
+	}
 	return response, nil
 }
 

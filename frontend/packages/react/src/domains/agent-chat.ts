@@ -4,7 +4,6 @@ import {
   type AgentInput,
   type OmnaraClient,
 } from '@omnara/sdk'
-import { getAgentOptions } from '@omnara/sdk/tanstack'
 import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
@@ -21,12 +20,13 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import { ToolCallUpdates } from './agent-chat-tool-calls'
 import {
   createAgentChatInput,
   isDefiniteSendFailure,
+  resolveAgentChatHint,
   sameMessage,
   sdkAgentChatTransport,
-  sourceHint,
 } from './agent-chat-transport'
 import type {
   AgentChatData,
@@ -39,13 +39,14 @@ import type {
   UseAgentChatResult,
 } from './agent-chat-types'
 import {
+  agentInputBacklogControls,
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
   invalidateBacklogOnEvent,
   isScheduledBacklogInput,
   useAgentInputBacklog,
 } from './agent-input-backlog'
-import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateOpenInteractions, invalidateSubagentList } from './agent-interactions'
 import { TraceInvalidationCoalescer } from './agent-traces'
 import { invalidateBudgetQueries } from './budgets'
 import { agentUsageQueryPredicate } from './usage'
@@ -77,6 +78,7 @@ export class AgentChatSession {
   private readonly traceInvalidator: TraceInvalidationCoalescer
 
   private listeners: (() => void)[] = []
+  readonly toolCallUpdates = new ToolCallUpdates()
   private runController: AbortController | null = null
 
   private events: AgentEvent[] = []
@@ -84,7 +86,10 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
-  private lastFailedSend: LocalAgentInput | null = null
+  private sent = new Set<string>()
+  // `hinted` is set once the hint was resolved, so a retry sends the same one.
+  private lastFailedSend: (LocalAgentInput & { hinted?: { hint: string | undefined } }) | null =
+    null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
 
@@ -143,29 +148,31 @@ export class AgentChatSession {
     resolveHint?: () => Promise<string | undefined>,
   ): Promise<void> => {
     const text = message.text.trim()
-    const attachments = message.attachments ?? []
+    const attachments = message.attachments?.map((attachment) => ({ ...attachment })) ?? []
     if (text === '' && attachments.length === 0) {
       throw new Error('Agent messages must contain text or an attachment')
     }
     this.connect()
     const normalized = { text, attachments, attachmentCount: attachments.length }
     const previous = this.lastFailedSend
-    const id =
-      previous != null && sameMessage(previous, normalized) ? previous.id : crypto.randomUUID()
+    const retry = previous != null && sameMessage(previous, normalized) ? previous : null
+    const id = retry?.id ?? crypto.randomUUID()
+    this.sent.add(id)
+    let hinted = retry?.hinted
     this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
     this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      const hint = resolveHint == null ? undefined : await resolveHint()
+      hinted ??= { hint: resolveHint == null ? undefined : await resolveHint() }
       const input = await createAgentChatInput(
         this.transport,
         this.client,
         this.scope,
         id,
         normalized,
-        hint,
+        hinted.hint,
       )
       this.acceptAgentInput(id, input)
     } catch (error) {
@@ -178,17 +185,15 @@ export class AgentChatSession {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
-        const signal = this.runController?.signal
         await new Promise((resolve) =>
           globalThis.setTimeout(resolve, this.inputReconciliationDelayMs),
         )
-        if (signal?.aborted && this.listeners.length === 0) return
         if (this.inputEchoLoaded(id)) {
           this.clearLocalInput(id)
           return
         }
         if (this.localInputs.get(id)?.agentInputID != null) return
-        this.lastFailedSend = { id, ...normalized, placement }
+        this.lastFailedSend = { id, ...normalized, placement, hinted }
       }
       this.localInputs.delete(id)
       this.error = sendError
@@ -226,6 +231,9 @@ export class AgentChatSession {
     if (!this.localInputs.delete(id)) return
     this.notify()
   }
+
+  sentInput = (idempotencyKey: string | undefined): boolean =>
+    idempotencyKey != null && this.sent.has(idempotencyKey)
 
   beginBacklogInputCancellation = (inputIDs: string[]): (() => void) => {
     const ids = new Set(inputIDs)
@@ -327,19 +335,14 @@ export class AgentChatSession {
       void invalidateBudgetQueries(this.queryClient, this.scope.orgID)
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
-      this.invalidateInteractions()
+      invalidateOpenInteractions(this.queryClient, this.client, this.scope)
     }
+    if (event.event_kind === 'tool_result') this.toolCallUpdates.completed(event)
     const hasEvent = this.hasLoadedEvent.bind(this)
     invalidateBacklogOnEvent(this.queryClient, this.client, this.scope, event, hasEvent)
     void invalidateSubagentList(this.queryClient, this.client, this.scope, event, hasEvent)
     this.traceInvalidator.onEvent(event.turn_id, event.is_opening_event)
     this.notify()
-  }
-
-  private invalidateInteractions(): void {
-    void this.queryClient.invalidateQueries({
-      queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
-    })
   }
 
   private handleDelta(delta: ModelOutputDelta): void {
@@ -370,7 +373,7 @@ export class AgentChatSession {
       return
     }
     if (state.reconnected) {
-      this.invalidateInteractions()
+      invalidateOpenInteractions(this.queryClient, this.client, this.scope)
       this.traceInvalidator.onReconnect()
     }
   }
@@ -378,6 +381,10 @@ export class AgentChatSession {
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
+    if (this.deltas.length > 0) {
+      this.deltas = []
+      this.notify()
+    }
     this.traceInvalidator.cancel()
   }
 
@@ -416,7 +423,10 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        else {
+          invalidateOpenInteractions(this.queryClient, this.client, this.scope)
+          this.toolCallUpdates.emit(parsed.update)
+        }
       }
     } catch (error) {
       if (signal.aborted) return
@@ -432,20 +442,22 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
-  const { source } = options
-  const resolveHint = useCallback(async () => {
-    const { agent } = await queryClient.query({
-      ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
-      staleTime: 'static',
-    })
-    return agent.integration_target == null ? undefined : sourceHint(source)
-  }, [agentID, client, orgID, projectID, queryClient, source])
+  const { source, getContext } = options
+  const resolveHint = useCallback(
+    () =>
+      resolveAgentChatHint(
+        client,
+        queryClient,
+        { orgID, projectID, agentID },
+        source,
+        getContext?.(),
+      ),
+    [agentID, client, getContext, orgID, projectID, queryClient, source],
+  )
 
   const history = useAgentChatHistory(client, scope)
 
-  const newestLoadedSequence = sequenceNumber(
-    history.data?.pages[0]?.data.at(-1)?.sequence ?? undefined,
-  )
+  const newestLoadedSequence = sequenceNumber(history.data?.pages[0]?.data.at(-1)?.sequence)
   const session = useMemo(
     () =>
       new AgentChatSession({
@@ -501,27 +513,12 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
     sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
-    inputBacklog: {
-      inputs: projected.backlogInputs,
-      actionPending:
-        inputBacklog.cancel.isPending ||
-        inputBacklog.promote.isPending ||
-        inputBacklog.move.isPending,
-      beginCancellation: (inputIDs) =>
-        inputBacklog.beginCancellation(inputIDs, () =>
-          session.beginBacklogInputCancellation(inputIDs),
-        ),
-      cancel: async (inputID) => {
-        const rollback = session.beginBacklogInputCancellation([inputID])
-        try {
-          return await inputBacklog.cancel.mutateAsync(inputID)
-        } catch (error) {
-          rollback()
-          throw error
-        }
-      },
-      promote: inputBacklog.promote.mutateAsync,
-      move: inputBacklog.move.mutateAsync,
-    },
+    subscribeToolCallUpdates: session.toolCallUpdates.subscribe,
+    sentInput: session.sentInput,
+    inputBacklog: agentInputBacklogControls(
+      inputBacklog,
+      projected.backlogInputs,
+      session.beginBacklogInputCancellation,
+    ),
   }
 }

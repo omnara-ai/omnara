@@ -9,6 +9,7 @@ import type {
   openAgentEventStream,
   OpenAgentEventStreamOptions,
   sdk,
+  ToolCallUpdate,
 } from '@omnara/sdk'
 import type { QueryClient, QueryStatus } from '@tanstack/react-query'
 
@@ -25,6 +26,8 @@ export type AgentChatSource = 'web' | 'cli'
 
 export interface AgentChatOptions {
   source: AgentChatSource
+  /** Captured synchronously when a message is sent; never displayed as user text. */
+  getContext?: () => string | undefined
 }
 
 export type CreateAgentInputOptions = Parameters<typeof sdk.createAgentInput<true>>[0]
@@ -110,4 +113,18 @@ export interface UseAgentChatResult {
   loadOlderMessages: () => void
   sendMessage: (message: AgentChatMessageInput) => Promise<void>
   inputBacklog: AgentInputBacklogControls
+  /**
+   * Listens to tool calls changing state. A `ready` update comes only from the live stream,
+   * which is not replayed, so it means the call became ready while this conversation was
+   * connected. A `completed` one also comes from the call's durable result, so an ending
+   * that happened while the stream was down still arrives.
+   */
+  subscribeToolCallUpdates: (listener: ToolCallUpdateListener) => () => void
+  /**
+   * Whether this instance of the conversation sent the input with this idempotency key.
+   * Another window or device did not, and neither did this one before a reload.
+   */
+  sentInput: (idempotencyKey: string | undefined) => boolean
 }
+
+export type ToolCallUpdateListener = (update: ToolCallUpdate) => void

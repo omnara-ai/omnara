@@ -9,12 +9,14 @@ const defaultLabel = 'Create agent profile'
 export function CreateAgentProfileButton({
   projectId,
   label = defaultLabel,
+  variant,
 }: {
   projectId: string
   label?: string
+  variant?: 'outline'
 }) {
   return (
-    <Button asChild size="sm">
+    <Button asChild size="sm" variant={variant}>
       <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
         {label}
       </Link>

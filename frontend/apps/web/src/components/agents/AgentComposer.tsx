@@ -1,7 +1,14 @@
 import type { UseAgentChatResult } from '@omnara/react'
 import type { AgentConfigModel } from '@omnara/sdk'
 import { useMessageScroller } from '@shadcn/react/message-scroller'
-import { type ChangeEvent, type KeyboardEvent, type SyntheticEvent, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  type SyntheticEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { File, FilePlus, SendHorizontal, Square, Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -15,7 +22,7 @@ import {
 } from '@/lib/agent-attachments'
 import { isImeComposing } from '@/lib/ime-composition'
 
-import { useWindowFileDrop } from './useWindowFileDrop'
+import { useFileDrop } from './useFileDrop'
 
 function attachmentSelectionError(
   current: readonly SelectedAgentAttachment[],
@@ -128,6 +135,8 @@ export function AgentComposer({
   cancelError,
   canOperate,
   hidden,
+  fileDropScope = 'window',
+  onAskable,
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
@@ -136,6 +145,9 @@ export function AgentComposer({
   cancelError?: Error | null
   canOperate: boolean
   hidden: boolean
+  fileDropScope?: 'window' | 'composer'
+  /** Offers a way to send a message asked elsewhere, while the conversation can take one. */
+  onAskable?: (send: ((text: string) => Promise<void>) | null) => void
 }) {
   const { scrollToEnd } = useMessageScroller()
   const [text, setText] = useState('')
@@ -145,14 +157,19 @@ export function AgentComposer({
   const [submitting, setSubmitting] = useState(false)
   const busyRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const working = chat.isWorking
   const ready = canOperate && chat.historyStatus === 'success'
   const busy = addingFiles || submitting
   const acceptsFiles = !hidden && ready && model != null && !busy
   const canSend = ready && !busy && (text.trim() !== '' || attachments.length > 0)
-  const dragging = useWindowFileDrop(acceptsFiles, (files) => {
-    void addFiles(files)
-  })
+  const dragging = useFileDrop(
+    acceptsFiles,
+    (files) => {
+      void addFiles(files)
+    },
+    fileDropScope === 'composer' ? formRef : undefined,
+  )
 
   async function send() {
     if (!canSend || busyRef.current) return
@@ -182,6 +199,22 @@ export function AgentComposer({
       setSubmitting(false)
     }
   }
+
+  async function sendAsked(question: string) {
+    scrollToEnd()
+    try {
+      await chat.sendMessage({ text: question })
+    } catch {
+      setText((current) => (current === '' ? question : `${question}\n${current}`))
+    }
+  }
+
+  useEffect(() => {
+    onAskable?.(ready ? sendAsked : null)
+    return () => {
+      onAskable?.(null)
+    }
+  })
 
   async function addFiles(files: FileList | readonly File[] | null) {
     if (files == null || files.length === 0 || model == null || busyRef.current) return
@@ -231,6 +264,7 @@ export function AgentComposer({
 
   return (
     <form
+      ref={formRef}
       onSubmit={onSubmit}
       className="bg-background relative rounded-3xl border p-2 pt-3 shadow-sm"
     >

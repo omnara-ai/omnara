@@ -108,6 +108,9 @@ const (
 	operationCreateSkillGrant              operationID = "CreateSkillGrant"
 	operationCreateOrganization            operationID = "CreateOrganization"
 	operationListOrganizations             operationID = "ListOrganizations"
+	operationGetAgentPanel                 operationID = "GetAgentPanel"
+	operationUpdateAgentPanel              operationID = "UpdateAgentPanel"
+	operationCreateAssistantAgent          operationID = "CreateAssistantAgent"
 	operationCreatePersonalAccessToken     operationID = "CreatePersonalAccessToken"
 	operationCreateProject                 operationID = "CreateProject"
 	operationCreateProjectMachineGrant     operationID = "CreateProjectMachineGrant"
@@ -318,6 +321,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetDaemonSkillArchive: machineDaemonPolicy(
 		customScope("machine daemon token + machine-bound download capability"),
 	),
+	operationGetAgentPanel:             browserSessionPolicy(noScope()),
+	operationUpdateAgentPanel:          browserSessionPolicy(noScope()),
+	operationCreateAssistantAgent:      browserSessionPolicy(orgScope(identitystore.OrgActionOwn)),
 	operationCreatePersonalAccessToken: browserSessionPolicy(noScope()),
 	operationListPersonalAccessTokens:  userPolicy(noScope()),
 	operationRevokePersonalAccessToken: userPolicy(noScope()),
