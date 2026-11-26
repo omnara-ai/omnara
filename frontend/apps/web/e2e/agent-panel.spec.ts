@@ -85,7 +85,7 @@ test('creates a personal assistant and keeps its conversation across organizatio
   await expect(panel.getByText('Omnara assistant', { exact: true })).toBeVisible()
   await expect(panel.getByText('How can I help?', { exact: true })).toBeVisible()
   await expect(
-    panel.getByRole('button', { name: 'Help me create my first agent', exact: true }),
+    panel.getByRole('button', { name: 'Help me build an agent', exact: true }),
   ).toBeVisible()
   const composer = panel.getByRole('textbox')
   await expect(composer).toBeEnabled()

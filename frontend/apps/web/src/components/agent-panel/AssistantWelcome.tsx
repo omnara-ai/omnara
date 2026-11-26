@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 
 import { AssistantContext } from './assistant-context'
 
-const starterPrompts = ['Help me create my first agent', 'Explain what is on this page']
+const starterPrompts = ['What is Omnara?', 'Help me build an agent']
 
 /** What an assistant nobody has spoken to yet shows in place of a conversation. */
 export function AssistantWelcome({ canAsk }: { canAsk: boolean }) {

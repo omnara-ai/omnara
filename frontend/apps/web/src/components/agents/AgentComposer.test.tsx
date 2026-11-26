@@ -159,10 +159,10 @@ it('offers to send a message asked elsewhere and puts it in the draft when sendi
       )
     })
     await act(async () => {
-      await sendAsked?.('Explain what is on this page')
+      await sendAsked?.('What is Omnara?')
     })
-    expect(send.mock.calls.map(([input]) => input.text)).toEqual(['Explain what is on this page'])
-    expect(container.querySelector('textarea')?.value).toBe('Explain what is on this page')
+    expect(send.mock.calls.map(([input]) => input.text)).toEqual(['What is Omnara?'])
+    expect(container.querySelector('textarea')?.value).toBe('What is Omnara?')
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('offline')
     act(() => {
       root.unmount()
