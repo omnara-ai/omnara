@@ -176,7 +176,7 @@ tools:
 		`UPDATE tool_calls SET expires_at = statement_timestamp() - interval '1 second'
 		 WHERE agent_id = $1 AND expires_at IS NOT NULL`, agentID)
 	require.NoError(t, err)
-	expired, err := fixture.Store.Execution().ExpireCustomToolCalls(ctx, 10)
+	expired, _, err := fixture.Store.Execution().ExpireCustomToolCalls(ctx, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, expired)
 	requireResult("await_reply", executionstore.ToolResultOutcomeFailed, "No result was submitted within 30 seconds.")

@@ -10,10 +10,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func (s *Store) ExpireCustomToolCalls(ctx context.Context, limit int32) (int64, error) {
+// ExpireCustomToolCalls times out up to limit ready calls whose deadline has passed. It
+// reports how many it timed out and whether the batch was full, which is what says more may
+// be waiting: a call in the batch can already have been timed out by a late result.
+func (s *Store) ExpireCustomToolCalls(ctx context.Context, limit int32) (int64, bool, error) {
 	candidates, err := s.q.ListExpiredCustomToolCalls(ctx, dbsqlc.ListExpiredCustomToolCallsParams{LimitCount: limit})
 	if err != nil {
-		return 0, fmt.Errorf("list expired custom tool calls: %w", err)
+		return 0, false, fmt.Errorf("list expired custom tool calls: %w", err)
 	}
 	var expired int64
 	var failures []error
@@ -30,7 +33,7 @@ func (s *Store) ExpireCustomToolCalls(ctx context.Context, limit int32) (int64, 
 			expired++
 		}
 	}
-	return expired, errors.Join(failures...)
+	return expired, len(candidates) >= int(limit), errors.Join(failures...)
 }
 
 func (s *Store) expireCustomToolCall(ctx context.Context, projectID, agentID, id uuid.UUID) (bool, error) {

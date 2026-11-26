@@ -55,12 +55,12 @@ func expireProcessTools(
 
 func expireCustomTools(
 	log *slog.Logger,
-	expire func(context.Context, int32) (int64, error),
+	expire func(context.Context, int32) (int64, bool, error),
 ) func(context.Context) maintenanceResult {
 	return func(ctx context.Context) maintenanceResult {
-		count, err := expire(ctx, customToolExpiryBatchSize)
+		count, more, err := expire(ctx, customToolExpiryBatchSize)
 		result := reportMaintenanceCount(ctx, log, "expire custom tool calls", "expired custom tool calls", count, err)
-		result.more = count >= int64(customToolExpiryBatchSize)
+		result.more = more
 		return result
 	}
 }

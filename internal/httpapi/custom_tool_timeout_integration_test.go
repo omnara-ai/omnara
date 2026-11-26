@@ -44,7 +44,7 @@ func TestCustomToolResultAfterTimeout(t *testing.T) {
 			`UPDATE tool_calls SET expires_at = statement_timestamp() - interval '1 second' WHERE id = $1`, toolCall.ID)
 		require.NoError(t, err, name)
 		if sweptFirst {
-			expired, err := store.Execution().ExpireCustomToolCalls(ctx, 10)
+			expired, _, err := store.Execution().ExpireCustomToolCalls(ctx, 10)
 			require.NoError(t, err, name)
 			require.Positive(t, expired, name)
 		}

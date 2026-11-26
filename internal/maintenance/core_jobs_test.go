@@ -40,7 +40,7 @@ func TestCoreMaintenanceJobsReportOutcomes(t *testing.T) {
 			}},
 		{"expire custom tools", "expired custom tool calls", "expire custom tool calls",
 			func(log *slog.Logger, err error) func(context.Context) maintenanceResult {
-				return expireCustomTools(log, func(context.Context, int32) (int64, error) { return 1, err })
+				return expireCustomTools(log, func(context.Context, int32) (int64, bool, error) { return 1, false, err })
 			}},
 		{"delete expired webhook deliveries",
 			"cleaned expired event webhook deliveries", "cleanup expired event webhook deliveries",
@@ -126,6 +126,14 @@ func TestCleanupJobsRerunOnlyWhileBehind(t *testing.T) {
 			return identitystore.AuthStateCleanupResult{DeletedInactiveTokens: deleted}, nil
 		})(t.Context()).more
 	}
+	// A full batch means more may be waiting even when a late result got to some of it first.
+	customTools := func(expired int64, fullBatch bool) bool {
+		return expireCustomTools(log, func(context.Context, int32) (int64, bool, error) {
+			return expired, fullBatch, nil
+		})(t.Context()).more
+	}
+	require.True(t, customTools(int64(customToolExpiryBatchSize)-1, true))
+	require.False(t, customTools(1, false))
 	require.True(t, webhooks(int64(deliveryCleanupBatchSize)))
 	require.False(t, webhooks(int64(deliveryCleanupBatchSize)-1))
 	require.True(t, states(full))
